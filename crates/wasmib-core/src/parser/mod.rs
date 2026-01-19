@@ -576,11 +576,18 @@ impl<'src> Parser<'src> {
             }
             TokenKind::KwBits => {
                 self.advance();
-                self.expect(TokenKind::LBrace)?;
-                let named_bits = self.parse_named_number_list()?;
-                self.expect(TokenKind::RBrace)?;
-                let span = Span::new(start, self.current_span().start);
-                TypeSyntax::Bits { named_bits, span }
+                // BITS can be a plain type reference (in SEQUENCE definitions)
+                // or BITS { named-bit-list }
+                if self.check(TokenKind::LBrace) {
+                    self.advance();
+                    let named_bits = self.parse_named_number_list()?;
+                    self.expect(TokenKind::RBrace)?;
+                    let span = Span::new(start, self.current_span().start);
+                    TypeSyntax::Bits { named_bits, span }
+                } else {
+                    // Plain BITS type reference
+                    TypeSyntax::TypeRef(Ident::new("BITS".into(), Span::new(start, self.peek().span.start)))
+                }
             }
             TokenKind::KwOctet => {
                 self.advance();
@@ -645,13 +652,22 @@ impl<'src> Parser<'src> {
                 let name = self.text(token.span);
                 let ident = Ident::new(name.into(), token.span);
 
-                // Check for constraint
+                // Check for constraint (parentheses) or enum value restriction (braces)
                 if self.check(TokenKind::LParen) {
                     let constraint = self.parse_constraint()?;
                     let span = Span::new(start, constraint.span().end);
                     TypeSyntax::Constrained {
                         base: alloc::boxed::Box::new(TypeSyntax::TypeRef(ident)),
                         constraint,
+                        span,
+                    }
+                } else if self.check(TokenKind::LBrace) {
+                    // Enum value restriction: TypeRef { value1(1), value2(2) }
+                    let named_numbers = self.parse_named_numbers()?;
+                    let span = Span::new(start, self.current_span().start);
+                    TypeSyntax::IntegerEnum {
+                        base: Some(ident),
+                        named_numbers,
                         span,
                     }
                 } else {
