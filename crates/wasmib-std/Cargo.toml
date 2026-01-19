@@ -1,0 +1,14 @@
+[package]
+name = "wasmib-std"
+version = "0.1.0"
+description = "Filesystem loader and CLI utilities for wasmib"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true
