@@ -363,6 +363,50 @@ pub fn lookup_keyword(text: &str) -> Option<TokenKind> {
         .map(|idx| KEYWORDS[idx].kind)
 }
 
+/// Forbidden ASN.1 keywords that are not allowed in SMI.
+///
+/// Per libsmi scanner-smi.l:699-705, these keywords emit errors.
+/// They are ASN.1 reserved words that have no meaning in SMI context.
+///
+/// IMPORTANT: This table MUST be sorted alphabetically for binary search.
+static FORBIDDEN_KEYWORDS: &[&str] = &[
+    "ABSENT",
+    "ANY",
+    "BIT",
+    "BOOLEAN",
+    "BY",
+    "COMPONENT",
+    "COMPONENTS",
+    "DEFAULT",
+    "DEFINED",
+    "ENUMERATED",
+    "EXPLICIT",
+    "EXTERNAL",
+    "FALSE",
+    "MAX",
+    "MIN",
+    "MINUS-INFINITY",
+    "NULL",
+    "OPTIONAL",
+    "PLUS-INFINITY",
+    "PRESENT",
+    "PRIVATE",
+    "REAL",
+    "SET",
+    "TAGS",
+    "TRUE",
+    "WITH",
+];
+
+/// Check if a text is a forbidden ASN.1 keyword.
+///
+/// Returns `true` if the text is a forbidden keyword that should not appear
+/// in SMI modules.
+#[must_use]
+pub fn is_forbidden_keyword(text: &str) -> bool {
+    FORBIDDEN_KEYWORDS.binary_search(&text).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +455,45 @@ mod tests {
         assert_eq!(lookup_keyword("Integer32"), Some(TokenKind::KwInteger32));
         assert_eq!(lookup_keyword("INTEGER32"), None);
         assert_eq!(lookup_keyword("integer32"), None);
+    }
+
+    #[test]
+    fn test_forbidden_keywords_sorted() {
+        // Verify the forbidden keyword table is sorted
+        for window in super::FORBIDDEN_KEYWORDS.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "Forbidden keywords not sorted: {:?} should come before {:?}",
+                window[0],
+                window[1]
+            );
+        }
+    }
+
+    #[test]
+    fn test_forbidden_keyword_lookup() {
+        use super::is_forbidden_keyword;
+
+        // Test some forbidden keywords
+        assert!(is_forbidden_keyword("FALSE"));
+        assert!(is_forbidden_keyword("TRUE"));
+        assert!(is_forbidden_keyword("NULL"));
+        assert!(is_forbidden_keyword("ABSENT"));
+        assert!(is_forbidden_keyword("MAX"));
+        assert!(is_forbidden_keyword("MIN"));
+        assert!(is_forbidden_keyword("PRIVATE"));
+        assert!(is_forbidden_keyword("SET"));
+
+        // Test non-forbidden keywords
+        assert!(!is_forbidden_keyword("BEGIN"));
+        assert!(!is_forbidden_keyword("END"));
+        assert!(!is_forbidden_keyword("OBJECT-TYPE"));
+        assert!(!is_forbidden_keyword("INTEGER"));
+        assert!(!is_forbidden_keyword("ifIndex"));
+
+        // Test case sensitivity
+        assert!(is_forbidden_keyword("FALSE"));
+        assert!(!is_forbidden_keyword("false"));
+        assert!(!is_forbidden_keyword("False"));
     }
 }

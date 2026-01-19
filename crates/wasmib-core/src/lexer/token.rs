@@ -59,6 +59,10 @@ pub enum TokenKind {
     Error = 0,
     /// End of input.
     Eof,
+    /// Forbidden ASN.1 keyword (FALSE, TRUE, NULL, etc.).
+    /// Per libsmi scanner-smi.l:699-705, these are ASN.1 reserved words
+    /// that should not appear in SMI modules.
+    ForbiddenKeyword,
 
     // === Identifiers ===
     /// Uppercase identifier (module names, type names).

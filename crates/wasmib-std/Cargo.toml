@@ -10,5 +10,13 @@ repository.workspace = true
 [dependencies]
 wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std"] }
 
+[[bin]]
+name = "tokenize"
+path = "src/bin/tokenize.rs"
+
+[[bin]]
+name = "lexer_cmp"
+path = "src/bin/lexer_cmp.rs"
+
 [lints]
 workspace = true

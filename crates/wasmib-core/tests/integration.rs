@@ -5,7 +5,7 @@ use wasmib_core::lexer::{Lexer, Severity, TokenKind};
 /// Test tokenizing IF-MIB, a standard SNMP MIB module.
 #[test]
 fn test_tokenize_if_mib() {
-    let source = include_str!("../../../.local/mibs/IF-MIB");
+    let source = include_bytes!("../../../.local/mibs/IF-MIB");
     let lexer = Lexer::new(source);
     let (tokens, diagnostics) = lexer.tokenize();
 
@@ -48,7 +48,7 @@ fn test_tokenize_if_mib() {
 /// Test tokenizing SNMPv2-SMI which contains MACRO definitions (should be skipped).
 #[test]
 fn test_tokenize_snmpv2_smi() {
-    let source = include_str!("../../../.local/mibs/SNMPv2-SMI");
+    let source = include_bytes!("../../../.local/mibs/SNMPv2-SMI");
     let lexer = Lexer::new(source);
     let (tokens, diagnostics) = lexer.tokenize();
 

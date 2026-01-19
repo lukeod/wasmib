@@ -8,7 +8,7 @@
 mod keyword;
 mod token;
 
-pub use keyword::lookup_keyword;
+pub use keyword::{is_forbidden_keyword, lookup_keyword};
 pub use token::{Span, Token, TokenKind};
 
 use alloc::string::String;
@@ -68,11 +68,16 @@ pub struct Lexer<'src> {
 }
 
 impl<'src> Lexer<'src> {
-    /// Create a new lexer for the given source text.
+    /// Create a new lexer for the given source bytes.
+    ///
+    /// The lexer operates on raw bytes, allowing it to handle non-UTF-8 input
+    /// (e.g., MIB files with Latin-1 encoded characters in descriptions).
+    /// All MIB structural tokens (keywords, identifiers, numbers) are ASCII,
+    /// so non-UTF-8 bytes only affect quoted strings and comments.
     #[must_use]
-    pub fn new(source: &'src str) -> Self {
+    pub fn new(source: &'src [u8]) -> Self {
         Self {
-            source: source.as_bytes(),
+            source,
             pos: 0,
             state: LexerState::Normal,
             diagnostics: Vec::new(),
@@ -148,6 +153,25 @@ impl<'src> Lexer<'src> {
                 self.advance();
             } else {
                 break;
+            }
+        }
+    }
+
+    /// Skip to end of line (for error recovery, matching libsmi behavior).
+    fn skip_to_eol(&mut self) {
+        while let Some(b) = self.peek() {
+            if b == b'\n' {
+                self.advance();
+                break;
+            } else if b == b'\r' {
+                self.advance();
+                // Handle \r\n
+                if self.peek() == Some(b'\n') {
+                    self.advance();
+                }
+                break;
+            } else {
+                self.advance();
             }
         }
     }
@@ -299,14 +323,16 @@ impl<'src> Lexer<'src> {
             return self.scan_identifier_or_keyword();
         }
 
-        // Unknown character
-        self.advance();
+        // Unknown character - skip to end of line (matching libsmi behavior)
+        // This provides better error recovery by not emitting cascading error tokens
         let span = self.span_from(start);
         self.error(
             span,
-            alloc::format!("unexpected character: {:?}", b as char),
+            alloc::format!("unexpected character: 0x{:02x}", b),
         );
-        self.token(TokenKind::Error, start)
+        self.skip_to_eol();
+        // Continue tokenizing from the next line
+        self.next_token()
     }
 
     /// Skip comment body and return the next real token.
@@ -329,12 +355,56 @@ impl<'src> Lexer<'src> {
                     self.state = LexerState::Normal;
                     return self.next_token();
                 }
-                Some(b'-') if self.peek_at(1) == Some(b'-') => {
-                    // -- ends comment
-                    self.advance();
-                    self.advance();
-                    self.state = LexerState::Normal;
-                    return self.next_token();
+                Some(b'-') => {
+                    // Check what follows the dash
+                    if self.peek_at(1) == Some(b'-') {
+                        // We have at least --
+                        // Check for ---{eol} special case (libsmi error recovery for odd dashes)
+                        if self.peek_at(2) == Some(b'-') {
+                            // We have ---
+                            match self.peek_at(3) {
+                                None | Some(b'\n') => {
+                                    // ---{eof} or ---\n: consume all and continue
+                                    self.advance(); // first -
+                                    self.advance(); // second -
+                                    self.advance(); // third -
+                                    if self.peek() == Some(b'\n') {
+                                        self.advance();
+                                    }
+                                    self.state = LexerState::Normal;
+                                    return self.next_token();
+                                }
+                                Some(b'\r') => {
+                                    // ---\r or ---\r\n
+                                    self.advance(); // first -
+                                    self.advance(); // second -
+                                    self.advance(); // third -
+                                    self.advance(); // \r
+                                    if self.peek() == Some(b'\n') {
+                                        self.advance();
+                                    }
+                                    self.state = LexerState::Normal;
+                                    return self.next_token();
+                                }
+                                _ => {
+                                    // ---- or ---x: just match -- and exit comment
+                                    self.advance();
+                                    self.advance();
+                                    self.state = LexerState::Normal;
+                                    return self.next_token();
+                                }
+                            }
+                        } else {
+                            // Just --, end comment normally
+                            self.advance();
+                            self.advance();
+                            self.state = LexerState::Normal;
+                            return self.next_token();
+                        }
+                    } else {
+                        // Single dash in comment, just advance
+                        self.advance();
+                    }
                 }
                 _ => {
                     self.advance();
@@ -459,9 +529,18 @@ impl<'src> Lexer<'src> {
 
         // Continue scanning identifier characters
         // Pattern: [a-zA-Z0-9_-]* but with restrictions
+        // Note: Double hyphen (--) starts a comment, so we must stop before it
         while let Some(b) = self.peek() {
-            if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' {
+            if b.is_ascii_alphanumeric() || b == b'_' {
                 self.advance();
+            } else if b == b'-' {
+                // Always include this hyphen
+                self.advance();
+                // But if next is also a hyphen, stop here (don't include the second)
+                // Per SMI grammar, -- starts a comment
+                if self.peek() == Some(b'-') {
+                    break;
+                }
             } else {
                 break;
             }
@@ -500,6 +579,17 @@ impl<'src> Lexer<'src> {
                 _ => {}
             }
             return self.token(kind, start);
+        }
+
+        // Check if it's a forbidden ASN.1 keyword
+        // Per libsmi scanner-smi.l:699-705, these emit errors but we continue parsing
+        if is_forbidden_keyword(text_str) {
+            let span = self.span_from(start);
+            self.error(
+                span,
+                alloc::format!("forbidden ASN.1 keyword: {text_str}"),
+            );
+            return self.token(TokenKind::ForbiddenKeyword, start);
         }
 
         // It's an identifier
@@ -679,14 +769,14 @@ mod tests {
 
     /// Helper to tokenize and get kinds only.
     fn token_kinds(source: &str) -> Vec<TokenKind> {
-        let lexer = Lexer::new(source);
+        let lexer = Lexer::new(source.as_bytes());
         let (tokens, _) = lexer.tokenize();
         tokens.into_iter().map(|t| t.kind).collect()
     }
 
     /// Helper to tokenize and get text slices.
     fn token_texts<'a>(source: &'a str) -> Vec<&'a str> {
-        let lexer = Lexer::new(source);
+        let lexer = Lexer::new(source.as_bytes());
         let (tokens, _) = lexer.tokenize();
         tokens
             .into_iter()
@@ -1146,7 +1236,7 @@ mod tests {
 
     #[test]
     fn test_trailing_hyphen_error() {
-        let lexer = Lexer::new("bad-");
+        let lexer = Lexer::new(b"bad-");
         let (tokens, diagnostics) = lexer.tokenize();
 
         // Should still produce a token
@@ -1160,7 +1250,7 @@ mod tests {
 
     #[test]
     fn test_leading_zeros_error() {
-        let lexer = Lexer::new("007");
+        let lexer = Lexer::new(b"007");
         let (tokens, diagnostics) = lexer.tokenize();
 
         // Should still produce a number token
@@ -1174,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_span_tracking() {
-        let source = "BEGIN END";
+        let source = b"BEGIN END";
         let lexer = Lexer::new(source);
         let (tokens, _) = lexer.tokenize();
 
@@ -1216,5 +1306,384 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn test_non_utf8_in_string() {
+        // Latin-1 encoded "Václav" (common in vendor MIBs)
+        // \xe1 is 'á' in Latin-1
+        let source: &[u8] = b"DESCRIPTION \"V\xe1clav\"";
+        let lexer = Lexer::new(source);
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        // Should successfully tokenize despite non-UTF-8
+        assert_eq!(tokens[0].kind, TokenKind::KwDescription);
+        assert_eq!(tokens[1].kind, TokenKind::QuotedString);
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+
+        // No errors - non-UTF-8 in strings is accepted silently
+        let errors: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect();
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_non_utf8_in_comment() {
+        // Non-UTF-8 in comments should be skipped entirely
+        let source: &[u8] = b"BEGIN -- V\xe1clav --\nEND";
+        let lexer = Lexer::new(source);
+        let (tokens, _) = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::KwBegin);
+        assert_eq!(tokens[1].kind, TokenKind::KwEnd);
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    // ========================================================================
+    // Tests for double-hyphen bug fix
+    // ========================================================================
+
+    #[test]
+    fn test_double_hyphen_breaks_identifier() {
+        // Identifier with -- should be split: the identifier ends at the first hyphen
+        // The second hyphen becomes a MINUS token, then the rest is a new identifier
+        // Example from CAMBIUM-PTP800-V1-MIB: rfu-1plus1-tx-mhsb--rx-sd
+        // libsmi produces: "rfu-1plus1-tx-mhsb-" + "-" + "rx-sd"
+        let source = "rfu-1plus1-tx-mhsb--rx-sd";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // Should be: identifier, minus, identifier, EOF
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        let text = &source[tokens[0].span.start as usize..tokens[0].span.end as usize];
+        assert_eq!(text, "rfu-1plus1-tx-mhsb-");
+
+        assert_eq!(tokens[1].kind, TokenKind::Minus);
+
+        assert_eq!(tokens[2].kind, TokenKind::LowercaseIdent);
+        let text2 = &source[tokens[2].span.start as usize..tokens[2].span.end as usize];
+        assert_eq!(text2, "rx-sd");
+
+        assert_eq!(tokens[3].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_double_hyphen_simple() {
+        // Simple case: foo--bar should become foo- + - + bar
+        let source = "foo--bar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        assert_eq!(tokens.len(), 4); // identifier + minus + identifier + EOF
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        let text = &source[tokens[0].span.start as usize..tokens[0].span.end as usize];
+        assert_eq!(text, "foo-");
+
+        assert_eq!(tokens[1].kind, TokenKind::Minus);
+
+        assert_eq!(tokens[2].kind, TokenKind::LowercaseIdent);
+        let text2 = &source[tokens[2].span.start as usize..tokens[2].span.end as usize];
+        assert_eq!(text2, "bar");
+    }
+
+    #[test]
+    fn test_double_hyphen_at_start_is_comment() {
+        // --foo at start of input is a comment, not an identifier starting with --
+        let source = "--foo\nbar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // The -- starts a comment that runs to end of line
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        let text = &source[tokens[0].span.start as usize..tokens[0].span.end as usize];
+        assert_eq!(text, "bar");
+    }
+
+    #[test]
+    fn test_single_hyphen_in_identifier_ok() {
+        // Single hyphens are fine in identifiers
+        let source = "if-index my-object";
+        let kinds = token_kinds(source);
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::LowercaseIdent,
+                TokenKind::LowercaseIdent,
+                TokenKind::Eof,
+            ]
+        );
+
+        let texts = token_texts(source);
+        assert_eq!(texts, vec!["if-index", "my-object"]);
+    }
+
+    // ========================================================================
+    // Tests for forbidden keyword detection
+    // ========================================================================
+
+    #[test]
+    fn test_forbidden_keyword_false() {
+        // FALSE is a forbidden ASN.1 keyword in SMI
+        let source = "DEFVAL {FALSE}";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::KwDefval);
+        assert_eq!(tokens[1].kind, TokenKind::LBrace);
+        assert_eq!(tokens[2].kind, TokenKind::ForbiddenKeyword);
+        assert_eq!(tokens[3].kind, TokenKind::RBrace);
+
+        // Should have a diagnostic about forbidden keyword
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics.iter().any(|d| d.message.contains("forbidden")));
+    }
+
+    #[test]
+    fn test_forbidden_keyword_true() {
+        // TRUE is a forbidden ASN.1 keyword in SMI
+        let source = "DEFVAL {TRUE}";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        assert_eq!(tokens[2].kind, TokenKind::ForbiddenKeyword);
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics.iter().any(|d| d.message.contains("forbidden")));
+    }
+
+    #[test]
+    fn test_forbidden_keywords_list() {
+        // Test several forbidden keywords
+        let forbidden = ["ABSENT", "ANY", "BIT", "BOOLEAN", "DEFAULT", "NULL", "PRIVATE", "SET"];
+
+        for kw in forbidden {
+            let lexer = Lexer::new(kw.as_bytes());
+            let (tokens, diagnostics) = lexer.tokenize();
+
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::ForbiddenKeyword,
+                "{kw} should be a forbidden keyword"
+            );
+            assert!(
+                diagnostics.iter().any(|d| d.message.contains("forbidden")),
+                "{kw} should generate forbidden keyword diagnostic"
+            );
+        }
+    }
+
+    #[test]
+    fn test_max_min_forbidden() {
+        // MAX and MIN are forbidden ASN.1 keywords
+        // Note: These should be forbidden, not regular identifiers
+        let source = "MAX MIN";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::ForbiddenKeyword);
+        assert_eq!(tokens[1].kind, TokenKind::ForbiddenKeyword);
+        assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn test_valid_keywords_not_forbidden() {
+        // Make sure valid SMI keywords are not mistakenly marked as forbidden
+        let valid = ["BEGIN", "END", "OBJECT", "INTEGER", "SYNTAX", "STATUS"];
+
+        for kw in valid {
+            let lexer = Lexer::new(kw.as_bytes());
+            let (tokens, _) = lexer.tokenize();
+
+            assert_ne!(
+                tokens[0].kind,
+                TokenKind::Error,
+                "{kw} should NOT be a forbidden keyword"
+            );
+        }
+    }
+
+    #[test]
+    fn test_forbidden_keyword_case_sensitive() {
+        // Forbidden keywords are case-sensitive (all uppercase)
+        // "false" (lowercase) should be a regular identifier
+        let source = "false";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+    }
+
+    // ========================================================================
+    // Tests for skip-to-EOL error recovery (matching libsmi behavior)
+    // ========================================================================
+
+    #[test]
+    fn test_error_recovery_skips_to_eol() {
+        // When encountering an unexpected character, skip to end of line
+        // and continue tokenizing from the next line (matching libsmi)
+        // Fullwidth comma U+FF0C is 3 bytes: ef bc 8c
+        let source = b"foo\xef\xbc\x8c\nbar";
+        let lexer = Lexer::new(source);
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        // Should be: foo, (error skips rest of line), bar, EOF
+        // NOT: foo, error, error, error, bar, EOF
+        assert_eq!(tokens.len(), 3); // foo + bar + EOF
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+
+        // Should have one error diagnostic
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_error_recovery_multiple_bad_chars_same_line() {
+        // Multiple bad characters on same line should result in one skip
+        let source = b"foo \x80\x81\x82 ignored\nbar";
+        let lexer = Lexer::new(source);
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        // Should skip from first bad char to EOL
+        assert_eq!(tokens.len(), 3); // foo + bar + EOF
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent);
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_error_recovery_preserves_same_line_before_error() {
+        // Tokens before the error on the same line should be preserved
+        let source = b"BEGIN foo \x80 ignored\nEND";
+        let lexer = Lexer::new(source);
+        let (tokens, _) = lexer.tokenize();
+
+        assert_eq!(tokens[0].kind, TokenKind::KwBegin);
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent); // foo
+        assert_eq!(tokens[2].kind, TokenKind::KwEnd);
+        assert_eq!(tokens[3].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_error_at_eof_no_infinite_loop() {
+        // Error at EOF should not cause issues
+        let source = b"foo\x80";
+        let lexer = Lexer::new(source);
+        let (tokens, diagnostics) = lexer.tokenize();
+
+        assert_eq!(tokens.len(), 2); // foo + EOF
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[1].kind, TokenKind::Eof);
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    // ========================================================================
+    // Tests for odd-dashes comment handling (matching libsmi behavior)
+    // ========================================================================
+
+    #[test]
+    fn test_odd_dashes_three_at_eol() {
+        // Three dashes at end of line when in comment state should not emit MINUS
+        // This matches libsmi's <Comment>"---"{eol} error recovery rule
+        // Example: separator lines with odd number of dashes
+        let source = "foo ---\nbar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // foo enters Normal, -- enters comment, - stays in comment (single dash)
+        // Actually: foo, then " ---\n" - the -- enters comment, - is single dash in comment
+        // Wait - "---" = -- (enter comment) then - (single dash in comment) then \n (end comment)
+        // So no MINUS token should be emitted
+        assert_eq!(tokens.len(), 3); // foo + bar + EOF
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_odd_dashes_81_dashes() {
+        // 81 dashes = separator line common in MIBs
+        // After processing 78 dashes (39 pairs), we're in Comment state with 3 dashes left
+        // The ---{eol} rule should consume those 3 dashes + newline
+        let source = format!(
+            "foo\n{}\nbar",
+            "-".repeat(81)
+        );
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // Should only have: foo + bar + EOF (no MINUS tokens)
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent);
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_odd_dashes_five_dashes_at_eol() {
+        // 5 dashes followed by EOL: -- (enter comment) then ---\n (error recovery)
+        // The ---{eol} rule matches, so no MINUS token emitted
+        let source = "foo -----\nbar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // foo, then 5 dashes+EOL: -- enters comment, ---\n triggers error recovery
+        // No MINUS token since all dashes are consumed
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent); // foo
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent); // bar
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_odd_dashes_five_not_at_eol() {
+        // 5 dashes NOT followed by EOL: -- (enter) -- (exit) - (MINUS)
+        // When there's content after the dashes, the ---{eol} rule doesn't apply
+        let source = "foo ----- bar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // foo, then 5 dashes: -- enters comment, -- exits, - becomes MINUS
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent); // foo
+        assert_eq!(tokens[1].kind, TokenKind::Minus); // the 5th dash
+        assert_eq!(tokens[2].kind, TokenKind::LowercaseIdent); // bar
+        assert_eq!(tokens[3].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_odd_dashes_seven_dashes() {
+        // 7 dashes: -- (enter) -- (exit) -- (enter) - (single in comment)
+        // After entering comment the second time, we have 3 dashes left + EOL
+        // The ---{eol} rule should NOT fire here because we only have 3 chars total
+        // Wait: after 4 dashes (2 pairs), we're in Normal. Then -- enters comment again.
+        // With 1 dash left in comment + EOL, the EOL ends comment. No MINUS.
+        let source = "foo -------\nbar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        // 7 dashes: --(enter) --(exit) --(enter) -(in comment) \n(end comment)
+        // No MINUS emitted because the single dash is inside a comment
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent); // foo
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent); // bar
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_odd_dashes_nine_at_eol() {
+        // 9 dashes followed by EOL
+        // --(enter) --(exit) --(enter) ---(error recovery via ---{eol})
+        // After 6 dashes, we're in Comment state with 3 dashes + EOL remaining
+        // The ---{eol} rule fires
+        let source = "foo ---------\nbar";
+        let lexer = Lexer::new(source.as_bytes());
+        let (tokens, _) = lexer.tokenize();
+
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].kind, TokenKind::LowercaseIdent); // foo
+        assert_eq!(tokens[1].kind, TokenKind::LowercaseIdent); // bar
+        assert_eq!(tokens[2].kind, TokenKind::Eof);
     }
 }
