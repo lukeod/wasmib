@@ -7,4 +7,6 @@
 
 extern crate alloc;
 
+pub mod ast;
 pub mod lexer;
+pub mod parser;
