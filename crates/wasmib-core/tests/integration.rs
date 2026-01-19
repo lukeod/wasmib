@@ -1,8 +1,9 @@
 //! Integration tests with real MIB files.
 
+use wasmib_core::ast::Definition;
+use wasmib_core::hir::{self, HirDefinition, SmiLanguage};
 use wasmib_core::lexer::{Lexer, Severity, TokenKind};
 use wasmib_core::parser::Parser;
-use wasmib_core::ast::Definition;
 
 /// Test tokenizing IF-MIB, a standard SNMP MIB module.
 #[test]
@@ -199,4 +200,215 @@ fn test_parse_standard_mibs() {
     }
 
     println!("Total: {} definitions parsed, {} errors", total_defs, total_errors);
+}
+
+// === HIR Lowering Tests ===
+
+/// Test HIR lowering of IF-MIB.
+#[test]
+fn test_lower_if_mib() {
+    let source = include_bytes!("../../../.local/mibs/IF-MIB");
+    let parser = Parser::new(source);
+    let ast_module = parser.parse_module();
+
+    // Lower to HIR
+    let hir_module = hir::lower_module(&ast_module);
+
+    // Check module name
+    assert_eq!(hir_module.name.name, "IF-MIB");
+
+    // IF-MIB imports from SNMPv2-SMI, so should be detected as SMIv2
+    assert_eq!(
+        hir_module.language,
+        SmiLanguage::Smiv2,
+        "IF-MIB should be detected as SMIv2"
+    );
+
+    // Check imports are normalized
+    let snmpv2_imports: Vec<_> = hir_module
+        .imports
+        .iter()
+        .filter(|i| i.module.name == "SNMPv2-SMI")
+        .collect();
+    assert!(
+        !snmpv2_imports.is_empty(),
+        "Expected imports from SNMPv2-SMI"
+    );
+
+    // Check definitions
+    assert!(
+        !hir_module.definitions.is_empty(),
+        "Expected definitions"
+    );
+
+    // Count HIR definition types
+    let mut object_types = 0;
+    let mut type_defs = 0;
+    let mut value_assignments = 0;
+    let mut notifications = 0;
+    let mut module_identities = 0;
+    let mut object_groups = 0;
+
+    for def in &hir_module.definitions {
+        match def {
+            HirDefinition::ObjectType(_) => object_types += 1,
+            HirDefinition::TypeDef(_) => type_defs += 1,
+            HirDefinition::ValueAssignment(_) => value_assignments += 1,
+            HirDefinition::Notification(_) => notifications += 1,
+            HirDefinition::ModuleIdentity(_) => module_identities += 1,
+            HirDefinition::ObjectGroup(_) => object_groups += 1,
+            _ => {}
+        }
+    }
+
+    println!("IF-MIB HIR:");
+    println!("  Language: {}", hir_module.language);
+    println!("  Imports: {}", hir_module.imports.len());
+    println!("  MODULE-IDENTITY: {}", module_identities);
+    println!("  OBJECT-TYPE: {}", object_types);
+    println!("  TypeDef: {}", type_defs);
+    println!("  Value assignments: {}", value_assignments);
+    println!("  Notifications: {}", notifications);
+    println!("  OBJECT-GROUP: {}", object_groups);
+    println!("  Total definitions: {}", hir_module.definitions.len());
+
+    // IF-MIB should have MODULE-IDENTITY
+    assert!(module_identities >= 1, "Expected MODULE-IDENTITY");
+
+    // IF-MIB should have many OBJECT-TYPEs
+    assert!(
+        object_types > 20,
+        "Expected many OBJECT-TYPEs, got {}",
+        object_types
+    );
+
+    // Check for errors
+    let errors: Vec<_> = hir_module
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+
+    println!("  Lowering errors: {}", errors.len());
+
+    assert!(
+        errors.len() <= 5,
+        "Expected few errors, got {}",
+        errors.len()
+    );
+}
+
+/// Test that SMIv1 imports get normalized to SMIv2.
+#[test]
+fn test_hir_import_normalization() {
+    // Create a minimal SMIv1-style MIB that imports Counter from RFC1155-SMI
+    let source = br#"
+TEST-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Counter
+        FROM RFC1155-SMI
+    DisplayString
+        FROM RFC1213-MIB;
+
+END
+"#;
+
+    let parser = Parser::new(source);
+    let ast_module = parser.parse_module();
+    let hir_module = hir::lower_module(&ast_module);
+
+    // Should be detected as SMIv1 (no SNMPv2 imports)
+    assert_eq!(
+        hir_module.language,
+        SmiLanguage::Smiv1,
+        "Should be detected as SMIv1"
+    );
+
+    // Counter import should be normalized
+    let counter_import = hir_module
+        .imports
+        .iter()
+        .find(|i| i.symbol.name == "Counter32");
+    assert!(
+        counter_import.is_some(),
+        "Counter should be normalized to Counter32"
+    );
+    if let Some(imp) = counter_import {
+        assert_eq!(
+            imp.module.name, "SNMPv2-SMI",
+            "Counter32 should come from SNMPv2-SMI"
+        );
+    }
+
+    // DisplayString import should be normalized
+    let ds_import = hir_module
+        .imports
+        .iter()
+        .find(|i| i.symbol.name == "DisplayString");
+    assert!(
+        ds_import.is_some(),
+        "DisplayString import should be present"
+    );
+    if let Some(imp) = ds_import {
+        assert_eq!(
+            imp.module.name, "SNMPv2-TC",
+            "DisplayString should come from SNMPv2-TC"
+        );
+    }
+}
+
+/// Test HIR lowering of multiple standard MIBs.
+#[test]
+fn test_lower_standard_mibs() {
+    let mibs = [
+        (
+            "SNMPv2-MIB",
+            include_bytes!("../../../.local/mibs/SNMPv2-MIB").as_slice(),
+        ),
+        (
+            "HOST-RESOURCES-MIB",
+            include_bytes!("../../../.local/mibs/HOST-RESOURCES-MIB").as_slice(),
+        ),
+        (
+            "IP-MIB",
+            include_bytes!("../../../.local/mibs/IP-MIB").as_slice(),
+        ),
+        (
+            "TCP-MIB",
+            include_bytes!("../../../.local/mibs/TCP-MIB").as_slice(),
+        ),
+        (
+            "UDP-MIB",
+            include_bytes!("../../../.local/mibs/UDP-MIB").as_slice(),
+        ),
+    ];
+
+    let mut total_defs = 0;
+
+    for (name, content) in mibs {
+        let parser = Parser::new(content);
+        let ast_module = parser.parse_module();
+        let hir_module = hir::lower_module(&ast_module);
+
+        println!(
+            "{}: {} imports, {} defs, language={}",
+            name,
+            hir_module.imports.len(),
+            hir_module.definitions.len(),
+            hir_module.language
+        );
+
+        // All these MIBs are SMIv2
+        assert_eq!(
+            hir_module.language,
+            SmiLanguage::Smiv2,
+            "{} should be SMIv2",
+            name
+        );
+
+        total_defs += hir_module.definitions.len();
+    }
+
+    println!("Total: {} HIR definitions", total_defs);
 }
