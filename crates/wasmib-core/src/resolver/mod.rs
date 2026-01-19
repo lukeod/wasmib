@@ -107,6 +107,7 @@ impl ResolveResult {
 /// Transforms HIR modules into a fully resolved Model.
 #[derive(Clone, Debug, Default)]
 pub struct Resolver {
+    #[allow(dead_code)]
     config: ResolverConfig,
 }
 

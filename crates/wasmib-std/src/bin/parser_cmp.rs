@@ -26,16 +26,13 @@ use wasmib_core::parser::Parser;
 /// A parsed definition from either parser (for comparison).
 #[derive(Debug, Clone)]
 struct ParsedDef {
-    module: String,
     name: String,
     kind: String, // "type", "node", "scalar", "row", "table", "column", etc.
-    oid: Option<String>,
 }
 
 /// Comparison result for a single file.
 #[derive(Debug)]
 struct CompareResult {
-    module_name: String,
     wasmib_count: usize,
     libsmi_count: usize,
     wasmib_only: Vec<String>,
@@ -96,10 +93,8 @@ fn parse_wasmib(source: &[u8]) -> (String, Vec<ParsedDef>, usize) {
         if let Some(name) = def.name() {
             let kind = wasmib_def_kind(def);
             defs.push(ParsedDef {
-                module: module_name.clone(),
                 name: name.name.clone(),
                 kind,
-                oid: None, // No resolution yet
             });
         }
     }
@@ -179,10 +174,8 @@ fn parse_smidump(path: &str) -> Result<Vec<ParsedDef>, String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 3 {
             defs.push(ParsedDef {
-                module: parts[0].to_string(),
                 name: parts[1].to_string(),
                 kind: parts[2].to_string(),
-                oid: parts.get(3).map(|s| s.to_string()),
             });
         }
     }
@@ -200,7 +193,7 @@ fn compare_single(path: &str) {
         }
     };
 
-    let (module_name, wasmib_defs, error_count) = parse_wasmib(&source);
+    let (_module_name, wasmib_defs, error_count) = parse_wasmib(&source);
 
     let libsmi_defs = match parse_smidump(path) {
         Ok(defs) => defs,
@@ -210,13 +203,12 @@ fn compare_single(path: &str) {
         }
     };
 
-    let result = compare_defs(&module_name, &wasmib_defs, &libsmi_defs, error_count);
+    let result = compare_defs(&wasmib_defs, &libsmi_defs, error_count);
     print_result(&result, path);
 }
 
 /// Compare definition lists.
 fn compare_defs(
-    module_name: &str,
     wasmib_defs: &[ParsedDef],
     libsmi_defs: &[ParsedDef],
     wasmib_errors: usize,
@@ -254,7 +246,6 @@ fn compare_defs(
     }
 
     CompareResult {
-        module_name: module_name.to_string(),
         wasmib_count: wasmib_defs.len(),
         libsmi_count: libsmi_defs.len(),
         wasmib_only,
@@ -413,7 +404,7 @@ fn analyze_file(path: &str) {
     }
     println!();
 
-    let result = compare_defs(&module_name, &wasmib_defs, &libsmi_defs, error_count);
+    let result = compare_defs(&wasmib_defs, &libsmi_defs, error_count);
 
     println!("=== Comparison ===");
     if result.libsmi_only.is_empty() && result.wasmib_only.is_empty() {
@@ -482,7 +473,7 @@ fn corpus_compare(dir: &str) {
             }
         };
 
-        let (module_name, wasmib_defs, error_count) = parse_wasmib(&source);
+        let (_module_name, wasmib_defs, error_count) = parse_wasmib(&source);
         total_wasmib_defs += wasmib_defs.len();
 
         if error_count > 0 {
@@ -498,7 +489,7 @@ fn corpus_compare(dir: &str) {
         };
         total_libsmi_defs += libsmi_defs.len();
 
-        let result = compare_defs(&module_name, &wasmib_defs, &libsmi_defs, error_count);
+        let result = compare_defs(&wasmib_defs, &libsmi_defs, error_count);
 
         total_missing += result.libsmi_only.len();
         total_extra += result.wasmib_only.len();

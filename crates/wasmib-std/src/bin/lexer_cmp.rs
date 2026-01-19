@@ -39,8 +39,6 @@ enum DiffCategory {
     ExtraLibsmiTokens,
     /// Token types differ at the same position
     TypeMismatch,
-    /// Token count matches but types differ somewhere
-    TypeDivergence,
     /// Only content differs (types match)
     ContentOnly,
     /// Structural tokens identical, only ERROR tokens or line numbers differ

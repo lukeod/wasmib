@@ -87,31 +87,6 @@ impl BaseModule {
     }
 }
 
-/// Check if a module name is a recognized base module.
-#[must_use]
-pub fn is_base_module(name: &str) -> bool {
-    BaseModule::from_name(name).is_some()
-}
-
-/// Check if a symbol name is a MACRO (not a type or object).
-///
-/// MACROs are imported but do not resolve to runtime definitions.
-#[must_use]
-pub fn is_macro_symbol(name: &str) -> bool {
-    matches!(
-        name,
-        "MODULE-IDENTITY"
-            | "OBJECT-IDENTITY"
-            | "OBJECT-TYPE"
-            | "NOTIFICATION-TYPE"
-            | "TEXTUAL-CONVENTION"
-            | "OBJECT-GROUP"
-            | "NOTIFICATION-GROUP"
-            | "MODULE-COMPLIANCE"
-            | "AGENT-CAPABILITIES"
-            | "TRAP-TYPE"
-    )
-}
 
 #[cfg(test)]
 mod tests {
@@ -138,13 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_base_module() {
-        assert!(is_base_module("SNMPv2-SMI"));
-        assert!(is_base_module("RFC1155-SMI"));
-        assert!(!is_base_module("IF-MIB"));
-    }
-
-    #[test]
     fn test_smiv2_modules() {
         let v2_mods: Vec<_> = BaseModule::all().filter(|m| m.is_smiv2()).collect();
         assert_eq!(v2_mods.len(), 3);
@@ -157,14 +125,5 @@ mod tests {
     fn test_smiv1_modules() {
         let v1_mods: Vec<_> = BaseModule::all().filter(|m| m.is_smiv1()).collect();
         assert_eq!(v1_mods.len(), 4);
-    }
-
-    #[test]
-    fn test_is_macro_symbol() {
-        assert!(is_macro_symbol("OBJECT-TYPE"));
-        assert!(is_macro_symbol("MODULE-IDENTITY"));
-        assert!(is_macro_symbol("TEXTUAL-CONVENTION"));
-        assert!(!is_macro_symbol("Integer32"));
-        assert!(!is_macro_symbol("enterprises"));
     }
 }

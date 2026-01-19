@@ -138,42 +138,6 @@ pub fn is_smiv2_base_module(module: &str) -> bool {
     )
 }
 
-/// Check if a module name is a built-in base module.
-///
-/// Imports from these modules resolve against wasmib's built-in definitions.
-#[must_use]
-pub fn is_base_module(module: &str) -> bool {
-    matches!(
-        module,
-        "SNMPv2-SMI"
-            | "SNMPv2-TC"
-            | "SNMPv2-CONF"
-            | "SNMPv2-MIB"
-            | "RFC1155-SMI"
-            | "RFC1065-SMI"
-            | "RFC-1212"
-            | "RFC-1215"
-            | "RFC1213-MIB"
-    )
-}
-
-/// Check if a symbol is a MACRO import (no runtime value).
-#[must_use]
-pub fn is_macro_symbol(symbol: &str) -> bool {
-    matches!(
-        symbol,
-        "MODULE-IDENTITY"
-            | "OBJECT-IDENTITY"
-            | "OBJECT-TYPE"
-            | "NOTIFICATION-TYPE"
-            | "TEXTUAL-CONVENTION"
-            | "OBJECT-GROUP"
-            | "NOTIFICATION-GROUP"
-            | "MODULE-COMPLIANCE"
-            | "AGENT-CAPABILITIES"
-            | "TRAP-TYPE"
-    )
-}
 
 #[cfg(test)]
 mod tests {
@@ -228,11 +192,4 @@ mod tests {
         assert!(!is_smiv2_base_module("IF-MIB"));
     }
 
-    #[test]
-    fn test_is_macro_symbol() {
-        assert!(is_macro_symbol("OBJECT-TYPE"));
-        assert!(is_macro_symbol("MODULE-IDENTITY"));
-        assert!(!is_macro_symbol("Integer32"));
-        assert!(!is_macro_symbol("DisplayString"));
-    }
 }

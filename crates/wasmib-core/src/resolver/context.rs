@@ -13,6 +13,7 @@ use super::builtins::{self, BuiltinSymbol, BUILTIN_OID_NODES};
 
 /// Reference to a definition (either built-in or user-defined).
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum DefinitionRef {
     /// A built-in symbol.
     Builtin(BuiltinRef),
@@ -27,6 +28,7 @@ pub enum DefinitionRef {
 
 /// Reference to a built-in symbol.
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum BuiltinRef {
     /// Built-in base type.
     BaseType(super::builtins::BuiltinBaseType),
@@ -76,6 +78,7 @@ impl ResolverContext {
     }
 
     /// Intern a Symbol.
+    #[allow(dead_code)]
     pub fn intern_symbol(&mut self, sym: &Symbol) -> StrId {
         self.model.intern(&sym.name)
     }
@@ -175,6 +178,7 @@ impl ResolverContext {
     }
 
     /// Get a built-in OID node's NodeId.
+    #[allow(dead_code)]
     pub fn get_builtin_oid_node(&self, idx: usize) -> Option<NodeId> {
         self.builtin_oid_to_node.get(&idx).copied()
     }

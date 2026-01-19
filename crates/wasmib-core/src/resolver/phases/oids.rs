@@ -75,7 +75,6 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
 
 /// An OID definition pending resolution.
 struct OidDefinition {
-    module_idx: usize,
     module_name: String,
     def_name: String,
     oid: HirOidAssignment,
@@ -99,7 +98,7 @@ enum DefinitionKind {
 fn collect_oid_definitions(ctx: &ResolverContext) -> Vec<OidDefinition> {
     let mut defs = Vec::new();
 
-    for (module_idx, module) in ctx.hir_modules.iter().enumerate() {
+    for module in ctx.hir_modules.iter() {
         for def in &module.definitions {
             let (name, oid, kind) = match def {
                 HirDefinition::ObjectType(d) => {
@@ -137,7 +136,6 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> Vec<OidDefinition> {
             };
 
             defs.push(OidDefinition {
-                module_idx,
                 module_name: module.name.name.clone(),
                 def_name: name,
                 oid,
