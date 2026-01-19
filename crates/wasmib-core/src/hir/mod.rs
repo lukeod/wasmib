@@ -35,12 +35,12 @@ mod syntax;
 mod types;
 
 pub use definition::{
-    HirAgentCapabilities, HirDefinition, HirModuleCompliance, HirModuleIdentity,
+    HirAgentCapabilities, HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity,
     HirNotification, HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType,
     HirTypeDef, HirValueAssignment,
 };
 pub use lower::{lower_module, LoweringContext};
 pub use module::{HirImport, HirModule};
 pub use normalize::{normalize_import, normalize_type_name, NormalizedImport};
-pub use syntax::{HirConstraint, HirOidAssignment, HirOidComponent, HirRange, HirTypeSyntax};
+pub use syntax::{HirConstraint, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue, HirTypeSyntax};
 pub use types::{HirAccess, HirStatus, SmiLanguage, Symbol};

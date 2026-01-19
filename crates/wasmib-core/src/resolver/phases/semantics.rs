@@ -1,0 +1,432 @@
+//! Phase 5: Semantic analysis.
+//!
+//! Infer node kinds, resolve table semantics, and perform validation.
+
+use crate::hir::{HirDefinition, HirTypeSyntax};
+use crate::model::{
+    Access, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedObject, Status, UnresolvedIndex,
+};
+use crate::resolver::context::ResolverContext;
+use alloc::vec::Vec;
+
+/// Perform semantic analysis on the resolved model.
+pub fn analyze_semantics(ctx: &mut ResolverContext) {
+    // Infer node kinds based on syntax and context
+    infer_node_kinds(ctx);
+
+    // Resolve table semantics (INDEX, AUGMENTS)
+    resolve_table_semantics(ctx);
+
+    // Create resolved objects
+    create_resolved_objects(ctx);
+}
+
+/// Infer node kinds from SYNTAX and context.
+fn infer_node_kinds(ctx: &mut ResolverContext) {
+    // Collect OBJECT-TYPE definitions with their syntax
+    let object_types: Vec<_> = ctx
+        .hir_modules
+        .iter()
+        .enumerate()
+        .flat_map(|(module_idx, module)| {
+            module
+                .definitions
+                .iter()
+                .filter_map(move |def| {
+                    if let HirDefinition::ObjectType(obj) = def {
+                        Some((module_idx, obj.clone()))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect();
+
+    // First pass: identify TABLEs and ROWs
+    for (_module_idx, obj) in &object_types {
+        if let Some(node_id) = ctx.lookup_node(&obj.name.name) {
+            let kind = if obj.syntax.is_sequence_of() {
+                NodeKind::Table
+            } else if obj.index.is_some() || obj.augments.is_some() {
+                NodeKind::Row
+            } else {
+                // Default to Scalar, will be refined below
+                NodeKind::Scalar
+            };
+
+            if let Some(node) = ctx.model.get_node_mut(node_id) {
+                node.kind = kind;
+            }
+        }
+    }
+
+    // Second pass: identify COLUMNs (children of ROWs)
+    let row_children: Vec<_> = ctx
+        .model
+        .root_ids()
+        .iter()
+        .copied()
+        .flat_map(|root| collect_row_children(ctx, root))
+        .collect();
+
+    for child_id in row_children {
+        if let Some(node) = ctx.model.get_node_mut(child_id) {
+            if matches!(node.kind, NodeKind::Scalar) {
+                node.kind = NodeKind::Column;
+            }
+        }
+    }
+}
+
+/// Collect children of ROW nodes.
+fn collect_row_children(ctx: &ResolverContext, node_id: NodeId) -> Vec<NodeId> {
+    let mut result = Vec::new();
+
+    if let Some(node) = ctx.model.get_node(node_id) {
+        if node.kind == NodeKind::Row {
+            // All children of a ROW are COLUMNs
+            result.extend(node.children.iter().copied());
+        }
+
+        // Recurse into children
+        for &child_id in &node.children {
+            result.extend(collect_row_children(ctx, child_id));
+        }
+    }
+
+    result
+}
+
+/// Resolve table semantics (INDEX and AUGMENTS).
+fn resolve_table_semantics(ctx: &mut ResolverContext) {
+    // Collect OBJECT-TYPEs with INDEX or AUGMENTS
+    let table_defs: Vec<_> = ctx
+        .hir_modules
+        .iter()
+        .enumerate()
+        .flat_map(|(module_idx, module)| {
+            module
+                .definitions
+                .iter()
+                .filter_map(move |def| {
+                    if let HirDefinition::ObjectType(obj) = def {
+                        if obj.index.is_some() || obj.augments.is_some() {
+                            return Some((
+                                module_idx,
+                                obj.name.name.clone(),
+                                obj.index.clone(),
+                                obj.augments.clone(),
+                            ));
+                        }
+                    }
+                    None
+                })
+        })
+        .collect();
+
+    for (module_idx, name, index_opt, augments_opt) in table_defs {
+        let module_name = &ctx.hir_modules[module_idx].name.name;
+        let module_id = match ctx.module_index.get(module_name) {
+            Some(&id) => id,
+            None => continue,
+        };
+
+        // Resolve INDEX objects
+        if let Some(ref index_items) = index_opt {
+            for item in index_items {
+                if ctx.lookup_node(&item.object.name).is_none() {
+                    let row_str = ctx.intern(&name);
+                    let index_str = ctx.intern(&item.object.name);
+                    ctx.model
+                        .unresolved_mut()
+                        .indexes
+                        .push(UnresolvedIndex {
+                            module: module_id,
+                            row: row_str,
+                            index_object: index_str,
+                        });
+                }
+            }
+        }
+
+        // Resolve AUGMENTS target
+        if let Some(ref augments_sym) = augments_opt {
+            if ctx.lookup_node(&augments_sym.name).is_none() {
+                ctx.record_unresolved_oid(module_id, &name, &augments_sym.name);
+            }
+        }
+    }
+}
+
+/// Create ResolvedObject entries for all OBJECT-TYPEs.
+fn create_resolved_objects(ctx: &mut ResolverContext) {
+    // Collect OBJECT-TYPE definitions
+    let object_types: Vec<_> = ctx
+        .hir_modules
+        .iter()
+        .enumerate()
+        .flat_map(|(module_idx, module)| {
+            module
+                .definitions
+                .iter()
+                .filter_map(move |def| {
+                    if let HirDefinition::ObjectType(obj) = def {
+                        Some((module_idx, obj.clone()))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect();
+
+    for (module_idx, obj) in object_types {
+        let module_name = &ctx.hir_modules[module_idx].name.name;
+        let module_id = match ctx.module_index.get(module_name) {
+            Some(&id) => id,
+            None => continue,
+        };
+
+        let node_id = match ctx.lookup_node(&obj.name.name) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        // Find the type
+        let type_id = resolve_type_syntax(ctx, &obj.syntax);
+
+        let name = ctx.intern(&obj.name.name);
+        let access = hir_access_to_access(obj.access);
+        let status = hir_status_to_status(obj.status);
+
+        let mut resolved = ResolvedObject::new(
+            crate::model::ObjectId::from_raw(1).unwrap(), // Will be updated
+            node_id,
+            module_id,
+            name,
+            type_id,
+            access,
+        );
+
+        resolved.status = status;
+
+        if let Some(ref desc) = obj.description {
+            resolved.description = Some(ctx.intern(desc));
+        }
+
+        if let Some(ref units) = obj.units {
+            resolved.units = Some(ctx.intern(units));
+        }
+
+        if let Some(ref reference) = obj.reference {
+            resolved.reference = Some(ctx.intern(reference));
+        }
+
+        // Handle INDEX
+        if let Some(ref index_items) = obj.index {
+            let items: Vec<_> = index_items
+                .iter()
+                .filter_map(|item| {
+                    ctx.lookup_node(&item.object.name)
+                        .map(|node_id| IndexItem::new(node_id, item.implied))
+                })
+                .collect();
+            if !items.is_empty() {
+                resolved.index = Some(IndexSpec::new(items));
+            }
+        }
+
+        // Handle AUGMENTS
+        if let Some(ref augments_sym) = obj.augments {
+            resolved.augments = ctx.lookup_node(&augments_sym.name);
+        }
+
+        // Handle inline enums
+        if let HirTypeSyntax::IntegerEnum(ref enums) = obj.syntax {
+            let values: Vec<_> = enums
+                .iter()
+                .map(|(sym, val)| (*val, ctx.intern(&sym.name)))
+                .collect();
+            resolved.inline_enum = Some(crate::model::EnumValues::new(values));
+        }
+
+        // Handle inline BITS
+        if let HirTypeSyntax::Bits(ref bits) = obj.syntax {
+            let defs: Vec<_> = bits
+                .iter()
+                .map(|(sym, pos)| (*pos, ctx.intern(&sym.name)))
+                .collect();
+            resolved.inline_bits = Some(crate::model::BitDefinitions::new(defs));
+        }
+
+        let obj_id = ctx.model.add_object(resolved);
+
+        // Update node with object reference
+        if let Some(node) = ctx.model.get_node_mut(node_id) {
+            if let Some(def) = node.definitions.iter_mut().find(|d| d.label == name) {
+                def.object = Some(obj_id);
+            }
+        }
+
+        // Add to module
+        if let Some(module) = ctx.model.get_module_mut(module_id) {
+            module.add_object(obj_id);
+        }
+    }
+}
+
+/// Resolve a type syntax to a TypeId.
+fn resolve_type_syntax(ctx: &ResolverContext, syntax: &HirTypeSyntax) -> crate::model::TypeId {
+    match syntax {
+        HirTypeSyntax::TypeRef(name) => ctx
+            .lookup_type(&name.name)
+            .unwrap_or_else(|| {
+                // Fallback to Integer32
+                ctx.lookup_type("Integer32")
+                    .expect("Integer32 should exist")
+            }),
+        HirTypeSyntax::Constrained { base, .. } => resolve_type_syntax(ctx, base),
+        _ => {
+            // Default to Integer32 for complex types
+            ctx.lookup_type("Integer32")
+                .expect("Integer32 should exist")
+        }
+    }
+}
+
+fn hir_access_to_access(access: crate::hir::HirAccess) -> Access {
+    match access {
+        crate::hir::HirAccess::ReadOnly => Access::ReadOnly,
+        crate::hir::HirAccess::ReadWrite => Access::ReadWrite,
+        crate::hir::HirAccess::ReadCreate => Access::ReadCreate,
+        crate::hir::HirAccess::NotAccessible => Access::NotAccessible,
+        crate::hir::HirAccess::AccessibleForNotify => Access::AccessibleForNotify,
+        crate::hir::HirAccess::WriteOnly => Access::WriteOnly,
+    }
+}
+
+fn hir_status_to_status(status: crate::hir::HirStatus) -> Status {
+    match status {
+        crate::hir::HirStatus::Current => Status::Current,
+        crate::hir::HirStatus::Deprecated => Status::Deprecated,
+        crate::hir::HirStatus::Obsolete => Status::Obsolete,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hir::{
+        HirIndexItem, HirModule, HirObjectType, HirOidAssignment, HirOidComponent, HirTypeSyntax,
+        HirAccess, HirDefinition, HirStatus, Symbol,
+    };
+    use crate::lexer::Span;
+    use crate::resolver::phases::{registration::register_modules, oids::resolve_oids, types::resolve_types};
+    use alloc::vec;
+
+    fn make_object_type(
+        name: &str,
+        syntax: HirTypeSyntax,
+        oid_components: Vec<HirOidComponent>,
+        index: Option<Vec<HirIndexItem>>,
+    ) -> HirDefinition {
+        HirDefinition::ObjectType(HirObjectType {
+            name: Symbol::from_str(name),
+            syntax,
+            units: None,
+            access: HirAccess::ReadOnly,
+            status: HirStatus::Current,
+            description: Some("Test object".into()),
+            reference: None,
+            index,
+            augments: None,
+            oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
+            span: Span::new(0, 0),
+        })
+    }
+
+    fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
+        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        module.definitions = defs;
+        module
+    }
+
+    #[test]
+    fn test_table_inference() {
+        let table = make_object_type(
+            "testTable",
+            HirTypeSyntax::SequenceOf(Symbol::from_str("TestEntry")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module("TEST-MIB", vec![table])];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check table node kind
+        if let Some(node_id) = ctx.lookup_node("testTable") {
+            if let Some(node) = ctx.model.get_node(node_id) {
+                assert_eq!(node.kind, NodeKind::Table);
+            }
+        }
+    }
+
+    #[test]
+    fn test_row_inference() {
+        let row = make_object_type(
+            "testEntry",
+            HirTypeSyntax::TypeRef(Symbol::from_str("TestEntry")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            Some(vec![HirIndexItem::new(Symbol::from_str("testIndex"), false)]),
+        );
+
+        let modules = vec![make_test_module("TEST-MIB", vec![row])];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check row node kind
+        if let Some(node_id) = ctx.lookup_node("testEntry") {
+            if let Some(node) = ctx.model.get_node(node_id) {
+                assert_eq!(node.kind, NodeKind::Row);
+            }
+        }
+    }
+
+    #[test]
+    fn test_resolved_object_creation() {
+        let obj = make_object_type(
+            "testObject",
+            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module("TEST-MIB", vec![obj])];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check object count
+        assert_eq!(ctx.model.object_count(), 1);
+    }
+}
