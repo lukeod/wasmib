@@ -10,8 +10,9 @@ use alloc::vec::Vec;
 
 /// Resolve all OIDs across all modules.
 pub fn resolve_oids(ctx: &mut ResolverContext) {
-    // Two passes: first pass for definitions with known roots,
-    // second pass for definitions referencing user-defined nodes
+    // Multi-pass resolution to handle forward references.
+    // Pass 1: Definitions with built-in roots (most definitions)
+    // Pass 2+: Iterate user-rooted definitions until no more progress
 
     // First pass: collect all definitions with OIDs
     let oid_defs = collect_oid_definitions(ctx);
@@ -26,9 +27,49 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
         resolve_oid_definition(ctx, &def);
     }
 
-    // Process user-rooted definitions
-    for def in user_rooted {
-        resolve_oid_definition(ctx, &def);
+    // Process user-rooted definitions with multiple passes to handle forward references.
+    // Keep iterating until no more definitions can be resolved.
+    let mut pending = user_rooted;
+    let max_iterations = 10; // Safety limit to prevent infinite loops
+
+    for _iteration in 0..max_iterations {
+        if pending.is_empty() {
+            break;
+        }
+
+        let initial_count = pending.len();
+        let mut still_pending = Vec::new();
+
+        for def in pending {
+            // Try to resolve - check if the first component is now resolvable
+            let first_resolvable = match &def.oid.components.first() {
+                Some(HirOidComponent::Name(sym)) => ctx.lookup_node(&sym.name).is_some(),
+                Some(HirOidComponent::NamedNumber { .. }) => true, // Named numbers create nodes
+                Some(HirOidComponent::Number(_)) => true, // Bare numbers extend from current
+                None => false,
+            };
+
+            if first_resolvable {
+                resolve_oid_definition(ctx, &def);
+            } else {
+                still_pending.push(def);
+            }
+        }
+
+        // No progress made - remaining definitions have unresolvable references
+        if still_pending.len() == initial_count {
+            // Record unresolved for remaining definitions
+            for def in still_pending {
+                if let Some(HirOidComponent::Name(sym)) = def.oid.components.first() {
+                    if let Some(&module_id) = ctx.module_index.get(&def.module_name) {
+                        ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name);
+                    }
+                }
+            }
+            break;
+        }
+
+        pending = still_pending;
     }
 }
 

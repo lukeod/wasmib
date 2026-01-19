@@ -412,3 +412,279 @@ fn test_lower_standard_mibs() {
 
     println!("Total: {} HIR definitions", total_defs);
 }
+
+// === Resolver Tests ===
+
+use wasmib_core::resolver::Resolver;
+
+/// Test that the resolver can process a single module with only built-in dependencies.
+#[test]
+fn test_resolver_snmpv2_mib() {
+    let source = include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB");
+    let parser = Parser::new(source);
+    let ast_module = parser.parse_module();
+    let hir_module = hir::lower_module(&ast_module);
+
+    let resolver = Resolver::new();
+    let result = resolver.resolve(vec![hir_module]);
+
+    println!("SNMPv2-MIB resolved:");
+    println!("  Modules: {}", result.model.module_count());
+    println!("  Nodes: {}", result.model.node_count());
+    println!("  Types: {}", result.model.type_count());
+    println!("  Objects: {}", result.model.object_count());
+    println!("  Diagnostics: {}", result.diagnostics.len());
+    println!("  Unresolved: {}", result.model.unresolved().count());
+
+    // Print some diagnostics for debugging
+    for diag in result.diagnostics.iter().take(5) {
+        println!("  Diag: {}", diag.message);
+    }
+
+    // Should have registered the module
+    assert_eq!(result.model.module_count(), 1);
+    assert!(result.model.get_module_by_name("SNMPv2-MIB").is_some());
+
+    // Should have resolved some nodes (built-ins + module content)
+    assert!(result.model.node_count() > 10, "Expected many nodes, got {}", result.model.node_count());
+
+    // Check key OIDs exist from built-ins
+    assert!(result.model.get_node_by_oid_str("1.3.6.1").is_some(), "internet OID missing");
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1").is_some(), "mib-2 OID missing");
+}
+
+/// Test tier1: modules with only built-in dependencies.
+#[test]
+fn test_resolver_tier1_builtin_only() {
+    // Load all tier1 files
+    let files = [
+        ("IANAifType-MIB", include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/IANAifType-MIB").as_slice()),
+        ("INET-ADDRESS-MIB", include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/INET-ADDRESS-MIB").as_slice()),
+        ("SNMPv2-MIB", include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB").as_slice()),
+    ];
+
+    let mut hir_modules = Vec::new();
+
+    for (name, source) in files {
+        let parser = Parser::new(source);
+        let ast_module = parser.parse_module();
+        let hir_module = hir::lower_module(&ast_module);
+        println!("{}: {} defs", name, hir_module.definitions.len());
+        hir_modules.push(hir_module);
+    }
+
+    let resolver = Resolver::new();
+    let result = resolver.resolve(hir_modules);
+
+    println!("\nTier1 resolved:");
+    println!("  Modules: {}", result.model.module_count());
+    println!("  Nodes: {}", result.model.node_count());
+    println!("  Types: {}", result.model.type_count());
+    println!("  Objects: {}", result.model.object_count());
+    println!("  Complete: {}", result.is_complete());
+    println!("  Unresolved imports: {}", result.model.unresolved().imports.len());
+    println!("  Unresolved types: {}", result.model.unresolved().types.len());
+    println!("  Unresolved OIDs: {}", result.model.unresolved().oids.len());
+
+    // Print unresolved details
+    let unresolved = result.model.unresolved();
+    for imp in unresolved.imports.iter().take(5) {
+        let from = result.model.get_str(imp.from_module);
+        let sym = result.model.get_str(imp.symbol);
+        println!("  Unresolved import: {}::{}", from, sym);
+    }
+    for oid in unresolved.oids.iter().take(5) {
+        let def = result.model.get_str(oid.definition);
+        let comp = result.model.get_str(oid.component);
+        println!("  Unresolved OID: {} -> {}", def, comp);
+    }
+
+    // Should have all 3 modules
+    assert_eq!(result.model.module_count(), 3);
+
+    // Should have many nodes
+    assert!(result.model.node_count() > 30, "Expected many nodes, got {}", result.model.node_count());
+
+    // Check some known OIDs exist
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.1.1").is_some(), "sysDescr should exist");
+}
+
+/// Test tier2: modules with cross-module dependencies.
+#[test]
+fn test_resolver_tier2_basic_deps() {
+    let files = [
+        ("IANAifType-MIB", include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/IANAifType-MIB").as_slice()),
+        ("INET-ADDRESS-MIB", include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/INET-ADDRESS-MIB").as_slice()),
+        ("SNMPv2-MIB", include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/SNMPv2-MIB").as_slice()),
+        ("IF-MIB", include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/IF-MIB").as_slice()),
+    ];
+
+    let mut hir_modules = Vec::new();
+
+    for (name, source) in files {
+        let parser = Parser::new(source);
+        let ast_module = parser.parse_module();
+        let hir_module = hir::lower_module(&ast_module);
+        println!("{}: {} defs, {} imports", name, hir_module.definitions.len(), hir_module.imports.len());
+        hir_modules.push(hir_module);
+    }
+
+    let resolver = Resolver::new();
+    let result = resolver.resolve(hir_modules);
+
+    println!("\nTier2 resolved:");
+    println!("  Modules: {}", result.model.module_count());
+    println!("  Nodes: {}", result.model.node_count());
+    println!("  Types: {}", result.model.type_count());
+    println!("  Objects: {}", result.model.object_count());
+    println!("  Complete: {}", result.is_complete());
+    println!("  Unresolved: {}", result.model.unresolved().count());
+
+    // Print unresolved details for debugging
+    let unresolved = result.model.unresolved();
+    for imp in unresolved.imports.iter().take(5) {
+        let from = result.model.get_str(imp.from_module);
+        let sym = result.model.get_str(imp.symbol);
+        println!("  Unresolved import: {}::{}", from, sym);
+    }
+
+    // Should have all 4 modules
+    assert_eq!(result.model.module_count(), 4);
+
+    // Should have many nodes including IF-MIB content
+    assert!(result.model.node_count() > 50, "Expected many nodes, got {}", result.model.node_count());
+
+    // Check IF-MIB specific OIDs
+    // interfaces is at 1.3.6.1.2.1.2
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.2").is_some(), "interfaces OID should exist");
+}
+
+/// Test tier3: complex dependencies.
+#[test]
+fn test_resolver_tier3_complex() {
+    let files = [
+        ("IANAifType-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/IANAifType-MIB").as_slice()),
+        ("INET-ADDRESS-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/INET-ADDRESS-MIB").as_slice()),
+        ("SNMPv2-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/SNMPv2-MIB").as_slice()),
+        ("IF-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/IF-MIB").as_slice()),
+        ("HOST-RESOURCES-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/HOST-RESOURCES-MIB").as_slice()),
+        ("HOST-RESOURCES-TYPES", include_bytes!("../../../.local/mibs_mini/tier3_complex/HOST-RESOURCES-TYPES").as_slice()),
+        ("IP-MIB", include_bytes!("../../../.local/mibs_mini/tier3_complex/IP-MIB").as_slice()),
+    ];
+
+    let mut hir_modules = Vec::new();
+
+    for (name, source) in files {
+        let parser = Parser::new(source);
+        let ast_module = parser.parse_module();
+        let hir_module = hir::lower_module(&ast_module);
+        println!("{}: {} defs", name, hir_module.definitions.len());
+        hir_modules.push(hir_module);
+    }
+
+    let resolver = Resolver::new();
+    let result = resolver.resolve(hir_modules);
+
+    println!("\nTier3 resolved:");
+    println!("  Modules: {}", result.model.module_count());
+    println!("  Nodes: {}", result.model.node_count());
+    println!("  Types: {}", result.model.type_count());
+    println!("  Objects: {}", result.model.object_count());
+    println!("  Complete: {}", result.is_complete());
+    println!("  Unresolved: {}", result.model.unresolved().count());
+
+    // Print unresolved for debugging
+    let unresolved = result.model.unresolved();
+    for imp in unresolved.imports.iter().take(3) {
+        let from = result.model.get_str(imp.from_module);
+        let sym = result.model.get_str(imp.symbol);
+        println!("  Unresolved import: {}::{}", from, sym);
+    }
+    for oid in unresolved.oids.iter().take(3) {
+        let def = result.model.get_str(oid.definition);
+        let comp = result.model.get_str(oid.component);
+        println!("  Unresolved OID: {} -> {}", def, comp);
+    }
+
+    // Should have all 7 modules
+    assert_eq!(result.model.module_count(), 7);
+
+    // Should have many nodes
+    assert!(result.model.node_count() > 100, "Expected many nodes, got {}", result.model.node_count());
+
+    // Check some HOST-RESOURCES-MIB OIDs match libsmi
+    // host is at 1.3.6.1.2.1.25
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.25").is_some(), "host OID should exist");
+
+    // hrMIBAdminInfo is at 1.3.6.1.2.1.25.7
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.25.7").is_some(), "hrMIBAdminInfo OID should exist");
+
+    // hostResourcesMibModule is at 1.3.6.1.2.1.25.7.1
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.25.7.1").is_some(), "hostResourcesMibModule OID should exist");
+
+    // Verify sysDescr from SNMPv2-MIB (1.3.6.1.2.1.1.1)
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.1.1").is_some(), "sysDescr OID should exist");
+
+    // Verify ifIndex from IF-MIB (1.3.6.1.2.1.2.2.1.1)
+    assert!(result.model.get_node_by_oid_str("1.3.6.1.2.1.2.2.1.1").is_some(), "ifIndex OID should exist");
+}
+
+/// Verify specific OIDs match libsmi output.
+#[test]
+fn test_oid_values_match_libsmi() {
+    // Load tier3 files
+    let files = [
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/IANAifType-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/INET-ADDRESS-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/SNMPv2-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/IF-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/HOST-RESOURCES-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/HOST-RESOURCES-TYPES").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier3_complex/IP-MIB").as_slice(),
+    ];
+
+    let mut hir_modules = Vec::new();
+    for source in files {
+        let parser = Parser::new(source);
+        let ast_module = parser.parse_module();
+        hir_modules.push(hir::lower_module(&ast_module));
+    }
+
+    let resolver = Resolver::new();
+    let result = resolver.resolve(hir_modules);
+
+    // Key OIDs verified against libsmi smidump output:
+    let expected_oids = [
+        // SNMPv2-MIB
+        ("sysDescr", "1.3.6.1.2.1.1.1"),
+        ("sysUpTime", "1.3.6.1.2.1.1.3"),
+        ("snmpSet", "1.3.6.1.6.3.1.1.6"),
+
+        // IF-MIB
+        ("ifTable", "1.3.6.1.2.1.2.2"),
+        ("ifEntry", "1.3.6.1.2.1.2.2.1"),
+        ("ifIndex", "1.3.6.1.2.1.2.2.1.1"),
+        ("ifMIB", "1.3.6.1.2.1.31"),
+
+        // HOST-RESOURCES-MIB
+        ("host", "1.3.6.1.2.1.25"),
+        ("hrSystem", "1.3.6.1.2.1.25.1"),
+        ("hrMIBAdminInfo", "1.3.6.1.2.1.25.7"),
+        ("hostResourcesMibModule", "1.3.6.1.2.1.25.7.1"),
+    ];
+
+    for (name, expected_oid) in expected_oids {
+        let node = result.model.get_node_by_oid_str(expected_oid);
+        assert!(node.is_some(), "OID {} ({}) should exist", expected_oid, name);
+
+        // Verify the node has the expected label
+        if let Some(n) = node {
+            if let Some(def) = n.primary_definition() {
+                let label = result.model.get_str(def.label);
+                assert_eq!(label, name, "OID {} should be named '{}', got '{}'", expected_oid, name, label);
+            }
+        }
+    }
+
+    println!("All {} OIDs verified against libsmi!", expected_oids.len());
+}
