@@ -170,8 +170,14 @@ fn create_snmpv2_tc() -> HirModule {
 /// Create OID root definitions as ValueAssignments.
 fn create_oid_definitions() -> Vec<HirDefinition> {
     vec![
+        // ccitt OBJECT IDENTIFIER ::= { 0 }
+        // ITU-T (formerly CCITT) administered subtree
+        make_oid_value("ccitt", vec![HirOidComponent::Number(0)]),
         // iso OBJECT IDENTIFIER ::= { 1 }
         make_oid_value("iso", vec![HirOidComponent::Number(1)]),
+        // joint-iso-ccitt OBJECT IDENTIFIER ::= { 2 }
+        // Jointly administered by ISO and ITU-T
+        make_oid_value("joint-iso-ccitt", vec![HirOidComponent::Number(2)]),
         // org OBJECT IDENTIFIER ::= { iso 3 }
         make_oid_value(
             "org",
@@ -657,7 +663,11 @@ mod tests {
             .filter_map(|d| d.name().map(|n| n.name.as_str()))
             .collect();
 
+        // All three X.208 root arcs
+        assert!(def_names.contains(&"ccitt"));
         assert!(def_names.contains(&"iso"));
+        assert!(def_names.contains(&"joint-iso-ccitt"));
+        // Standard SNMP hierarchy
         assert!(def_names.contains(&"internet"));
         assert!(def_names.contains(&"enterprises"));
         assert!(def_names.contains(&"mib-2"));
@@ -698,6 +708,29 @@ mod tests {
         assert!(def_names.contains(&"TruthValue"));
         assert!(def_names.contains(&"RowStatus"));
         assert!(def_names.contains(&"MacAddress"));
+    }
+
+    #[test]
+    fn test_root_oid_arcs() {
+        let module = create_snmpv2_smi();
+
+        // Verify all three X.208 root arcs have correct numeric values
+        let find_oid_value = |name: &str| -> Option<u32> {
+            module.definitions.iter().find_map(|d| {
+                if let HirDefinition::ValueAssignment(va) = d {
+                    if va.name.name == name && va.oid.components.len() == 1 {
+                        if let HirOidComponent::Number(n) = va.oid.components[0] {
+                            return Some(n);
+                        }
+                    }
+                }
+                None
+            })
+        };
+
+        assert_eq!(find_oid_value("ccitt"), Some(0));
+        assert_eq!(find_oid_value("iso"), Some(1));
+        assert_eq!(find_oid_value("joint-iso-ccitt"), Some(2));
     }
 
     #[test]
