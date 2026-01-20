@@ -194,8 +194,8 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             None => continue,
         };
 
-        // Find the type
-        let type_id = resolve_type_syntax(ctx, &obj.syntax);
+        // Find the type (may be None if unresolved)
+        let type_id = resolve_type_syntax(ctx, &obj.syntax, module_id, &obj.name.name);
 
         let name = ctx.intern(&obj.name.name);
         let access = hir_access_to_access(obj.access);
@@ -278,20 +278,48 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
 }
 
 /// Resolve a type syntax to a TypeId.
-fn resolve_type_syntax(ctx: &ResolverContext, syntax: &HirTypeSyntax) -> crate::model::TypeId {
+///
+/// Returns `None` if the type reference couldn't be resolved, and records
+/// the unresolved type in `UnresolvedReferences`.
+fn resolve_type_syntax(
+    ctx: &mut ResolverContext,
+    syntax: &HirTypeSyntax,
+    module_id: crate::model::ModuleId,
+    object_name: &str,
+) -> Option<crate::model::TypeId> {
     match syntax {
-        HirTypeSyntax::TypeRef(name) => ctx
-            .lookup_type(&name.name)
-            .unwrap_or_else(|| {
-                // Fallback to Integer32
-                ctx.lookup_type("Integer32")
-                    .expect("Integer32 should exist")
-            }),
-        HirTypeSyntax::Constrained { base, .. } => resolve_type_syntax(ctx, base),
-        _ => {
-            // Default to Integer32 for complex types
+        HirTypeSyntax::TypeRef(name) => {
+            match ctx.lookup_type(&name.name) {
+                Some(type_id) => Some(type_id),
+                None => {
+                    // Record the unresolved type reference
+                    ctx.record_unresolved_type(module_id, object_name, &name.name);
+                    None
+                }
+            }
+        }
+        HirTypeSyntax::Constrained { base, .. } => {
+            resolve_type_syntax(ctx, base, module_id, object_name)
+        }
+        HirTypeSyntax::IntegerEnum(_) => {
+            // INTEGER with enum values - base type is Integer32
             ctx.lookup_type("Integer32")
-                .expect("Integer32 should exist")
+        }
+        HirTypeSyntax::Bits(_) => {
+            // BITS type
+            ctx.lookup_type("BITS")
+        }
+        HirTypeSyntax::OctetString => {
+            ctx.lookup_type("OCTET STRING")
+        }
+        HirTypeSyntax::ObjectIdentifier => {
+            ctx.lookup_type("OBJECT IDENTIFIER")
+        }
+        HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => {
+            // Table/row types - these don't have a meaningful "type" in the SNMP sense
+            // They're structural, not data types. Return None as there's no appropriate type.
+            // (Tables and rows are identified by NodeKind, not by their type_id)
+            None
         }
     }
 }
@@ -453,5 +481,179 @@ mod tests {
 
         // Check object count
         assert_eq!(ctx.model.object_count(), 1);
+    }
+
+    #[test]
+    fn test_unresolved_type_returns_none() {
+        // Create an object with a reference to a non-existent type
+        let obj = make_object_type(
+            "testObject",
+            HirTypeSyntax::TypeRef(Symbol::from_str("NonExistentType")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Object should be created
+        assert_eq!(ctx.model.object_count(), 1);
+
+        // Get the object and verify type_id is None
+        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        assert!(obj.is_some());
+        assert!(obj.unwrap().type_id.is_none(), "type_id should be None for unresolved type");
+    }
+
+    #[test]
+    fn test_unresolved_type_recorded_in_unresolved_references() {
+        // Create an object with a reference to a non-existent type
+        let obj = make_object_type(
+            "testObject",
+            HirTypeSyntax::TypeRef(Symbol::from_str("FakeType")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check that the unresolved type was recorded
+        let unresolved = ctx.model.unresolved();
+        assert!(!unresolved.types.is_empty(), "should have recorded unresolved type");
+
+        // Verify the unresolved type reference details
+        let unresolved_type = &unresolved.types[0];
+        assert_eq!(ctx.model.get_str(unresolved_type.referrer), "testObject");
+        assert_eq!(ctx.model.get_str(unresolved_type.referenced), "FakeType");
+    }
+
+    #[test]
+    fn test_resolved_type_has_some_type_id() {
+        // Create an object with a valid type reference
+        let obj = make_object_type(
+            "testObject",
+            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Object should be created with a valid type_id
+        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        assert!(obj.is_some());
+        assert!(obj.unwrap().type_id.is_some(), "type_id should be Some for resolved type");
+    }
+
+    #[test]
+    fn test_table_type_has_none_type_id() {
+        // SEQUENCE OF types (tables) have no meaningful type_id
+        let table = make_object_type(
+            "testTable",
+            HirTypeSyntax::SequenceOf(Symbol::from_str("TestEntry")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![table],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Table object should have None type_id (structural, not data type)
+        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        assert!(obj.is_some());
+        assert!(obj.unwrap().type_id.is_none(), "table type_id should be None");
+    }
+
+    #[test]
+    fn test_inline_bits_type_has_type_id() {
+        // BITS with inline definitions should have a type_id
+        let obj = make_object_type(
+            "testBits",
+            HirTypeSyntax::Bits(vec![
+                (Symbol::from_str("flag1"), 0),
+                (Symbol::from_str("flag2"), 1),
+            ]),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Object should have valid type_id pointing to BITS type
+        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        assert!(obj.is_some());
+        let obj = obj.unwrap();
+        assert!(obj.type_id.is_some(), "BITS type_id should be Some");
+
+        // Check that inline_bits was populated
+        assert!(obj.inline_bits.is_some(), "inline_bits should be populated");
     }
 }

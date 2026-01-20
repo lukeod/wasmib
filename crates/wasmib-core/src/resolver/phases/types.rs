@@ -62,6 +62,17 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     );
     let type_id = ctx.model.add_type(typ);
     ctx.register_type_symbol(String::from("OBJECT IDENTIFIER"), type_id);
+
+    // BITS - bit string type
+    let name = ctx.intern("BITS");
+    let typ = ResolvedType::new(
+        crate::model::TypeId::from_raw(1).unwrap(),
+        name,
+        module_id,
+        BaseType::Bits,
+    );
+    let type_id = ctx.model.add_type(typ);
+    ctx.register_type_symbol(String::from("BITS"), type_id);
 }
 
 /// Create type nodes for all user-defined types.

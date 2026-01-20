@@ -56,8 +56,8 @@ pub struct ResolvedObject {
     pub module: ModuleId,
     /// Object name.
     pub name: StrId,
-    /// Resolved type.
-    pub type_id: TypeId,
+    /// Resolved type (None if type reference couldn't be resolved).
+    pub type_id: Option<TypeId>,
     /// Inline enumeration values (not from type).
     pub inline_enum: Option<EnumValues>,
     /// Inline BITS values (not from type).
@@ -86,7 +86,7 @@ impl ResolvedObject {
         node: NodeId,
         module: ModuleId,
         name: StrId,
-        type_id: TypeId,
+        type_id: Option<TypeId>,
         access: Access,
     ) -> Self {
         Self {

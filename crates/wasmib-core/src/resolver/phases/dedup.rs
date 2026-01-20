@@ -159,8 +159,20 @@ fn definitions_are_equivalent(
 /// Check if two ResolvedObjects are semantically equivalent.
 fn objects_are_equivalent(model: &Model, a: &ResolvedObject, b: &ResolvedObject) -> bool {
     // Compare type structure (not just TypeId, as duplicates have different IDs)
-    if !types_are_equivalent(model, a.type_id, b.type_id) {
-        return false;
+    // Both None = equivalent, both Some = compare structurally, mixed = not equivalent
+    match (a.type_id, b.type_id) {
+        (Some(type_a), Some(type_b)) => {
+            if !types_are_equivalent(model, type_a, type_b) {
+                return false;
+            }
+        }
+        (None, None) => {
+            // Both unresolved - consider equivalent for dedup purposes
+        }
+        _ => {
+            // One resolved, one not - not equivalent
+            return false;
+        }
     }
 
     // Compare inline enums
