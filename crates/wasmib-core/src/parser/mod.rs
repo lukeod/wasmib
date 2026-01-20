@@ -102,6 +102,7 @@ impl<'src> Parser<'src> {
     // === Token access methods ===
 
     /// Get the EOF token for this source.
+    #[allow(clippy::cast_possible_truncation)] // Source files bounded by 4GB
     fn eof_token(&self) -> Token {
         Token {
             kind: TokenKind::Eof,
@@ -179,6 +180,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Create an error diagnostic at a specific span.
+    #[allow(clippy::unused_self)] // Consistent API with other error methods
     fn error_at(&self, span: Span, message: &str) -> Diagnostic {
         Diagnostic {
             severity: Severity::Error,
@@ -640,6 +642,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse type syntax.
+    #[allow(clippy::too_many_lines)] // Parser handles many syntax cases
     fn parse_type_syntax(&mut self) -> Result<TypeSyntax, Diagnostic> {
         let start = self.current_span().start;
 
@@ -1129,6 +1132,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse the content inside a DEFVAL clause.
+    #[allow(clippy::too_many_lines)] // DEFVAL has many value forms
     fn parse_defval_content(&mut self) -> Result<DefValContent, Diagnostic> {
         let content_start = self.current_span().start;
 

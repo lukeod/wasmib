@@ -168,6 +168,7 @@ fn create_snmpv2_tc() -> HirModule {
 }
 
 /// Create OID root definitions as `ValueAssignments`.
+#[allow(clippy::too_many_lines)] // Data-driven definition list
 fn create_oid_definitions() -> Vec<HirDefinition> {
     vec![
         // ccitt OBJECT IDENTIFIER ::= { 0 }
@@ -419,6 +420,7 @@ fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
 /// Create textual convention definitions as `TypeDefs`.
 ///
 /// These are from SNMPv2-TC (RFC 2579).
+#[allow(clippy::too_many_lines)] // Data-driven definition list
 fn create_tc_definitions() -> Vec<HirDefinition> {
     vec![
         // DisplayString ::= TEXTUAL-CONVENTION

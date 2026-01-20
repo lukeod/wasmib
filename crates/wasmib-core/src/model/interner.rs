@@ -95,6 +95,8 @@ impl StringInterner {
     /// Intern a string, returning its identifier.
     ///
     /// Short strings are deduplicated; long strings are stored directly.
+    #[allow(clippy::missing_panics_doc)] // Panic only on index overflow (>4B strings)
+    #[allow(clippy::cast_possible_truncation)] // String data bounded by available memory
     pub fn intern(&mut self, s: &str) -> StrId {
         // Check dedup table for short strings
         if s.len() < DEDUP_THRESHOLD {

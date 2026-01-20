@@ -27,9 +27,8 @@ pub fn deduplicate_definitions(model: &mut Model) -> usize {
     let node_count = model.node_count();
 
     for idx in 0..node_count {
-        let node_id = match crate::model::NodeId::from_index(idx) {
-            Some(id) => id,
-            None => continue,
+        let Some(node_id) = crate::model::NodeId::from_index(idx) else {
+            continue;
         };
 
         let removed = deduplicate_node_definitions(model, node_id);

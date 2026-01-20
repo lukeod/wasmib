@@ -266,6 +266,7 @@ impl Resolver {
     }
 
     /// Collect resolution diagnostics.
+    #[allow(clippy::unused_self)] // Method for API consistency
     fn collect_diagnostics(&self, ctx: &ResolverContext) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let unresolved = ctx.model.unresolved();

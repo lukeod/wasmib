@@ -328,9 +328,8 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         };
 
         let module_id = obj_ref.module_id;
-        let node_id = match ctx.lookup_node_for_module(module_id, &obj_data.name) {
-            Some(id) => id,
-            None => continue,
+        let Some(node_id) = ctx.lookup_node_for_module(module_id, &obj_data.name) else {
+            continue;
         };
 
         // Find the type (may be None if unresolved)
@@ -463,9 +462,8 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
         };
 
         let module_id = notif_ref.module_id;
-        let node_id = match ctx.lookup_node_for_module(module_id, &notif_data.name) {
-            Some(id) => id,
-            None => continue,
+        let Some(node_id) = ctx.lookup_node_for_module(module_id, &notif_data.name) else {
+            continue;
         };
 
         let name = ctx.intern(&notif_data.name);

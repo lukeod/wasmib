@@ -77,9 +77,8 @@ fn create_user_types(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_idx, _def_idx, td) in type_defs {
-        let module_id = match ctx.get_module_id_for_hir_index(module_idx) {
-            Some(id) => id,
-            None => continue, // Skip if module not registered (shouldn't happen)
+        let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
+            continue; // Skip if module not registered (shouldn't happen)
         };
 
         let name = ctx.intern(&td.name.name);
@@ -192,9 +191,8 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_idx, type_name, base_name, span) in type_refs {
-        let module_id = match ctx.get_module_id_for_hir_index(module_idx) {
-            Some(id) => id,
-            None => continue, // Skip if module not registered (shouldn't happen)
+        let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
+            continue; // Skip if module not registered (shouldn't happen)
         };
 
         // Look up the type and its base
@@ -399,7 +397,9 @@ fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
     }
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn range_value_to_u32(v: &HirRangeValue) -> u32 {
+    // Intentional conversion: size constraints in MIBs are typically small values
     match v {
         HirRangeValue::Signed(n) => *n as u32,
         HirRangeValue::Unsigned(n) => *n as u32,

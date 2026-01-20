@@ -130,9 +130,10 @@ fn is_first_component_resolvable<TR: OidTracer>(
             found
         }
         Some(
-            HirOidComponent::NamedNumber { .. } | HirOidComponent::QualifiedNamedNumber { .. },
-        ) => true, // Named numbers create nodes
-        Some(HirOidComponent::Number(_)) => true, // Bare numbers extend from current
+            HirOidComponent::NamedNumber { .. }
+            | HirOidComponent::QualifiedNamedNumber { .. }
+            | HirOidComponent::Number(_),
+        ) => true, // Named/bare numbers create or extend nodes
         Some(HirOidComponent::QualifiedName { module, name }) => {
             // Qualified name: use cross-module lookup
             ctx.lookup_node_in_module(&module.name, &name.name)
@@ -244,14 +245,11 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         let def_name = def.def_name(ctx).to_string();
 
         // Look up the enterprise OID
-        let enterprise_node_id =
-            if let Some(id) = lookup_node_scoped(ctx, def.module_id, &enterprise) {
-                id
-            } else {
-                // Enterprise reference not found
-                ctx.record_unresolved_oid(def.module_id, &def_name, &enterprise, span);
-                continue;
-            };
+        let Some(enterprise_node_id) = lookup_node_scoped(ctx, def.module_id, &enterprise) else {
+            // Enterprise reference not found
+            ctx.record_unresolved_oid(def.module_id, &def_name, &enterprise, span);
+            continue;
+        };
 
         // Get enterprise OID
         let enterprise_oid = match ctx.model.get_node(enterprise_node_id) {
@@ -450,6 +448,7 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
 }
 
 /// Resolve a single OID definition. Returns true if resolved successfully.
+#[allow(clippy::too_many_lines)] // OID resolution involves many steps
 fn resolve_oid_definition_inner<TR: OidTracer>(
     ctx: &mut ResolverContext,
     def: &OidDefinition,
