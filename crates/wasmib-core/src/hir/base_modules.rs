@@ -320,8 +320,8 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(-2_147_483_648),
-                    max: Some(HirRangeValue::Number(2_147_483_647)),
+                    min: HirRangeValue::Signed(i64::from(i32::MIN)),
+                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
                 }]),
             },
         ),
@@ -331,20 +331,19 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(4_294_967_295)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
                 }]),
             },
         ),
         // Counter64 ::= [APPLICATION 6] IMPLICIT INTEGER (0..18446744073709551615)
-        // Note: We represent this with a max we can express
         make_typedef(
             "Counter64",
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(i64::MAX)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(u64::MAX)),
                 }]),
             },
         ),
@@ -354,8 +353,8 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(4_294_967_295)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
                 }]),
             },
         ),
@@ -365,8 +364,8 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(4_294_967_295)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
                 }]),
             },
         ),
@@ -376,8 +375,8 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(4_294_967_295)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
                 }]),
             },
         ),
@@ -387,7 +386,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Number(4),
+                    min: HirRangeValue::Unsigned(4),
                     max: None,
                 }]),
             },
@@ -425,8 +424,8 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(255)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(255)),
                 }]),
             },
         ),
@@ -443,7 +442,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Number(6),
+                    min: HirRangeValue::Unsigned(6),
                     max: None,
                 }]),
             },
@@ -493,8 +492,8 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(2_147_483_647)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
                 }]),
             },
         ),
@@ -508,11 +507,11 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![
                     HirRange {
-                        min: HirRangeValue::Number(8),
+                        min: HirRangeValue::Unsigned(8),
                         max: None,
                     },
                     HirRange {
-                        min: HirRangeValue::Number(11),
+                        min: HirRangeValue::Unsigned(11),
                         max: None,
                     },
                 ]),
@@ -526,8 +525,8 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Number(0),
-                    max: Some(HirRangeValue::Number(2_147_483_647)),
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
                 }]),
             },
         ),
@@ -554,8 +553,8 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Number(1),
-                    max: Some(HirRangeValue::Number(255)),
+                    min: HirRangeValue::Unsigned(1),
+                    max: Some(HirRangeValue::Unsigned(255)),
                 }]),
             },
         ),

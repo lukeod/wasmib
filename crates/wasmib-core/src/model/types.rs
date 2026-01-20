@@ -80,20 +80,49 @@ impl SizeConstraint {
     }
 }
 
+/// A range bound value that can be signed or unsigned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum RangeBound {
+    /// Signed value (for Integer32 ranges).
+    Signed(i64),
+    /// Unsigned value (for Counter64 ranges).
+    Unsigned(u64),
+}
+
+impl RangeBound {
+    /// Get the value as i128 for comparison purposes.
+    #[must_use]
+    pub fn as_i128(self) -> i128 {
+        match self {
+            Self::Signed(v) => i128::from(v),
+            Self::Unsigned(v) => i128::from(v),
+        }
+    }
+}
+
 /// Value range constraint for INTEGER types.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueConstraint {
     /// (min, max) pairs for allowed values.
-    pub ranges: Vec<(i64, i64)>,
+    pub ranges: Vec<(RangeBound, RangeBound)>,
 }
 
 impl ValueConstraint {
-    /// Create a single-range value constraint.
+    /// Create a single-range value constraint with signed bounds.
     #[must_use]
-    pub fn range(min: i64, max: i64) -> Self {
+    pub fn range_signed(min: i64, max: i64) -> Self {
         Self {
-            ranges: vec![(min, max)],
+            ranges: vec![(RangeBound::Signed(min), RangeBound::Signed(max))],
+        }
+    }
+
+    /// Create a single-range value constraint with unsigned bounds.
+    #[must_use]
+    pub fn range_unsigned(min: u64, max: u64) -> Self {
+        Self {
+            ranges: vec![(RangeBound::Unsigned(min), RangeBound::Unsigned(max))],
         }
     }
 }

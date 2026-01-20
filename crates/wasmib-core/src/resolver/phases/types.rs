@@ -4,7 +4,7 @@
 
 use crate::hir::{HirConstraint, HirDefinition, HirRange, HirRangeValue, HirStatus, HirTypeSyntax};
 use crate::model::{
-    BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status, TypeId,
+    BaseType, BitDefinitions, EnumValues, RangeBound, ResolvedType, SizeConstraint, Status, TypeId,
     ValueConstraint,
 };
 use crate::resolver::context::ResolverContext;
@@ -306,8 +306,8 @@ fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
     let value_ranges: Vec<_> = ranges
         .iter()
         .map(|r| {
-            let min = range_value_to_i64(&r.min);
-            let max = r.max.as_ref().map_or(min, |m| range_value_to_i64(m));
+            let min = range_value_to_bound(&r.min);
+            let max = r.max.as_ref().map_or(min, |m| range_value_to_bound(m));
             (min, max)
         })
         .collect();
@@ -316,17 +316,21 @@ fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
 
 fn range_value_to_u32(v: &HirRangeValue) -> u32 {
     match v {
-        HirRangeValue::Number(n) => *n as u32,
+        HirRangeValue::Signed(n) => *n as u32,
+        HirRangeValue::Unsigned(n) => *n as u32,
         HirRangeValue::Min => 0,
         HirRangeValue::Max => u32::MAX,
     }
 }
 
-fn range_value_to_i64(v: &HirRangeValue) -> i64 {
+fn range_value_to_bound(v: &HirRangeValue) -> RangeBound {
     match v {
-        HirRangeValue::Number(n) => *n,
-        HirRangeValue::Min => i64::MIN,
-        HirRangeValue::Max => i64::MAX,
+        HirRangeValue::Signed(n) => RangeBound::Signed(*n),
+        HirRangeValue::Unsigned(n) => RangeBound::Unsigned(*n),
+        // For MIN/MAX, we use signed variants as they're typically used in signed integer contexts
+        // The actual interpretation depends on the type (Integer32 vs Counter64)
+        HirRangeValue::Min => RangeBound::Signed(i64::MIN),
+        HirRangeValue::Max => RangeBound::Unsigned(u64::MAX),
     }
 }
 

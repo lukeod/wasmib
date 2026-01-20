@@ -137,21 +137,39 @@ pub struct HirRange {
 }
 
 impl HirRange {
-    /// Create a single-value range.
+    /// Create a single-value range with a signed value.
     #[must_use]
-    pub fn single(value: i64) -> Self {
+    pub fn single_signed(value: i64) -> Self {
         Self {
-            min: HirRangeValue::Number(value),
+            min: HirRangeValue::Signed(value),
             max: None,
         }
     }
 
-    /// Create a range from min to max.
+    /// Create a single-value range with an unsigned value.
     #[must_use]
-    pub fn range(min: i64, max: i64) -> Self {
+    pub fn single_unsigned(value: u64) -> Self {
         Self {
-            min: HirRangeValue::Number(min),
-            max: Some(HirRangeValue::Number(max)),
+            min: HirRangeValue::Unsigned(value),
+            max: None,
+        }
+    }
+
+    /// Create a range from min to max with signed values.
+    #[must_use]
+    pub fn range_signed(min: i64, max: i64) -> Self {
+        Self {
+            min: HirRangeValue::Signed(min),
+            max: Some(HirRangeValue::Signed(max)),
+        }
+    }
+
+    /// Create a range from min to max with unsigned values.
+    #[must_use]
+    pub fn range_unsigned(min: u64, max: u64) -> Self {
+        Self {
+            min: HirRangeValue::Unsigned(min),
+            max: Some(HirRangeValue::Unsigned(max)),
         }
     }
 }
@@ -159,8 +177,10 @@ impl HirRange {
 /// A value in a range constraint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HirRangeValue {
-    /// Numeric value.
-    Number(i64),
+    /// Signed numeric value (for Integer32 ranges, can be negative).
+    Signed(i64),
+    /// Unsigned numeric value (for Counter64 ranges, large positive values).
+    Unsigned(u64),
     /// MIN keyword.
     Min,
     /// MAX keyword.

@@ -156,8 +156,10 @@ pub struct Range {
 /// A value in a range constraint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RangeValue {
-    /// Numeric value.
-    Number(i64),
+    /// Signed numeric value (for Integer32 ranges, can be negative).
+    Signed(i64),
+    /// Unsigned numeric value (for Counter64 ranges, large positive values).
+    Unsigned(u64),
     /// Named value (MIN, MAX).
     Ident(Ident),
 }

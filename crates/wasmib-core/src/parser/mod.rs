@@ -777,11 +777,11 @@ impl<'src> Parser<'src> {
             let end = max
                 .as_ref()
                 .map(|v| match v {
-                    RangeValue::Number(_) => self.current_span().start,
+                    RangeValue::Signed(_) | RangeValue::Unsigned(_) => self.current_span().start,
                     RangeValue::Ident(i) => i.span.end,
                 })
                 .unwrap_or(match &min {
-                    RangeValue::Number(_) => self.current_span().start,
+                    RangeValue::Signed(_) | RangeValue::Unsigned(_) => self.current_span().start,
                     RangeValue::Ident(i) => i.span.end,
                 });
 
@@ -805,20 +805,27 @@ impl<'src> Parser<'src> {
     fn parse_range_value(&mut self) -> Result<RangeValue, Diagnostic> {
         if self.check(TokenKind::Number) {
             let token = self.advance();
-            let value: i64 = self.text(token.span).parse().unwrap_or(0);
-            Ok(RangeValue::Number(value))
+            let text = self.text(token.span);
+            // Try parsing as u64 first to handle large unsigned values like Counter64 max
+            if let Ok(value) = text.parse::<u64>() {
+                Ok(RangeValue::Unsigned(value))
+            } else {
+                // Fallback to signed (shouldn't happen for positive numbers, but be safe)
+                let value: i64 = text.parse().unwrap_or(0);
+                Ok(RangeValue::Signed(value))
+            }
         } else if self.check(TokenKind::NegativeNumber) {
             let token = self.advance();
             let value: i64 = self.text(token.span).parse().unwrap_or(0);
-            Ok(RangeValue::Number(value))
+            Ok(RangeValue::Signed(value))
         } else if self.check(TokenKind::HexString) {
-            // Hex string like 'ffffffff'h - parse to number
+            // Hex string like 'ffffffff'h - parse to unsigned number
             let token = self.advance();
             let text = self.text(token.span);
             // Extract hex digits (format: 'xxxx'H)
             let hex_part = text.trim_start_matches('\'').trim_end_matches(|c| c == '\'' || c == 'H' || c == 'h');
-            let value = i64::from_str_radix(hex_part, 16).unwrap_or(0);
-            Ok(RangeValue::Number(value))
+            let value = u64::from_str_radix(hex_part, 16).unwrap_or(0);
+            Ok(RangeValue::Unsigned(value))
         } else if self.check(TokenKind::UppercaseIdent) || self.check(TokenKind::ForbiddenKeyword) {
             // MIN and MAX are actually forbidden keywords but used here
             let token = self.advance();

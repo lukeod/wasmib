@@ -442,13 +442,15 @@ fn lower_range(range: &ast::Range) -> HirRange {
 /// Lower AST range value to HIR range value.
 fn lower_range_value(value: &RangeValue) -> HirRangeValue {
     match value {
-        RangeValue::Number(n) => HirRangeValue::Number(*n),
+        RangeValue::Signed(n) => HirRangeValue::Signed(*n),
+        RangeValue::Unsigned(n) => HirRangeValue::Unsigned(*n),
         RangeValue::Ident(ident) => {
             // Handle MIN/MAX keywords
             match ident.name.as_str() {
                 "MIN" => HirRangeValue::Min,
                 "MAX" => HirRangeValue::Max,
-                _ => HirRangeValue::Number(0), // Shouldn't happen, but fallback
+                // Shouldn't happen, but fallback to unsigned 0
+                _ => HirRangeValue::Unsigned(0),
             }
         }
     }

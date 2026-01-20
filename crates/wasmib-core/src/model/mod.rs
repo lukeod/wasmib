@@ -50,7 +50,7 @@ pub use node::{NodeDefinition, NodeKind, OidNode};
 pub use object::{DefVal, IndexItem, IndexSpec, ResolvedNotification, ResolvedObject};
 pub use oid::Oid;
 pub use types::{
-    Access, BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status,
+    Access, BaseType, BitDefinitions, EnumValues, RangeBound, ResolvedType, SizeConstraint, Status,
     ValueConstraint,
 };
 
