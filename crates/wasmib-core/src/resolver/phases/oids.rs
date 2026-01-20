@@ -678,8 +678,8 @@ mod tests {
 
     fn make_object_type(name: &str, oid_components: Vec<HirOidComponent>) -> HirDefinition {
         HirDefinition::ObjectType(HirObjectType {
-            name: Symbol::from_str(name),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            name: Symbol::from_name(name),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             units: None,
             access: HirAccess::ReadOnly,
             status: HirStatus::Current,
@@ -700,15 +700,15 @@ mod tests {
         defs: Vec<HirDefinition>,
         imports: Vec<(&str, &str)>,
     ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         // HirImport::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
                 HirImport::new(
-                    Symbol::from_str(from),
-                    Symbol::from_str(sym),
+                    Symbol::from_name(from),
+                    Symbol::from_name(sym),
                     Span::new(0, 0),
                 )
             })
@@ -721,7 +721,7 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
         );
@@ -762,18 +762,18 @@ mod tests {
             "testObject",
             vec![
                 HirOidComponent::NamedNumber {
-                    name: Symbol::from_str("iso"),
+                    name: Symbol::from_name("iso"),
                     number: 1,
                 },
                 HirOidComponent::NamedNumber {
-                    name: Symbol::from_str("org"),
+                    name: Symbol::from_name("org"),
                     number: 3,
                 },
                 HirOidComponent::Number(999),
             ],
         );
 
-        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -803,13 +803,13 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_str("unknownNode")),
+                HirOidComponent::Name(Symbol::from_name("unknownNode")),
                 HirOidComponent::Number(1),
             ],
         );
 
         // Module doesn't import unknownNode, so it should be unresolved
-        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -829,15 +829,15 @@ mod tests {
             "testObject",
             vec![
                 HirOidComponent::QualifiedName {
-                    module: Symbol::from_str("SNMPv2-SMI"),
-                    name: Symbol::from_str("enterprises"),
+                    module: Symbol::from_name("SNMPv2-SMI"),
+                    name: Symbol::from_name("enterprises"),
                 },
                 HirOidComponent::Number(1),
             ],
         );
 
         // Module does NOT import enterprises, but uses qualified syntax
-        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -869,8 +869,8 @@ mod tests {
             "testObject",
             vec![
                 HirOidComponent::QualifiedNamedNumber {
-                    module: Symbol::from_str("SNMPv2-SMI"),
-                    name: Symbol::from_str("enterprises"),
+                    module: Symbol::from_name("SNMPv2-SMI"),
+                    name: Symbol::from_name("enterprises"),
                     number: 1, // enterprises is at 1.3.6.1.4.1
                 },
                 HirOidComponent::Number(42),
@@ -878,7 +878,7 @@ mod tests {
         );
 
         // Module does NOT import enterprises, but uses qualified syntax
-        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -910,14 +910,14 @@ mod tests {
             "testObject",
             vec![
                 HirOidComponent::QualifiedName {
-                    module: Symbol::from_str("NONEXISTENT-MIB"),
-                    name: Symbol::from_str("unknownNode"),
+                    module: Symbol::from_name("NONEXISTENT-MIB"),
+                    name: Symbol::from_name("unknownNode"),
                 },
                 HirOidComponent::Number(1),
             ],
         );
 
-        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);

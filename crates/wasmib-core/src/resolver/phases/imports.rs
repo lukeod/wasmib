@@ -306,10 +306,12 @@ mod tests {
     use alloc::vec;
 
     fn make_test_module_with_imports(name: &str, imports: Vec<(&str, &str)>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.imports = imports
             .into_iter()
-            .map(|(m, s)| HirImport::new(Symbol::from_str(m), Symbol::from_str(s), Span::new(0, 0)))
+            .map(|(m, s)| {
+                HirImport::new(Symbol::from_name(m), Symbol::from_name(s), Span::new(0, 0))
+            })
             .collect();
         module
     }
@@ -362,14 +364,14 @@ mod tests {
     #[test]
     fn test_cross_module_import() {
         // Create two modules where one imports from the other
-        let mut dep_module = HirModule::new(Symbol::from_str("DEP-MIB"), Span::new(0, 0));
+        let mut dep_module = HirModule::new(Symbol::from_name("DEP-MIB"), Span::new(0, 0));
         dep_module
             .definitions
             .push(crate::hir::HirDefinition::ValueAssignment(
                 crate::hir::HirValueAssignment {
-                    name: Symbol::from_str("depNode"),
+                    name: Symbol::from_name("depNode"),
                     oid: crate::hir::HirOidAssignment::new(
-                        vec![crate::hir::HirOidComponent::Name(Symbol::from_str(
+                        vec![crate::hir::HirOidComponent::Name(Symbol::from_name(
                             "enterprises",
                         ))],
                         Span::new(0, 0),

@@ -139,7 +139,7 @@ pub fn create_base_modules() -> Vec<HirModule> {
 /// - OID root definitions (iso, internet, enterprises, etc.)
 /// - Base type definitions (Integer32, Counter32, etc.)
 fn create_snmpv2_smi() -> HirModule {
-    let mut module = HirModule::new(Symbol::from_str("SNMPv2-SMI"), Span::SYNTHETIC);
+    let mut module = HirModule::new(Symbol::from_name("SNMPv2-SMI"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv2;
 
     // Add OID root definitions
@@ -155,7 +155,7 @@ fn create_snmpv2_smi() -> HirModule {
 ///
 /// Contains textual convention definitions (`DisplayString`, `TruthValue`, etc.)
 fn create_snmpv2_tc() -> HirModule {
-    let mut module = HirModule::new(Symbol::from_str("SNMPv2-TC"), Span::SYNTHETIC);
+    let mut module = HirModule::new(Symbol::from_name("SNMPv2-TC"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv2;
 
     // Add imports from SNMPv2-SMI (for base types used by TCs)
@@ -182,7 +182,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "org",
             vec![
-                HirOidComponent::Name(Symbol::from_str("iso")),
+                HirOidComponent::Name(Symbol::from_name("iso")),
                 HirOidComponent::Number(3),
             ],
         ),
@@ -190,7 +190,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "dod",
             vec![
-                HirOidComponent::Name(Symbol::from_str("org")),
+                HirOidComponent::Name(Symbol::from_name("org")),
                 HirOidComponent::Number(6),
             ],
         ),
@@ -198,7 +198,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "internet",
             vec![
-                HirOidComponent::Name(Symbol::from_str("dod")),
+                HirOidComponent::Name(Symbol::from_name("dod")),
                 HirOidComponent::Number(1),
             ],
         ),
@@ -206,7 +206,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "directory",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(1),
             ],
         ),
@@ -214,7 +214,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "mgmt",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(2),
             ],
         ),
@@ -222,7 +222,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "mib-2",
             vec![
-                HirOidComponent::Name(Symbol::from_str("mgmt")),
+                HirOidComponent::Name(Symbol::from_name("mgmt")),
                 HirOidComponent::Number(1),
             ],
         ),
@@ -230,7 +230,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "transmission",
             vec![
-                HirOidComponent::Name(Symbol::from_str("mib-2")),
+                HirOidComponent::Name(Symbol::from_name("mib-2")),
                 HirOidComponent::Number(10),
             ],
         ),
@@ -238,7 +238,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "experimental",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(3),
             ],
         ),
@@ -246,7 +246,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "private",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(4),
             ],
         ),
@@ -254,7 +254,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "enterprises",
             vec![
-                HirOidComponent::Name(Symbol::from_str("private")),
+                HirOidComponent::Name(Symbol::from_name("private")),
                 HirOidComponent::Number(1),
             ],
         ),
@@ -262,7 +262,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "security",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(5),
             ],
         ),
@@ -270,7 +270,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "snmpV2",
             vec![
-                HirOidComponent::Name(Symbol::from_str("internet")),
+                HirOidComponent::Name(Symbol::from_name("internet")),
                 HirOidComponent::Number(6),
             ],
         ),
@@ -278,7 +278,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "snmpDomains",
             vec![
-                HirOidComponent::Name(Symbol::from_str("snmpV2")),
+                HirOidComponent::Name(Symbol::from_name("snmpV2")),
                 HirOidComponent::Number(1),
             ],
         ),
@@ -286,7 +286,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "snmpProxys",
             vec![
-                HirOidComponent::Name(Symbol::from_str("snmpV2")),
+                HirOidComponent::Name(Symbol::from_name("snmpV2")),
                 HirOidComponent::Number(2),
             ],
         ),
@@ -294,7 +294,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
         make_oid_value(
             "snmpModules",
             vec![
-                HirOidComponent::Name(Symbol::from_str("snmpV2")),
+                HirOidComponent::Name(Symbol::from_name("snmpV2")),
                 HirOidComponent::Number(3),
             ],
         ),
@@ -309,7 +309,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
 /// Create a `ValueAssignment` for an OID definition.
 fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition {
     HirDefinition::ValueAssignment(HirValueAssignment {
-        name: Symbol::from_str(name),
+        name: Symbol::from_name(name),
         oid: HirOidAssignment::new(components, Span::SYNTHETIC),
         span: Span::SYNTHETIC,
     })
@@ -324,7 +324,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "Integer32",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Signed(i64::from(i32::MIN)),
                     max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
@@ -335,7 +335,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "Counter32",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
@@ -346,7 +346,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "Counter64",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Unsigned(u64::MAX)),
@@ -357,7 +357,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "Gauge32",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
@@ -368,7 +368,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "Unsigned32",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
@@ -379,7 +379,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         make_typedef(
             "TimeTicks",
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
@@ -405,7 +405,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
 /// Create a `TypeDef` for a base type definition.
 fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
     HirDefinition::TypeDef(HirTypeDef {
-        name: Symbol::from_str(name),
+        name: Symbol::from_name(name),
         syntax,
         display_hint: None,
         status: HirStatus::Current,
@@ -488,7 +488,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         make_tc(
             "TimeStamp",
             None,
-            HirTypeSyntax::TypeRef(Symbol::from_str("TimeTicks")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("TimeTicks")),
         ),
         // TimeInterval ::= TEXTUAL-CONVENTION
         //     SYNTAX INTEGER (0..2147483647)
@@ -496,7 +496,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             "TimeInterval",
             None,
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
@@ -529,7 +529,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             "TestAndIncr",
             None,
             HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_str("INTEGER"))),
+                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
                 constraint: HirConstraint::Range(vec![HirRange {
                     min: HirRangeValue::Unsigned(0),
                     max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
@@ -570,7 +570,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
 /// Create a `TypeDef` for a textual convention.
 fn make_tc(name: &str, display_hint: Option<&str>, syntax: HirTypeSyntax) -> HirDefinition {
     HirDefinition::TypeDef(HirTypeDef {
-        name: Symbol::from_str(name),
+        name: Symbol::from_name(name),
         syntax,
         display_hint: display_hint.map(String::from),
         status: HirStatus::Current,
@@ -588,7 +588,7 @@ fn make_tc_obsolete(
     syntax: HirTypeSyntax,
 ) -> HirDefinition {
     HirDefinition::TypeDef(HirTypeDef {
-        name: Symbol::from_str(name),
+        name: Symbol::from_name(name),
         syntax,
         display_hint: display_hint.map(String::from),
         status: HirStatus::Obsolete,
@@ -603,11 +603,11 @@ fn make_tc_obsolete(
 fn make_tc_with_enum(name: &str, values: &[(&str, i64)]) -> HirDefinition {
     let enum_values: Vec<(Symbol, i64)> = values
         .iter()
-        .map(|(n, v)| (Symbol::from_str(n), *v))
+        .map(|(n, v)| (Symbol::from_name(n), *v))
         .collect();
 
     HirDefinition::TypeDef(HirTypeDef {
-        name: Symbol::from_str(name),
+        name: Symbol::from_name(name),
         syntax: HirTypeSyntax::IntegerEnum(enum_values),
         display_hint: None,
         status: HirStatus::Current,

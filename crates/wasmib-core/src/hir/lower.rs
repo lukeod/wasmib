@@ -86,7 +86,7 @@ pub fn lower_module(ast_module: &Module) -> HirModule {
     }
 
     // Collect diagnostics from AST and lowering
-    hir_module.diagnostics = ast_module.diagnostics.clone();
+    hir_module.diagnostics.clone_from(&ast_module.diagnostics);
     hir_module.diagnostics.extend(ctx.diagnostics);
 
     hir_module
@@ -173,11 +173,11 @@ fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObj
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         units: def.units.as_ref().map(|u| u.value.clone()),
-        access: lower_access(&def.access.value),
+        access: lower_access(def.access.value),
         status: def
             .status
             .as_ref()
-            .map_or(HirStatus::Current, |s| lower_status(&s.value)),
+            .map_or(HirStatus::Current, |s| lower_status(s.value)),
         description: def.description.as_ref().map(|d| d.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         index: lower_index_clause(def.index.as_ref()),
@@ -243,7 +243,7 @@ fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
 fn lower_object_identity(def: &ast::ObjectIdentityDef) -> HirObjectIdentity {
     HirObjectIdentity {
         name: Symbol::from(&def.name),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         oid: lower_oid_assignment(&def.oid_assignment),
@@ -255,7 +255,7 @@ fn lower_notification_type(def: &ast::NotificationTypeDef) -> HirNotification {
     HirNotification {
         name: Symbol::from(&def.name),
         objects: def.objects.iter().map(Symbol::from).collect(),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: Some(def.description.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         trap_info: None,
@@ -285,7 +285,7 @@ fn lower_textual_convention(def: &ast::TextualConventionDef) -> HirTypeDef {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         display_hint: def.display_hint.as_ref().map(|h| h.value.clone()),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: Some(def.description.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         is_textual_convention: true,
@@ -318,7 +318,7 @@ fn lower_object_group(def: &ast::ObjectGroupDef) -> HirObjectGroup {
     HirObjectGroup {
         name: Symbol::from(&def.name),
         objects: def.objects.iter().map(Symbol::from).collect(),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         oid: lower_oid_assignment(&def.oid_assignment),
@@ -330,7 +330,7 @@ fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationG
     HirNotificationGroup {
         name: Symbol::from(&def.name),
         notifications: def.notifications.iter().map(Symbol::from).collect(),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         oid: lower_oid_assignment(&def.oid_assignment),
@@ -341,7 +341,7 @@ fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationG
 fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleCompliance {
     HirModuleCompliance {
         name: Symbol::from(&def.name),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         modules: def.modules.iter().map(lower_compliance_module).collect(),
@@ -360,7 +360,7 @@ fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
             .iter()
             .filter_map(|c| match c {
                 ast::Compliance::Group(g) => Some(lower_compliance_group(g)),
-                _ => None,
+                ast::Compliance::Object(_) => None,
             })
             .collect(),
         objects: m
@@ -368,7 +368,7 @@ fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
             .iter()
             .filter_map(|c| match c {
                 ast::Compliance::Object(o) => Some(lower_compliance_object(o)),
-                _ => None,
+                ast::Compliance::Group(_) => None,
             })
             .collect(),
     }
@@ -391,7 +391,7 @@ fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
             .write_syntax
             .as_ref()
             .map(|s| lower_type_syntax(&s.syntax)),
-        min_access: o.min_access.as_ref().map(|a| lower_access(&a.value)),
+        min_access: o.min_access.as_ref().map(|a| lower_access(a.value)),
         description: o.description.value.clone(),
     }
 }
@@ -400,7 +400,7 @@ fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> HirAgentCapabili
     HirAgentCapabilities {
         name: Symbol::from(&def.name),
         product_release: def.product_release.value.clone(),
-        status: lower_status(&def.status.value),
+        status: lower_status(def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         supports: def.supports.iter().map(lower_supports_module).collect(),
@@ -440,7 +440,7 @@ fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
             .write_syntax
             .as_ref()
             .map(|s| lower_type_syntax(&s.syntax)),
-        access: v.access.as_ref().map(|a| lower_access(&a.value)),
+        access: v.access.as_ref().map(|a| lower_access(a.value)),
         creation_requires: v
             .creation_requires
             .as_ref()
@@ -453,7 +453,7 @@ fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
 fn lower_notification_variation(v: &ast::NotificationVariation) -> HirNotificationVariation {
     HirNotificationVariation {
         notification: Symbol::from(&v.notification),
-        access: v.access.as_ref().map(|a| lower_access(&a.value)),
+        access: v.access.as_ref().map(|a| lower_access(a.value)),
         description: v.description.value.clone(),
     }
 }
@@ -466,7 +466,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
         TypeSyntax::TypeRef(ident) => {
             // Normalize type name (Counter→Counter32, etc.)
             let normalized_name = normalize_type_name(&ident.name);
-            HirTypeSyntax::TypeRef(Symbol::from_str(normalized_name))
+            HirTypeSyntax::TypeRef(Symbol::from_name(normalized_name))
         }
         TypeSyntax::IntegerEnum { named_numbers, .. } => HirTypeSyntax::IntegerEnum(
             named_numbers
@@ -478,10 +478,10 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
             named_bits
                 .iter()
                 .map(|nb| {
-                    (
-                        Symbol::from(&nb.name),
-                        nb.value as u32, // BITS positions are non-negative
-                    )
+                    // BITS positions are small non-negative integers (0-127)
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let pos = nb.value as u32;
+                    (Symbol::from(&nb.name), pos)
                 })
                 .collect(),
         ),
@@ -577,31 +577,25 @@ fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
 }
 
 /// Lower AST access value to HIR access.
-fn lower_access(access: &AccessValue) -> HirAccess {
+fn lower_access(access: AccessValue) -> HirAccess {
     match access {
-        AccessValue::ReadOnly => HirAccess::ReadOnly,
-        AccessValue::ReadWrite => HirAccess::ReadWrite,
+        AccessValue::ReadOnly | AccessValue::ReportOnly => HirAccess::ReadOnly,
+        AccessValue::ReadWrite | AccessValue::Install | AccessValue::InstallNotify => {
+            HirAccess::ReadWrite
+        }
         AccessValue::ReadCreate => HirAccess::ReadCreate,
-        AccessValue::NotAccessible => HirAccess::NotAccessible,
+        AccessValue::NotAccessible | AccessValue::NotImplemented => HirAccess::NotAccessible,
         AccessValue::AccessibleForNotify => HirAccess::AccessibleForNotify,
         AccessValue::WriteOnly => HirAccess::WriteOnly,
-        // SPPI-specific and AGENT-CAPABILITIES values map to closest equivalent
-        AccessValue::NotImplemented => HirAccess::NotAccessible,
-        AccessValue::Install => HirAccess::ReadWrite,
-        AccessValue::InstallNotify => HirAccess::ReadWrite,
-        AccessValue::ReportOnly => HirAccess::ReadOnly,
     }
 }
 
 /// Lower AST status value to HIR status with normalization.
-fn lower_status(status: &StatusValue) -> HirStatus {
+fn lower_status(status: StatusValue) -> HirStatus {
     match status {
-        StatusValue::Current => HirStatus::Current,
-        StatusValue::Deprecated => HirStatus::Deprecated,
+        StatusValue::Current | StatusValue::Mandatory => HirStatus::Current,
+        StatusValue::Deprecated | StatusValue::Optional => HirStatus::Deprecated,
         StatusValue::Obsolete => HirStatus::Obsolete,
-        // SMIv1 normalization
-        StatusValue::Mandatory => HirStatus::Current,
-        StatusValue::Optional => HirStatus::Deprecated,
     }
 }
 
@@ -621,24 +615,18 @@ mod tests {
 
     #[test]
     fn test_lower_access() {
-        assert_eq!(lower_access(&AccessValue::ReadOnly), HirAccess::ReadOnly);
-        assert_eq!(lower_access(&AccessValue::ReadWrite), HirAccess::ReadWrite);
-        assert_eq!(
-            lower_access(&AccessValue::ReadCreate),
-            HirAccess::ReadCreate
-        );
+        assert_eq!(lower_access(AccessValue::ReadOnly), HirAccess::ReadOnly);
+        assert_eq!(lower_access(AccessValue::ReadWrite), HirAccess::ReadWrite);
+        assert_eq!(lower_access(AccessValue::ReadCreate), HirAccess::ReadCreate);
     }
 
     #[test]
     fn test_lower_status() {
-        assert_eq!(lower_status(&StatusValue::Current), HirStatus::Current);
-        assert_eq!(
-            lower_status(&StatusValue::Deprecated),
-            HirStatus::Deprecated
-        );
-        assert_eq!(lower_status(&StatusValue::Obsolete), HirStatus::Obsolete);
+        assert_eq!(lower_status(StatusValue::Current), HirStatus::Current);
+        assert_eq!(lower_status(StatusValue::Deprecated), HirStatus::Deprecated);
+        assert_eq!(lower_status(StatusValue::Obsolete), HirStatus::Obsolete);
         // SMIv1 normalization
-        assert_eq!(lower_status(&StatusValue::Mandatory), HirStatus::Current);
-        assert_eq!(lower_status(&StatusValue::Optional), HirStatus::Deprecated);
+        assert_eq!(lower_status(StatusValue::Mandatory), HirStatus::Current);
+        assert_eq!(lower_status(StatusValue::Optional), HirStatus::Deprecated);
     }
 }

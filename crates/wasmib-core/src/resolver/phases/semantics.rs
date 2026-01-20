@@ -655,7 +655,7 @@ mod tests {
         index: Option<Vec<HirIndexItem>>,
     ) -> HirDefinition {
         HirDefinition::ObjectType(HirObjectType {
-            name: Symbol::from_str(name),
+            name: Symbol::from_name(name),
             syntax,
             units: None,
             access: HirAccess::ReadOnly,
@@ -677,15 +677,15 @@ mod tests {
         defs: Vec<HirDefinition>,
         imports: Vec<(&str, &str)>,
     ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         // HirImport::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
                 HirImport::new(
-                    Symbol::from_str(from),
-                    Symbol::from_str(sym),
+                    Symbol::from_name(from),
+                    Symbol::from_name(sym),
                     Span::new(0, 0),
                 )
             })
@@ -697,9 +697,9 @@ mod tests {
     fn test_table_inference() {
         let table = make_object_type(
             "testTable",
-            HirTypeSyntax::SequenceOf(Symbol::from_str("TestEntry")),
+            HirTypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -730,13 +730,13 @@ mod tests {
     fn test_row_inference() {
         let row = make_object_type(
             "testEntry",
-            HirTypeSyntax::TypeRef(Symbol::from_str("TestEntry")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             Some(vec![HirIndexItem::new(
-                Symbol::from_str("testIndex"),
+                Symbol::from_name("testIndex"),
                 false,
             )]),
         );
@@ -766,9 +766,9 @@ mod tests {
     fn test_resolved_object_creation() {
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -796,9 +796,9 @@ mod tests {
         // Create an object with a reference to a non-existent type
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_str("NonExistentType")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("NonExistentType")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -836,9 +836,9 @@ mod tests {
         // Create an object with a reference to a non-existent type
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_str("FakeType")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("FakeType")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -875,9 +875,9 @@ mod tests {
         // Create an object with a valid type reference
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -912,9 +912,9 @@ mod tests {
         // SEQUENCE OF types (tables) have no meaningful type_id
         let table = make_object_type(
             "testTable",
-            HirTypeSyntax::SequenceOf(Symbol::from_str("TestEntry")),
+            HirTypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -950,11 +950,11 @@ mod tests {
         let obj = make_object_type(
             "testBits",
             HirTypeSyntax::Bits(vec![
-                (Symbol::from_str("flag1"), 0),
-                (Symbol::from_str("flag2"), 1),
+                (Symbol::from_name("flag1"), 0),
+                (Symbol::from_name("flag2"), 1),
             ]),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -991,8 +991,8 @@ mod tests {
         oid_components: Vec<HirOidComponent>,
     ) -> HirDefinition {
         HirDefinition::Notification(HirNotification {
-            name: Symbol::from_str(name),
-            objects: objects.into_iter().map(Symbol::from_str).collect(),
+            name: Symbol::from_name(name),
+            objects: objects.into_iter().map(Symbol::from_name).collect(),
             status: HirStatus::Current,
             description: Some("Test notification".into()),
             reference: Some("RFC-TEST".into()),
@@ -1008,7 +1008,7 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
         );
@@ -1046,9 +1046,9 @@ mod tests {
         // Create an object that the notification references
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
             None,
@@ -1059,7 +1059,7 @@ mod tests {
             "testNotification",
             vec!["testObject"],
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(2),
             ],
         );
@@ -1097,7 +1097,7 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
         );
@@ -1127,7 +1127,7 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
         );

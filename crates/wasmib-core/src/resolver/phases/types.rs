@@ -428,7 +428,7 @@ mod tests {
     use alloc::vec;
 
     fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         module
     }
@@ -451,8 +451,8 @@ mod tests {
     #[test]
     fn test_user_type_creation() {
         let typedef = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
             status: HirStatus::Current,
             description: Some("Test type".into()),
@@ -478,8 +478,8 @@ mod tests {
         // MyString ::= DisplayString
         // DisplayString is a built-in TC based on OCTET STRING
         let typedef = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
             status: HirStatus::Current,
             description: Some("Test type".into()),
@@ -513,8 +513,8 @@ mod tests {
         // MyString ::= DisplayString
         // DisplayString is based on OCTET STRING, so MyString should have OctetString base
         let typedef = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
             status: HirStatus::Current,
             description: Some("Test type".into()),
@@ -547,8 +547,8 @@ mod tests {
     fn test_type_chain() {
         // MyString ::= DisplayString (which is based on OCTET STRING)
         let typedef = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
             status: HirStatus::Current,
             description: None,
@@ -585,8 +585,8 @@ mod tests {
     fn test_multi_level_inheritance() {
         // Create: MyString2 ::= MyString ::= DisplayString
         let typedef1 = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: Some("255a".into()),
             status: HirStatus::Current,
             description: None,
@@ -596,8 +596,8 @@ mod tests {
         };
 
         let typedef2 = HirTypeDef {
-            name: Symbol::from_str("MyString2"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("MyString")),
+            name: Symbol::from_name("MyString2"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("MyString")),
             display_hint: None, // No hint - should inherit from MyString
             status: HirStatus::Current,
             description: None,
@@ -653,7 +653,7 @@ mod tests {
     fn test_sequence_base_type() {
         // SEQUENCE types should have BaseType::Sequence
         let typedef = HirTypeDef {
-            name: Symbol::from_str("IfEntry"),
+            name: Symbol::from_name("IfEntry"),
             syntax: HirTypeSyntax::Sequence(vec![]),
             display_hint: None,
             status: HirStatus::Current,
@@ -690,7 +690,7 @@ mod tests {
     fn test_octet_string_syntax_parent_linking() {
         // PhysAddress-like TC: SYNTAX OCTET STRING (no constraint)
         let typedef = HirTypeDef {
-            name: Symbol::from_str("TestPhysAddress"),
+            name: Symbol::from_name("TestPhysAddress"),
             syntax: HirTypeSyntax::OctetString,
             display_hint: Some("1x:".into()),
             status: HirStatus::Current,
@@ -730,7 +730,7 @@ mod tests {
         use alloc::boxed::Box;
         // DisplayString-like TC: SYNTAX OCTET STRING (SIZE (0..255))
         let typedef = HirTypeDef {
-            name: Symbol::from_str("TestDisplayString"),
+            name: Symbol::from_name("TestDisplayString"),
             syntax: HirTypeSyntax::Constrained {
                 base: Box::new(HirTypeSyntax::OctetString),
                 constraint: HirConstraint::Size(vec![HirRange {
@@ -775,7 +775,7 @@ mod tests {
     fn test_object_identifier_syntax_parent_linking() {
         // AutonomousType-like TC: SYNTAX OBJECT IDENTIFIER
         let typedef = HirTypeDef {
-            name: Symbol::from_str("TestAutonomousType"),
+            name: Symbol::from_name("TestAutonomousType"),
             syntax: HirTypeSyntax::ObjectIdentifier,
             display_hint: None,
             status: HirStatus::Current,
@@ -814,10 +814,10 @@ mod tests {
     fn test_integer_enum_syntax_parent_linking() {
         // TruthValue-like TC: SYNTAX INTEGER { true(1), false(2) }
         let typedef = HirTypeDef {
-            name: Symbol::from_str("TestTruthValue"),
+            name: Symbol::from_name("TestTruthValue"),
             syntax: HirTypeSyntax::IntegerEnum(vec![
-                (Symbol::from_str("true"), 1),
-                (Symbol::from_str("false"), 2),
+                (Symbol::from_name("true"), 1),
+                (Symbol::from_name("false"), 2),
             ]),
             display_hint: None,
             status: HirStatus::Current,
@@ -856,10 +856,10 @@ mod tests {
     fn test_bits_syntax_parent_linking() {
         // BITS-based type: SYNTAX BITS { flag1(0), flag2(1) }
         let typedef = HirTypeDef {
-            name: Symbol::from_str("TestBitsType"),
+            name: Symbol::from_name("TestBitsType"),
             syntax: HirTypeSyntax::Bits(vec![
-                (Symbol::from_str("flag1"), 0),
-                (Symbol::from_str("flag2"), 1),
+                (Symbol::from_name("flag1"), 0),
+                (Symbol::from_name("flag2"), 1),
             ]),
             display_hint: None,
             status: HirStatus::Current,
@@ -957,8 +957,8 @@ mod tests {
     fn test_full_type_chain_includes_primitive() {
         // MyString -> DisplayString -> OCTET STRING
         let typedef = HirTypeDef {
-            name: Symbol::from_str("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            name: Symbol::from_name("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
             status: HirStatus::Current,
             description: None,

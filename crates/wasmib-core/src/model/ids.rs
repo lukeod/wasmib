@@ -22,7 +22,11 @@ macro_rules! define_id {
             }
 
             /// Create from a 0-based index.
+            ///
+            /// Returns `None` if the index would overflow a `u32` (unlikely in practice
+            /// since arena storage is bounded by available memory).
             #[must_use]
+            #[allow(clippy::cast_possible_truncation)]
             pub fn from_index(index: usize) -> Option<Self> {
                 let raw = (index + 1) as u32;
                 Self::from_raw(raw)

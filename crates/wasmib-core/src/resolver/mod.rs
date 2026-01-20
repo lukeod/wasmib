@@ -336,7 +336,7 @@ mod tests {
     use alloc::vec;
 
     fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         module
     }
@@ -348,15 +348,15 @@ mod tests {
         defs: Vec<HirDefinition>,
         imports: Vec<(&str, &str)>,
     ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         // HirImport::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
                 HirImport::new(
-                    Symbol::from_str(from),
-                    Symbol::from_str(sym),
+                    Symbol::from_name(from),
+                    Symbol::from_name(sym),
                     Span::new(0, 0),
                 )
             })
@@ -366,8 +366,8 @@ mod tests {
 
     fn make_object_type(name: &str, oid_components: Vec<HirOidComponent>) -> HirDefinition {
         HirDefinition::ObjectType(HirObjectType {
-            name: Symbol::from_str(name),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            name: Symbol::from_name(name),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             units: None,
             access: HirAccess::ReadOnly,
             status: HirStatus::Current,
@@ -396,7 +396,7 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
                 HirOidComponent::Number(1),
             ],
         );
@@ -445,7 +445,7 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_str("unknownNode")),
+                HirOidComponent::Name(Symbol::from_name("unknownNode")),
                 HirOidComponent::Number(1),
             ],
         );

@@ -37,7 +37,7 @@ impl InternerMemoryUsage {
 #[inline]
 fn hash_str(s: &str) -> u64 {
     // FxHash constant
-    const K: u64 = 0x517cc1b727220a95;
+    const K: u64 = 0x517c_c1b7_2722_0a95;
     let mut hash = 0u64;
     for byte in s.bytes() {
         hash = hash.rotate_left(5) ^ u64::from(byte);

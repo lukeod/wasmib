@@ -270,7 +270,7 @@ mod tests {
     use crate::model::{OidNode, ResolvedModule};
 
     fn make_test_module(name: &str) -> HirModule {
-        HirModule::new(Symbol::from_str(name), Span::SYNTHETIC)
+        HirModule::new(Symbol::from_name(name), Span::SYNTHETIC)
     }
 
     #[test]

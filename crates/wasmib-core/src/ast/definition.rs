@@ -414,6 +414,7 @@ pub struct SupportsModule {
 
 /// A VARIATION clause in AGENT-CAPABILITIES.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)] // AST types are temporary; boxing adds complexity
 pub enum Variation {
     /// Object variation.
     Object(ObjectVariation),

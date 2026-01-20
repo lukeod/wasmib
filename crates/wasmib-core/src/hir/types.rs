@@ -51,7 +51,7 @@ impl Symbol {
 
     /// Create a symbol from a string slice.
     #[must_use]
-    pub fn from_str(name: &str) -> Self {
+    pub fn from_name(name: &str) -> Self {
         Self {
             name: String::from(name),
         }
@@ -84,7 +84,7 @@ impl fmt::Display for Symbol {
 
 impl From<&str> for Symbol {
     fn from(s: &str) -> Self {
-        Self::from_str(s)
+        Self::from_name(s)
     }
 }
 
@@ -102,7 +102,7 @@ impl From<Ident> for Symbol {
 
 impl From<&Ident> for Symbol {
     fn from(ident: &Ident) -> Self {
-        Self::from_str(&ident.name)
+        Self::from_name(&ident.name)
     }
 }
 

@@ -37,8 +37,8 @@ pub fn normalize_import(module: &str, symbol: &str) -> NormalizedImport {
 
     // No normalization needed
     NormalizedImport {
-        module: Symbol::from_str(module),
-        symbol: Symbol::from_str(symbol),
+        module: Symbol::from_name(module),
+        symbol: Symbol::from_name(symbol),
     }
 }
 
@@ -67,8 +67,8 @@ fn lookup_import_mapping(module: &str, symbol: &str) -> Option<NormalizedImport>
         for &(src_sym, dst_sym) in RFC1155_1065_TO_SNMPV2 {
             if symbol == src_sym {
                 return Some(NormalizedImport {
-                    module: Symbol::from_str("SNMPv2-SMI"),
-                    symbol: Symbol::from_str(dst_sym),
+                    module: Symbol::from_name("SNMPv2-SMI"),
+                    symbol: Symbol::from_name(dst_sym),
                 });
             }
         }
@@ -79,12 +79,12 @@ fn lookup_import_mapping(module: &str, symbol: &str) -> Option<NormalizedImport>
     if module == "RFC1213-MIB" {
         return match symbol {
             "mib-2" => Some(NormalizedImport {
-                module: Symbol::from_str("SNMPv2-SMI"),
-                symbol: Symbol::from_str("mib-2"),
+                module: Symbol::from_name("SNMPv2-SMI"),
+                symbol: Symbol::from_name("mib-2"),
             }),
             "DisplayString" => Some(NormalizedImport {
-                module: Symbol::from_str("SNMPv2-TC"),
-                symbol: Symbol::from_str("DisplayString"),
+                module: Symbol::from_name("SNMPv2-TC"),
+                symbol: Symbol::from_name("DisplayString"),
             }),
             _ => None,
         };

@@ -55,7 +55,7 @@ mod tests {
     use alloc::vec;
 
     fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         module
     }
