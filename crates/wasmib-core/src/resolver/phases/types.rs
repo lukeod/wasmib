@@ -735,7 +735,7 @@ mod tests {
     }
 
     // ============================================================
-    // Tests for primitive syntax parent linking (Issue #3 fix)
+    // Tests for primitive syntax parent linking
     // ============================================================
 
     #[test]

@@ -129,21 +129,10 @@ impl StringInterner {
     /// Get a string by its identifier.
     ///
     /// Returns the interned string, or an empty string if the ID is invalid.
-    /// Invalid IDs should not occur in normal operation since all `StrId`s are
-    /// created by `intern()`. However, bounds checking is performed to prevent
-    /// panics in `WASM/no_std` environments where panics are unrecoverable.
-    ///
-    /// # Safety Guarantee
-    ///
-    /// This method will never panic, even with an invalid `StrId`. In debug
-    /// builds, an assertion will fire for invalid IDs to help catch bugs.
     #[must_use]
     pub fn get(&self, id: StrId) -> &str {
         let idx = id.to_index();
 
-        // SAFETY: Bounds checking prevents panics in WASM/no_std environments.
-        // In normal operation, all StrIds are created by intern() and are valid.
-        // Debug assertion helps catch bugs during development.
         debug_assert!(
             idx + 1 < self.offsets.len(),
             "invalid StrId: index {} out of bounds (offsets len: {})",
@@ -151,11 +140,8 @@ impl StringInterner {
             self.offsets.len()
         );
 
-        // Use checked indexing with fallback to prevent panics
         let start = self.offsets.get(idx).map_or(0, |&v| v as usize);
         let end = self.offsets.get(idx + 1).map_or(start, |&v| v as usize);
-
-        // Return the slice, or empty string if bounds are invalid
         self.data.get(start..end).unwrap_or("")
     }
 

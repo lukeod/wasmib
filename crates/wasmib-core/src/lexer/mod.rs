@@ -552,7 +552,7 @@ impl<'src> Lexer<'src> {
 
         // Check for underscores (warning per leniency, but we accept it)
         if text.contains(&b'_') {
-            // Per ARCHITECTURE.md leniency philosophy, silently accept underscores
+            // Silently accept underscores in identifiers for vendor MIB compatibility
         }
 
         // Check if it's a keyword
@@ -1388,7 +1388,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Tests for double-hyphen bug fix
+    // Tests for identifiers containing double hyphens
     // ========================================================================
 
     #[test]

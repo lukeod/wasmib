@@ -1,6 +1,6 @@
 //! Normalization tables for imports and types.
 //!
-//! Based on libsmi's `convertImportv2` table and BUILTINS.md specifications.
+//! Based on libsmi's `convertImportv2` table and RFC specifications (RFC 1155, RFC 2578).
 //! These normalizations allow `SMIv1` and `SMIv2` MIBs to be processed uniformly.
 
 use super::types::Symbol;
@@ -16,8 +16,8 @@ pub struct NormalizedImport {
 
 /// Normalize an import from an `SMIv1` module to its `SMIv2` equivalent.
 ///
-/// This implements libsmi's `convertImportv2` table plus additional mappings
-/// from BUILTINS.md.
+/// This implements libsmi's `convertImportv2` table, mapping SMIv1 constructs
+/// (RFC 1155) to their SMIv2 equivalents (RFC 2578).
 ///
 /// # Arguments
 ///

@@ -57,7 +57,7 @@ impl Token {
 
 /// Token kinds.
 ///
-/// Derived from libsmi `scanner-smi.l`. See `.local/lexer/DESIGN.md` for details.
+/// Derived from libsmi's `scanner-smi.l` lexer (see <https://www.ibr.cs.tu-bs.de/projects/libsmi/>).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TokenKind {
