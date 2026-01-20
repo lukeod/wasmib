@@ -185,16 +185,6 @@ impl<'src> Lexer<'src> {
         });
     }
 
-    /// Add a warning diagnostic.
-    #[allow(dead_code)]
-    fn warning(&mut self, span: Span, message: String) {
-        self.diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
-            span,
-            message,
-        });
-    }
-
     /// Make a span from start to current position.
     fn span_from(&self, start: usize) -> Span {
         Span {

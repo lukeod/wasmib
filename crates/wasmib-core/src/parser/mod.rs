@@ -143,12 +143,6 @@ impl<'src> Parser<'src> {
         self.peek().kind == kind
     }
 
-    /// Check if current token is any of the given kinds.
-    #[allow(dead_code)]
-    fn check_any(&self, kinds: &[TokenKind]) -> bool {
-        kinds.contains(&self.peek().kind)
-    }
-
     /// Consume token of given kind, or return error.
     fn expect(&mut self, kind: TokenKind) -> Result<Token, Diagnostic> {
         if self.check(kind) {
