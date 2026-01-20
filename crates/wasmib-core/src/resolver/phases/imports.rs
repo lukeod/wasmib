@@ -10,7 +10,7 @@ use crate::hir::HirDefinition;
 use crate::lexer::Span;
 use crate::model::ModuleId;
 use crate::resolver::context::ResolverContext;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -225,15 +225,17 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
 
     for &candidate_id in &candidates {
         if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
-            // Count how many symbols this candidate has
+            // Build set of definition names once for O(1) lookup
+            let def_names: BTreeSet<&str> = hir_module
+                .definitions
+                .iter()
+                .filter_map(|def| def.name().map(|n| n.name.as_str()))
+                .collect();
+
+            // Count how many symbols this candidate has (O(symbols) instead of O(symbols × definitions))
             let symbol_count = user_symbols
                 .iter()
-                .filter(|sym| {
-                    hir_module
-                        .definitions
-                        .iter()
-                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.name.as_str()))
-                })
+                .filter(|sym| def_names.contains(sym.name.as_str()))
                 .count();
 
             // Get LAST-UPDATED for tiebreaking (prefer newer modules)
