@@ -44,7 +44,7 @@ mod oid;
 mod types;
 
 pub use ids::{ModuleId, NodeId, NotificationId, ObjectId, StrId, TypeId};
-pub use interner::StringInterner;
+pub use interner::{InternerMemoryUsage, StringInterner};
 pub use module::{ResolvedModule, Revision};
 pub use node::{NodeDefinition, NodeKind, OidNode};
 pub use object::{DefVal, IndexItem, IndexSpec, ResolvedNotification, ResolvedObject};
