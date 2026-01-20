@@ -20,6 +20,8 @@ pub struct ResolverContext {
     pub module_index: BTreeMap<String, Vec<ModuleId>>,
     /// ModuleId -> index in hir_modules for reverse lookup.
     pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
+    /// Index in hir_modules -> ModuleId (reverse of module_id_to_hir_index).
+    pub hir_index_to_module_id: BTreeMap<usize, ModuleId>,
     /// Per-module symbol -> NodeId mapping for module-local definitions.
     /// Key: (ModuleId, symbol_name) -> NodeId (uses ModuleId for uniqueness)
     pub module_symbol_to_node: BTreeMap<(ModuleId, String), NodeId>,
@@ -39,10 +41,17 @@ impl ResolverContext {
             hir_modules,
             module_index: BTreeMap::new(),
             module_id_to_hir_index: BTreeMap::new(),
+            hir_index_to_module_id: BTreeMap::new(),
             module_symbol_to_node: BTreeMap::new(),
             module_imports: BTreeMap::new(),
             symbol_to_type: BTreeMap::new(),
         }
+    }
+
+    /// Get the ModuleId for an HIR module index.
+    /// Returns None if the index is not registered (shouldn't happen after registration phase).
+    pub fn get_module_id_for_hir_index(&self, hir_index: usize) -> Option<ModuleId> {
+        self.hir_index_to_module_id.get(&hir_index).copied()
     }
 
     /// Intern a string in the model.

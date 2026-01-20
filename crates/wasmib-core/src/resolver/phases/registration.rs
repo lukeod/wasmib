@@ -34,8 +34,9 @@ pub fn register_modules(ctx: &mut ResolverContext) {
 
         let module_id = ctx.model.add_module(module).unwrap();
 
-        // Track ModuleId -> hir_modules index mapping
+        // Track bidirectional ModuleId <-> hir_modules index mapping
         ctx.module_id_to_hir_index.insert(module_id, hir_idx);
+        ctx.hir_index_to_module_id.insert(hir_idx, module_id);
 
         // Append to candidates list (handles duplicate module names)
         ctx.module_index

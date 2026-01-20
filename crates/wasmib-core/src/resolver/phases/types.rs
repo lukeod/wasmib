@@ -78,10 +78,10 @@ fn create_user_types(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_idx, _def_idx, td) in type_defs {
-        let hir_module = &ctx.hir_modules[module_idx];
-        let module_id = *ctx.module_index.get(&hir_module.name.name)
-            .and_then(|v| v.first())
-            .unwrap();
+        let module_id = match ctx.get_module_id_for_hir_index(module_idx) {
+            Some(id) => id,
+            None => continue, // Skip if module not registered (shouldn't happen)
+        };
 
         let name = ctx.intern(&td.name.name);
 
@@ -186,10 +186,10 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_idx, type_name, base_name, span) in type_refs {
-        let hir_module = &ctx.hir_modules[module_idx];
-        let module_id = *ctx.module_index.get(&hir_module.name.name)
-            .and_then(|v| v.first())
-            .unwrap();
+        let module_id = match ctx.get_module_id_for_hir_index(module_idx) {
+            Some(id) => id,
+            None => continue, // Skip if module not registered (shouldn't happen)
+        };
 
         // Look up the type and its base
         if let (Some(type_id), Some(parent_id)) = (
