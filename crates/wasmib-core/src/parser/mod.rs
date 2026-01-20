@@ -430,24 +430,52 @@ impl<'src> Parser<'src> {
                 });
             } else if self.check(TokenKind::LowercaseIdent) || self.check(TokenKind::UppercaseIdent)
             {
-                // Name, possibly followed by (number)
-                let name_token = self.advance();
-                let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+                // Name, possibly followed by (number) or .name (qualified)
+                let first_token = self.advance();
+                let first_name = Ident::new(self.text(first_token.span).into(), first_token.span);
 
-                if self.check(TokenKind::LParen) {
+                if self.check(TokenKind::Dot) {
+                    // Qualified reference: Module.name or Module.name(number)
+                    self.advance(); // consume dot
+
+                    // Expect lowercase identifier after dot (symbol names are lowercase)
+                    let name_token = self.expect(TokenKind::LowercaseIdent)?;
+                    let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+
+                    if self.check(TokenKind::LParen) {
+                        // QualifiedNamedNumber: Module.name(123)
+                        self.advance(); // (
+                        let num_token = self.expect(TokenKind::Number)?;
+                        let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+                        let end_token = self.expect(TokenKind::RParen)?;
+                        components.push(OidComponent::QualifiedNamedNumber {
+                            module: first_name,
+                            name,
+                            number,
+                            span: Span::new(comp_start, end_token.span.end),
+                        });
+                    } else {
+                        // QualifiedName: Module.name
+                        components.push(OidComponent::QualifiedName {
+                            module: first_name,
+                            name,
+                            span: Span::new(comp_start, name_token.span.end),
+                        });
+                    }
+                } else if self.check(TokenKind::LParen) {
                     // Named number: iso(1), org(3)
                     self.advance(); // (
                     let num_token = self.expect(TokenKind::Number)?;
                     let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
                     let end_token = self.expect(TokenKind::RParen)?;
                     components.push(OidComponent::NamedNumber {
-                        name,
+                        name: first_name,
                         number,
                         span: Span::new(comp_start, end_token.span.end),
                     });
                 } else {
                     // Just name: internet, ifEntry
-                    components.push(OidComponent::Name(name));
+                    components.push(OidComponent::Name(first_name));
                 }
             } else {
                 return Err(self.error("expected OID component"));
@@ -3075,6 +3103,117 @@ mod tests {
             }
         } else {
             panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_qualified_name_oid() {
+        // Test RFC 2578 Section 3.2 qualified OID syntax: Module.descriptor
+        let source = b"TEST-MIB DEFINITIONS ::= BEGIN
+            testObject OBJECT IDENTIFIER ::= { SNMPv2-SMI.enterprises 12345 }
+            END";
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert_eq!(module.body.len(), 1);
+        if let Definition::ValueAssignment(def) = &module.body[0] {
+            assert_eq!(def.name.name, "testObject");
+            assert_eq!(def.oid_assignment.components.len(), 2);
+
+            // First component should be QualifiedName
+            if let OidComponent::QualifiedName { module, name, .. } =
+                &def.oid_assignment.components[0]
+            {
+                assert_eq!(module.name, "SNMPv2-SMI");
+                assert_eq!(name.name, "enterprises");
+            } else {
+                panic!("expected QualifiedName component");
+            }
+
+            // Second component should be Number
+            if let OidComponent::Number { value, .. } = &def.oid_assignment.components[1] {
+                assert_eq!(*value, 12345);
+            } else {
+                panic!("expected Number component");
+            }
+        } else {
+            panic!("expected ValueAssignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_qualified_named_number_oid() {
+        // Test RFC 2578 Section 3.2 qualified OID syntax: Module.descriptor(number)
+        let source = b"TEST-MIB DEFINITIONS ::= BEGIN
+            testObject OBJECT IDENTIFIER ::= { SNMPv2-SMI.enterprises(1) 12345 }
+            END";
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert_eq!(module.body.len(), 1);
+        if let Definition::ValueAssignment(def) = &module.body[0] {
+            assert_eq!(def.name.name, "testObject");
+            assert_eq!(def.oid_assignment.components.len(), 2);
+
+            // First component should be QualifiedNamedNumber
+            if let OidComponent::QualifiedNamedNumber {
+                module,
+                name,
+                number,
+                ..
+            } = &def.oid_assignment.components[0]
+            {
+                assert_eq!(module.name, "SNMPv2-SMI");
+                assert_eq!(name.name, "enterprises");
+                assert_eq!(*number, 1);
+            } else {
+                panic!("expected QualifiedNamedNumber component");
+            }
+
+            // Second component should be Number
+            if let OidComponent::Number { value, .. } = &def.oid_assignment.components[1] {
+                assert_eq!(*value, 12345);
+            } else {
+                panic!("expected Number component");
+            }
+        } else {
+            panic!("expected ValueAssignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_qualified_oid() {
+        // Test mixed qualified and unqualified components
+        let source = b"TEST-MIB DEFINITIONS ::= BEGIN
+            testObject OBJECT IDENTIFIER ::= { parent SNMPv2-SMI.enterprises 1 }
+            END";
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert_eq!(module.body.len(), 1);
+        if let Definition::ValueAssignment(def) = &module.body[0] {
+            assert_eq!(def.oid_assignment.components.len(), 3);
+
+            // First: unqualified name
+            assert!(matches!(
+                &def.oid_assignment.components[0],
+                OidComponent::Name(ident) if ident.name == "parent"
+            ));
+
+            // Second: qualified name
+            assert!(matches!(
+                &def.oid_assignment.components[1],
+                OidComponent::QualifiedName { module, name, .. }
+                    if module.name == "SNMPv2-SMI" && name.name == "enterprises"
+            ));
+
+            // Third: number
+            assert!(matches!(
+                &def.oid_assignment.components[2],
+                OidComponent::Number { value: 1, .. }
+            ));
+        } else {
+            panic!("expected ValueAssignment");
         }
     }
 }

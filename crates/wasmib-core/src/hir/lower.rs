@@ -581,6 +581,20 @@ fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
             name: Symbol::new(name.name.clone()),
             number: *number,
         },
+        OidComponent::QualifiedName { module, name, .. } => HirOidComponent::QualifiedName {
+            module: Symbol::new(module.name.clone()),
+            name: Symbol::new(name.name.clone()),
+        },
+        OidComponent::QualifiedNamedNumber {
+            module,
+            name,
+            number,
+            ..
+        } => HirOidComponent::QualifiedNamedNumber {
+            module: Symbol::new(module.name.clone()),
+            name: Symbol::new(name.name.clone()),
+            number: *number,
+        },
     }
 }
 

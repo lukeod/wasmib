@@ -38,6 +38,22 @@ pub enum HirOidComponent {
         /// The numeric value.
         number: u32,
     },
+    /// Qualified name: `SNMPv2-SMI.enterprises`
+    QualifiedName {
+        /// The module name.
+        module: Symbol,
+        /// The symbol name.
+        name: Symbol,
+    },
+    /// Qualified name with number: `SNMPv2-SMI.enterprises(1)`
+    QualifiedNamedNumber {
+        /// The module name.
+        module: Symbol,
+        /// The symbol name.
+        name: Symbol,
+        /// The numeric value.
+        number: u32,
+    },
 }
 
 impl HirOidComponent {
@@ -45,8 +61,10 @@ impl HirOidComponent {
     #[must_use]
     pub fn number(&self) -> Option<u32> {
         match self {
-            Self::Name(_) => None,
-            Self::Number(n) | Self::NamedNumber { number: n, .. } => Some(*n),
+            Self::Name(_) | Self::QualifiedName { .. } => None,
+            Self::Number(n)
+            | Self::NamedNumber { number: n, .. }
+            | Self::QualifiedNamedNumber { number: n, .. } => Some(*n),
         }
     }
 
@@ -54,8 +72,22 @@ impl HirOidComponent {
     #[must_use]
     pub fn name(&self) -> Option<&Symbol> {
         match self {
-            Self::Name(s) | Self::NamedNumber { name: s, .. } => Some(s),
+            Self::Name(s)
+            | Self::NamedNumber { name: s, .. }
+            | Self::QualifiedName { name: s, .. }
+            | Self::QualifiedNamedNumber { name: s, .. } => Some(s),
             Self::Number(_) => None,
+        }
+    }
+
+    /// Get the module name if this is a qualified reference.
+    #[must_use]
+    pub fn module(&self) -> Option<&Symbol> {
+        match self {
+            Self::QualifiedName { module, .. } | Self::QualifiedNamedNumber { module, .. } => {
+                Some(module)
+            }
+            _ => None,
         }
     }
 }

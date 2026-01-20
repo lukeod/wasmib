@@ -34,6 +34,8 @@ impl OidAssignment {
 /// - Just a name: `internet`
 /// - Just a number: `1`
 /// - Name with number: `org(3)`
+/// - Qualified name: `SNMPv2-SMI.enterprises`
+/// - Qualified name with number: `SNMPv2-SMI.enterprises(1)`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OidComponent {
     /// Named reference: `internet`, `ifEntry`
@@ -54,6 +56,26 @@ pub enum OidComponent {
         /// Source location (covers `name(number)`).
         span: Span,
     },
+    /// Qualified name reference: `SNMPv2-SMI.enterprises`
+    QualifiedName {
+        /// The module name.
+        module: Ident,
+        /// The symbol name.
+        name: Ident,
+        /// Source location.
+        span: Span,
+    },
+    /// Qualified name with number: `SNMPv2-SMI.enterprises(1)`
+    QualifiedNamedNumber {
+        /// The module name.
+        module: Ident,
+        /// The symbol name.
+        name: Ident,
+        /// The numeric value.
+        number: u32,
+        /// Source location.
+        span: Span,
+    },
 }
 
 impl OidComponent {
@@ -62,7 +84,10 @@ impl OidComponent {
     pub fn span(&self) -> Span {
         match self {
             Self::Name(ident) => ident.span,
-            Self::Number { span, .. } | Self::NamedNumber { span, .. } => *span,
+            Self::Number { span, .. }
+            | Self::NamedNumber { span, .. }
+            | Self::QualifiedName { span, .. }
+            | Self::QualifiedNamedNumber { span, .. } => *span,
         }
     }
 
@@ -70,9 +95,11 @@ impl OidComponent {
     #[must_use]
     pub fn number(&self) -> Option<u32> {
         match self {
-            Self::Name(_) => None,
+            Self::Name(_) | Self::QualifiedName { .. } => None,
             Self::Number { value, .. } => Some(*value),
-            Self::NamedNumber { number, .. } => Some(*number),
+            Self::NamedNumber { number, .. } | Self::QualifiedNamedNumber { number, .. } => {
+                Some(*number)
+            }
         }
     }
 
@@ -80,8 +107,22 @@ impl OidComponent {
     #[must_use]
     pub fn name(&self) -> Option<&Ident> {
         match self {
-            Self::Name(ident) | Self::NamedNumber { name: ident, .. } => Some(ident),
+            Self::Name(ident)
+            | Self::NamedNumber { name: ident, .. }
+            | Self::QualifiedName { name: ident, .. }
+            | Self::QualifiedNamedNumber { name: ident, .. } => Some(ident),
             Self::Number { .. } => None,
+        }
+    }
+
+    /// Get the module name if this is a qualified reference.
+    #[must_use]
+    pub fn module(&self) -> Option<&Ident> {
+        match self {
+            Self::QualifiedName { module, .. } | Self::QualifiedNamedNumber { module, .. } => {
+                Some(module)
+            }
+            _ => None,
         }
     }
 }

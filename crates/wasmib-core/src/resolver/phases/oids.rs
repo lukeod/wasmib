@@ -43,8 +43,13 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
                 Some(HirOidComponent::Name(sym)) => {
                     lookup_node_scoped(ctx, def.module_id, &sym.name).is_some()
                 }
-                Some(HirOidComponent::NamedNumber { .. }) => true, // Named numbers create nodes
+                Some(HirOidComponent::NamedNumber { .. })
+                | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true, // Named numbers create nodes
                 Some(HirOidComponent::Number(_)) => true, // Bare numbers extend from current
+                Some(HirOidComponent::QualifiedName { module, name }) => {
+                    // Qualified name: use cross-module lookup
+                    ctx.lookup_node_in_module(&module.name, &name.name).is_some()
+                }
                 None => false,
             };
 
@@ -59,8 +64,25 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
         if still_pending.len() == initial_count {
             // Record unresolved for remaining definitions
             for def in still_pending {
-                if let Some(HirOidComponent::Name(sym)) = def.oid.components.first() {
-                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name, def.oid.span);
+                match def.oid.components.first() {
+                    Some(HirOidComponent::Name(sym)) => {
+                        ctx.record_unresolved_oid(
+                            def.module_id,
+                            &def.def_name,
+                            &sym.name,
+                            def.oid.span,
+                        );
+                    }
+                    Some(HirOidComponent::QualifiedName { module, name }) => {
+                        let qualified_name = alloc::format!("{}.{}", module.name, name.name);
+                        ctx.record_unresolved_oid(
+                            def.module_id,
+                            &def.def_name,
+                            &qualified_name,
+                            def.oid.span,
+                        );
+                    }
+                    _ => {}
                 }
             }
             break;
@@ -194,8 +216,12 @@ pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T)
                     );
                     found
                 }
-                Some(HirOidComponent::NamedNumber { .. }) => true,
+                Some(HirOidComponent::NamedNumber { .. })
+                | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true,
                 Some(HirOidComponent::Number(_)) => true,
+                Some(HirOidComponent::QualifiedName { module, name }) => {
+                    ctx.lookup_node_in_module(&module.name, &name.name).is_some()
+                }
                 None => false,
             };
 
@@ -221,16 +247,41 @@ pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T)
         // No progress made - remaining definitions have unresolvable references
         if still_pending.len() == initial_count {
             for def in still_pending {
-                if let Some(HirOidComponent::Name(sym)) = def.oid.components.first() {
-                    crate::trace_event!(
-                        tracer,
-                        TraceLevel::Debug,
-                        TraceEvent::OidUnresolved {
-                            def_name: &def.def_name,
-                            component: &sym.name,
-                        }
-                    );
-                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name, def.oid.span);
+                match def.oid.components.first() {
+                    Some(HirOidComponent::Name(sym)) => {
+                        crate::trace_event!(
+                            tracer,
+                            TraceLevel::Debug,
+                            TraceEvent::OidUnresolved {
+                                def_name: &def.def_name,
+                                component: &sym.name,
+                            }
+                        );
+                        ctx.record_unresolved_oid(
+                            def.module_id,
+                            &def.def_name,
+                            &sym.name,
+                            def.oid.span,
+                        );
+                    }
+                    Some(HirOidComponent::QualifiedName { module, name }) => {
+                        let qualified_name = alloc::format!("{}.{}", module.name, name.name);
+                        crate::trace_event!(
+                            tracer,
+                            TraceLevel::Debug,
+                            TraceEvent::OidUnresolved {
+                                def_name: &def.def_name,
+                                component: &qualified_name,
+                            }
+                        );
+                        ctx.record_unresolved_oid(
+                            def.module_id,
+                            &def.def_name,
+                            &qualified_name,
+                            def.oid.span,
+                        );
+                    }
+                    _ => {}
                 }
             }
             break;
@@ -437,6 +488,67 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                     ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
                 }
             }
+            HirOidComponent::QualifiedName {
+                module: qual_module,
+                name,
+            } => {
+                // Look up in the specified module using cross-module lookup
+                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else {
+                    // Unresolved qualified reference
+                    let qualified_name =
+                        alloc::format!("{}.{}", qual_module.name, name.name);
+                    ctx.record_unresolved_oid(module_id, &def.def_name, &qualified_name, def.oid.span);
+                    return;
+                }
+            }
+            HirOidComponent::QualifiedNamedNumber {
+                module: qual_module,
+                name,
+                number,
+            } => {
+                // First try to look up in the specified module
+                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else {
+                    // Create node at the given number (like NamedNumber behavior)
+                    current_oid = current_oid.child(*number);
+
+                    if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
+                        current_node = Some(existing);
+                        // Register the name mapping for this module
+                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
+                    } else {
+                        let new_node = OidNode::new(*number, current_node);
+                        let new_id = ctx.model.add_node(new_node);
+
+                        // Add as child of parent, or register as root
+                        if let Some(parent_id) = current_node {
+                            if let Some(parent) = ctx.model.get_node_mut(parent_id) {
+                                parent.add_child(new_id);
+                            }
+                        } else {
+                            ctx.model.add_root(new_id);
+                        }
+
+                        ctx.model.register_oid(current_oid.clone(), new_id);
+                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
+                        current_node = Some(new_id);
+                    }
+                }
+
+                // Also register the name for this module's scope
+                if let Some(node_id) = current_node {
+                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
+                }
+            }
         }
 
         // If this is the last component, add the definition
@@ -554,6 +666,76 @@ fn resolve_oid_definition_traced<T: Tracer>(
                         current_oid = ctx.model.get_oid(node);
                     }
                 } else {
+                    current_oid = current_oid.child(*number);
+
+                    if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
+                        current_node = Some(existing);
+                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
+                    } else {
+                        let new_node = OidNode::new(*number, current_node);
+                        let new_id = ctx.model.add_node(new_node);
+
+                        if let Some(parent_id) = current_node {
+                            if let Some(parent) = ctx.model.get_node_mut(parent_id) {
+                                parent.add_child(new_id);
+                            }
+                        } else {
+                            ctx.model.add_root(new_id);
+                        }
+
+                        ctx.model.register_oid(current_oid.clone(), new_id);
+                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
+                        current_node = Some(new_id);
+                    }
+                }
+
+                if let Some(node_id) = current_node {
+                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
+                }
+            }
+            HirOidComponent::QualifiedName {
+                module: qual_module,
+                name,
+            } => {
+                // Look up in the specified module using cross-module lookup
+                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else {
+                    // Unresolved qualified reference
+                    let qualified_name = alloc::format!("{}.{}", qual_module.name, name.name);
+                    crate::trace_event!(
+                        tracer,
+                        TraceLevel::Debug,
+                        TraceEvent::OidUnresolved {
+                            def_name: &def.def_name,
+                            component: &qualified_name,
+                        }
+                    );
+                    ctx.record_unresolved_oid(
+                        module_id,
+                        &def.def_name,
+                        &qualified_name,
+                        def.oid.span,
+                    );
+                    return false;
+                }
+            }
+            HirOidComponent::QualifiedNamedNumber {
+                module: qual_module,
+                name,
+                number,
+            } => {
+                // First try to look up in the specified module
+                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else {
+                    // Create node at the given number (like NamedNumber behavior)
                     current_oid = current_oid.child(*number);
 
                     if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
@@ -758,6 +940,108 @@ mod tests {
         );
 
         // Module doesn't import unknownNode, so it should be unresolved
+        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // Check unresolved OID was recorded
+        assert_eq!(ctx.model.unresolved().oids.len(), 1);
+    }
+
+    #[test]
+    fn test_resolve_qualified_name_oid() {
+        // Test qualified name: SNMPv2-SMI.enterprises without import
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                HirOidComponent::QualifiedName {
+                    module: Symbol::from_str("SNMPv2-SMI"),
+                    name: Symbol::from_str("enterprises"),
+                },
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        // Module does NOT import enterprises, but uses qualified syntax
+        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // Check node exists via module lookup
+        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
+
+        // Check OID is correct (1.3.6.1.4.1.1) - enterprises is 1.3.6.1.4.1
+        if let Some(node_id) = ctx.lookup_node_for_module(module_id, "testObject") {
+            if let Some(node) = ctx.model.get_node(node_id) {
+                let oid = ctx.model.get_oid(node);
+                assert_eq!(oid.arcs(), &[1, 3, 6, 1, 4, 1, 1]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_resolve_qualified_named_number_oid() {
+        // Test qualified named number: SNMPv2-SMI.enterprises(1) without import
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                HirOidComponent::QualifiedNamedNumber {
+                    module: Symbol::from_str("SNMPv2-SMI"),
+                    name: Symbol::from_str("enterprises"),
+                    number: 1, // enterprises is at 1.3.6.1.4.1
+                },
+                HirOidComponent::Number(42),
+            ],
+        );
+
+        // Module does NOT import enterprises, but uses qualified syntax
+        let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // Check node exists via module lookup
+        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
+
+        // Check OID is correct - should use the existing enterprises node
+        if let Some(node_id) = ctx.lookup_node_for_module(module_id, "testObject") {
+            if let Some(node) = ctx.model.get_node(node_id) {
+                let oid = ctx.model.get_oid(node);
+                assert_eq!(oid.arcs(), &[1, 3, 6, 1, 4, 1, 42]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unresolved_qualified_oid() {
+        // Test that unresolved qualified reference is recorded correctly
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                HirOidComponent::QualifiedName {
+                    module: Symbol::from_str("NONEXISTENT-MIB"),
+                    name: Symbol::from_str("unknownNode"),
+                },
+                HirOidComponent::Number(1),
+            ],
+        );
+
         let mut module = HirModule::new(Symbol::from_str("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
