@@ -545,6 +545,19 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         ctx.register_module_node_symbol(module_id, name_id, new_id);
                         current_node = Some(new_id);
                     }
+
+                    // Add definition for intermediate named components (matches libsmi behavior)
+                    if !is_last {
+                        if let Some(node_id) = current_node {
+                            let node_def = NodeDefinition::new(module_id, name_id);
+                            if let Some(node) = ctx.model.get_node_mut(node_id) {
+                                node.add_definition(node_def);
+                                if node.kind == NodeKind::Internal {
+                                    node.kind = NodeKind::Node;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Also register the name
@@ -607,6 +620,19 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         ctx.model.register_oid(current_oid.clone(), new_id);
                         ctx.register_module_node_symbol(module_id, name_id, new_id);
                         current_node = Some(new_id);
+                    }
+
+                    // Add definition for intermediate named components (matches libsmi behavior)
+                    if !is_last {
+                        if let Some(node_id) = current_node {
+                            let node_def = NodeDefinition::new(module_id, name_id);
+                            if let Some(node) = ctx.model.get_node_mut(node_id) {
+                                node.add_definition(node_def);
+                                if node.kind == NodeKind::Internal {
+                                    node.kind = NodeKind::Node;
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -927,5 +953,63 @@ mod tests {
 
         // Check unresolved OID was recorded
         assert_eq!(ctx.model.unresolved().oids.len(), 1);
+    }
+
+    #[test]
+    fn test_intermediate_named_number_creates_definition() {
+        // Test that intermediate NamedNumber components create definitions
+        // This matches libsmi behavior where `{ standard jsr163(163) 1 }` creates
+        // a definition for `jsr163` at OID .163, not just the final node.
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                HirOidComponent::NamedNumber {
+                    name: Symbol::from_name("intermediate"),
+                    number: 99,
+                },
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
+
+        // Check that intermediate node has a definition
+        let intermediate_node_id = ctx.lookup_node_for_module(module_id, "intermediate").unwrap();
+        let intermediate_node = ctx.model.get_node(intermediate_node_id).unwrap();
+
+        // Should have exactly one definition
+        assert_eq!(
+            intermediate_node.definitions.len(),
+            1,
+            "intermediate node should have a definition"
+        );
+
+        // Check the definition's label matches
+        let def = &intermediate_node.definitions[0];
+        assert_eq!(def.module, module_id);
+        assert_eq!(ctx.model.get_str(def.label), "intermediate");
+
+        // Check node kind is Node (not Internal)
+        assert_eq!(intermediate_node.kind, NodeKind::Node);
+
+        // Check OID is correct (99)
+        let oid = ctx.model.get_oid(intermediate_node);
+        assert_eq!(oid.arcs(), &[99]);
+
+        // Also verify the final node exists with its own definition
+        let final_node_id = ctx.lookup_node_for_module(module_id, "testObject").unwrap();
+        let final_node = ctx.model.get_node(final_node_id).unwrap();
+        assert!(final_node.has_definition());
+        let final_oid = ctx.model.get_oid(final_node);
+        assert_eq!(final_oid.arcs(), &[99, 1]);
     }
 }
