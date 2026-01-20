@@ -1,4 +1,10 @@
 //! Resolution context (indices and working state during resolution).
+//!
+//! # Memory Optimization
+//!
+//! This module uses `StrId` keys instead of `String` keys in BTreeMaps.
+//! Each `StrId` is 4 bytes vs ~24+ bytes for String, significantly reducing
+//! memory when processing large MIB corpora with hundreds of thousands of symbols.
 
 use crate::hir::HirModule;
 use crate::lexer::Span;
@@ -7,7 +13,7 @@ use crate::model::{
 };
 use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
-use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Resolution context holding indices and state during resolution.
 pub struct ResolverContext {
@@ -17,20 +23,24 @@ pub struct ResolverContext {
     pub hir_modules: Vec<HirModule>,
     /// Module name -> list of ModuleIds (handles duplicate module names).
     /// Multiple files may declare the same MODULE-IDENTITY name.
-    pub module_index: BTreeMap<String, Vec<ModuleId>>,
+    /// Uses StrId keys for memory efficiency.
+    pub module_index: BTreeMap<StrId, Vec<ModuleId>>,
     /// ModuleId -> index in hir_modules for reverse lookup.
     pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
     /// Index in hir_modules -> ModuleId (reverse of module_id_to_hir_index).
     pub hir_index_to_module_id: BTreeMap<usize, ModuleId>,
     /// Per-module symbol -> NodeId mapping for module-local definitions.
     /// Key: (ModuleId, symbol_name) -> NodeId (uses ModuleId for uniqueness)
-    pub module_symbol_to_node: BTreeMap<(ModuleId, String), NodeId>,
+    /// Uses StrId for symbol names for memory efficiency.
+    pub module_symbol_to_node: BTreeMap<(ModuleId, StrId), NodeId>,
     /// Import declarations: (ModuleId, symbol) -> source ModuleId
     /// Used for dynamic lookup during OID resolution.
     /// Tracks which specific module was chosen for each import.
-    pub module_imports: BTreeMap<(ModuleId, String), ModuleId>,
+    /// Uses StrId for symbol names for memory efficiency.
+    pub module_imports: BTreeMap<(ModuleId, StrId), ModuleId>,
     /// Symbol name -> TypeId mapping for type resolution.
-    pub symbol_to_type: BTreeMap<String, TypeId>,
+    /// Uses StrId keys for memory efficiency.
+    pub symbol_to_type: BTreeMap<StrId, TypeId>,
 }
 
 impl ResolverContext {
@@ -54,6 +64,14 @@ impl ResolverContext {
         self.hir_index_to_module_id.get(&hir_index).copied()
     }
 
+    /// Get the first ModuleId for a module name.
+    /// Convenience method for tests and simple cases where only one module has the name.
+    #[allow(dead_code)]
+    pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
+        let name_id = self.model.strings().find(name)?;
+        self.module_index.get(&name_id)?.first().copied()
+    }
+
     /// Intern a string in the model.
     pub fn intern(&mut self, s: &str) -> StrId {
         self.model.intern(s)
@@ -62,11 +80,16 @@ impl ResolverContext {
     /// Look up a node by symbol name in a specific module's scope (by ModuleId).
     /// Order: 1) module-local definitions, 2) imports (iteratively following import chain).
     /// Cycle-safe: returns None if a cyclic import chain is detected.
-    pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
+    ///
+    /// Note: This method requires `name` to already be interned. Use `lookup_node_for_module_str`
+    /// if you have a string slice.
+    pub fn lookup_node_for_module_interned(
+        &self,
+        module_id: ModuleId,
+        name: StrId,
+    ) -> Option<NodeId> {
         let mut visited = BTreeSet::new();
         let mut current = module_id;
-        // Convert name to String once, clone per iteration (avoids 2 allocations per iteration)
-        let name_owned = name.to_string();
 
         loop {
             // Cycle detection: if we've seen this module before, stop
@@ -74,8 +97,8 @@ impl ResolverContext {
                 return None;
             }
 
-            // Create key once per iteration for both lookups
-            let key = (current, name_owned.clone());
+            // Create key for lookups
+            let key = (current, name);
 
             // Check module-local definitions
             if let Some(&node_id) = self.module_symbol_to_node.get(&key) {
@@ -93,13 +116,22 @@ impl ResolverContext {
         }
     }
 
+    /// Look up a node by symbol name string in a specific module's scope.
+    /// This is a convenience wrapper that finds the StrId for the name.
+    pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
+        // Find the StrId for this name (if it exists in the interner)
+        let name_id = self.model.strings().find(name)?;
+        self.lookup_node_for_module_interned(module_id, name_id)
+    }
+
     /// Look up a node by symbol name in a module identified by name.
     /// If multiple modules have the same name, tries all candidates.
     /// Order: 1) module-local definitions, 2) imports (following import chain).
     /// Cycle-safe: cyclic imports are detected and handled gracefully.
     pub fn lookup_node_in_module(&self, module_name: &str, name: &str) -> Option<NodeId> {
         // Get all modules with this name
-        if let Some(candidates) = self.module_index.get(module_name) {
+        let module_name_id = self.model.strings().find(module_name)?;
+        if let Some(candidates) = self.module_index.get(&module_name_id) {
             // Try each candidate
             for &module_id in candidates {
                 if let Some(node_id) = self.lookup_node_for_module(module_id, name) {
@@ -113,7 +145,7 @@ impl ResolverContext {
     }
 
     /// Register an import declaration for later dynamic lookup.
-    pub fn register_import(&mut self, importing_module: ModuleId, symbol: String, source_module: ModuleId) {
+    pub fn register_import(&mut self, importing_module: ModuleId, symbol: StrId, source_module: ModuleId) {
         self.module_imports.insert((importing_module, symbol), source_module);
     }
 
@@ -132,16 +164,17 @@ impl ResolverContext {
 
     /// Look up a type by symbol name.
     pub fn lookup_type(&self, name: &str) -> Option<TypeId> {
-        self.symbol_to_type.get(name).copied()
+        let name_id = self.model.strings().find(name)?;
+        self.symbol_to_type.get(&name_id).copied()
     }
 
     /// Register a module-scoped symbol -> node mapping.
-    pub fn register_module_node_symbol(&mut self, module_id: ModuleId, symbol_name: String, node_id: NodeId) {
+    pub fn register_module_node_symbol(&mut self, module_id: ModuleId, symbol_name: StrId, node_id: NodeId) {
         self.module_symbol_to_node.insert((module_id, symbol_name), node_id);
     }
 
     /// Register a symbol -> type mapping.
-    pub fn register_type_symbol(&mut self, name: String, type_id: TypeId) {
+    pub fn register_type_symbol(&mut self, name: StrId, type_id: TypeId) {
         self.symbol_to_type.insert(name, type_id);
     }
 
@@ -198,6 +231,22 @@ impl ResolverContext {
             span,
         });
     }
+
+    /// Drop HIR modules to free memory.
+    ///
+    /// After semantic analysis completes, the HIR modules are no longer needed.
+    /// Calling this method frees the HIR data, reducing peak memory by
+    /// preventing HIR and Model from coexisting at full size.
+    ///
+    /// The associated index maps are also cleared since they reference
+    /// indices into the now-empty hir_modules vector.
+    pub fn drop_hir(&mut self) {
+        // Replace with empty vec to deallocate
+        self.hir_modules = alloc::vec::Vec::new();
+        // Clear associated indices that reference hir_modules
+        self.module_id_to_hir_index.clear();
+        self.hir_index_to_module_id.clear();
+    }
 }
 
 #[cfg(test)]
@@ -225,12 +274,13 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
+        let foo_id = ctx.intern("foo");
         let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
         let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
-        ctx.register_import(module_a, "foo".into(), module_b);
-        ctx.register_import(module_b, "foo".into(), module_a);
+        ctx.register_import(module_a, foo_id, module_b);
+        ctx.register_import(module_b, foo_id, module_a);
 
         // This should return None (cycle detected) instead of infinite recursion
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -249,16 +299,17 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
+        let foo_id = ctx.intern("foo");
         let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
         let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Create a node in module B - OidNode::new takes (subid, parent)
         let node = OidNode::new(1, None);
         let node_id = ctx.model.add_node(node).unwrap();
-        ctx.register_module_node_symbol(module_b, "foo".into(), node_id);
+        ctx.register_module_node_symbol(module_b, foo_id, node_id);
 
         // A imports "foo" from B
-        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_a, foo_id, module_b);
 
         // Looking up "foo" in module A should find it via the import chain
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -278,20 +329,21 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
+        let foo_id = ctx.intern("foo");
         let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
         let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Create nodes in both modules
         let node_a = OidNode::new(1, None);
         let node_a_id = ctx.model.add_node(node_a).unwrap();
-        ctx.register_module_node_symbol(module_a, "foo".into(), node_a_id);
+        ctx.register_module_node_symbol(module_a, foo_id, node_a_id);
 
         let node_b = OidNode::new(2, None);
         let node_b_id = ctx.model.add_node(node_b).unwrap();
-        ctx.register_module_node_symbol(module_b, "foo".into(), node_b_id);
+        ctx.register_module_node_symbol(module_b, foo_id, node_b_id);
 
         // A also imports "foo" from B (should be ignored since local exists)
-        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_a, foo_id, module_b);
 
         // Looking up "foo" in module A should find the local one
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -311,6 +363,7 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let name_c = ctx.intern("ModuleC");
+        let foo_id = ctx.intern("foo");
         let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
         let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
         let module_c = ctx.model.add_module(ResolvedModule::new(name_c)).unwrap();
@@ -318,11 +371,11 @@ mod tests {
         // Create node in C
         let node = OidNode::new(1, None);
         let node_id = ctx.model.add_node(node).unwrap();
-        ctx.register_module_node_symbol(module_c, "foo".into(), node_id);
+        ctx.register_module_node_symbol(module_c, foo_id, node_id);
 
         // A -> B -> C import chain
-        ctx.register_import(module_a, "foo".into(), module_b);
-        ctx.register_import(module_b, "foo".into(), module_c);
+        ctx.register_import(module_a, foo_id, module_b);
+        ctx.register_import(module_b, foo_id, module_c);
 
         // Looking up "foo" in A should follow the chain to C
         let result = ctx.lookup_node_for_module(module_a, "foo");

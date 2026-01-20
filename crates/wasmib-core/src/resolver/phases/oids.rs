@@ -5,7 +5,6 @@
 use crate::hir::{HirDefinition, HirOidAssignment, HirOidComponent};
 use crate::model::{ModuleId, NodeDefinition, NodeId, NodeKind, Oid, OidNode};
 use crate::resolver::context::ResolverContext;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 #[cfg(feature = "tracing")]
@@ -113,10 +112,11 @@ fn is_first_component_resolvable<TR: OidTracer>(
     def: &OidDefinition,
     tracer: &mut TR,
 ) -> bool {
-    match def.oid.components.first() {
+    let oid = def.oid(ctx);
+    match oid.components.first() {
         Some(HirOidComponent::Name(sym)) => {
             let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
-            tracer.trace_lookup(def.module_id, &def.def_name, &sym.name, found);
+            tracer.trace_lookup(def.module_id, def.def_name(ctx), &sym.name, found);
             found
         }
         Some(HirOidComponent::NamedNumber { .. })
@@ -184,24 +184,30 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
         if still_pending.len() == initial_count {
             // Record unresolved for remaining definitions
             for def in still_pending {
-                match def.oid.components.first() {
+                // Extract data to owned to avoid borrow conflicts
+                let oid = def.oid(ctx);
+                let def_name = def.def_name(ctx).to_string();
+                let oid_span = oid.span;
+                let first_component = oid.components.first().cloned();
+
+                match first_component {
                     Some(HirOidComponent::Name(sym)) => {
-                        tracer.trace_unresolved(&def.def_name, &sym.name);
+                        tracer.trace_unresolved(&def_name, &sym.name);
                         ctx.record_unresolved_oid(
                             def.module_id,
-                            &def.def_name,
+                            &def_name,
                             &sym.name,
-                            def.oid.span,
+                            oid_span,
                         );
                     }
                     Some(HirOidComponent::QualifiedName { module, name }) => {
                         let qualified_name = alloc::format!("{}.{}", module.name, name.name);
-                        tracer.trace_unresolved(&def.def_name, &qualified_name);
+                        tracer.trace_unresolved(&def_name, &qualified_name);
                         ctx.record_unresolved_oid(
                             def.module_id,
-                            &def.def_name,
+                            &def_name,
                             &qualified_name,
-                            def.oid.span,
+                            oid_span,
                         );
                     }
                     _ => {}
@@ -222,12 +228,17 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
 /// Per RFC 1215, TRAP-TYPE OID = enterprise_oid.0.trap_number
 fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapTypeDefinition>) {
     for def in trap_defs {
+        // Get trap info from HIR - extract to owned values to avoid borrow conflicts
+        let (enterprise_ref, trap_number, span) = def.trap_info(ctx);
+        let enterprise = enterprise_ref.to_string();
+        let def_name = def.def_name(ctx).to_string();
+
         // Look up the enterprise OID
-        let enterprise_node_id = match lookup_node_scoped(ctx, def.module_id, &def.enterprise) {
+        let enterprise_node_id = match lookup_node_scoped(ctx, def.module_id, &enterprise) {
             Some(id) => id,
             None => {
                 // Enterprise reference not found
-                ctx.record_unresolved_oid(def.module_id, &def.def_name, &def.enterprise, def.span);
+                ctx.record_unresolved_oid(def.module_id, &def_name, &enterprise, span);
                 continue;
             }
         };
@@ -240,7 +251,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
 
         // Build trap OID: enterprise.0.trap_number
         let trap_zero_oid = enterprise_oid.child(0);
-        let trap_oid = trap_zero_oid.child(def.trap_number);
+        let trap_oid = trap_zero_oid.child(trap_number);
 
         // Find or create the intermediate .0 node
         let trap_zero_node_id = if let Some(existing) = ctx.model.get_node_id_by_oid(&trap_zero_oid)
@@ -263,7 +274,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         let trap_node_id = if let Some(existing) = ctx.model.get_node_id_by_oid(&trap_oid) {
             existing
         } else {
-            let new_node = OidNode::new(def.trap_number, Some(trap_zero_node_id));
+            let new_node = OidNode::new(trap_number, Some(trap_zero_node_id));
             let new_id = ctx.model.add_node(new_node).unwrap();
 
             // Add as child of .0 node
@@ -276,7 +287,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         };
 
         // Add the definition to the node
-        let label = ctx.intern(&def.def_name);
+        let label = ctx.intern(&def_name);
         let node_def = NodeDefinition::new(def.module_id, label);
 
         if let Some(node) = ctx.model.get_node_mut(trap_node_id) {
@@ -285,7 +296,8 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         }
 
         // Register the name -> node mapping for this module
-        ctx.register_module_node_symbol(def.module_id, def.def_name.clone(), trap_node_id);
+        let def_name_id = ctx.intern(&def_name);
+        ctx.register_module_node_symbol(def.module_id, def_name_id, trap_node_id);
 
         // Add to module
         if let Some(module) = ctx.model.get_module_mut(def.module_id) {
@@ -295,22 +307,65 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
 }
 
 /// An OID definition pending resolution.
+/// Uses indices to reference HIR data instead of cloning.
 struct OidDefinition {
     module_id: ModuleId,
-    def_name: String,
-    oid: HirOidAssignment,
+    hir_idx: usize,
+    def_idx: usize,
     def_kind: DefinitionKind,
+}
+
+impl OidDefinition {
+    /// Get the definition name from HIR.
+    fn def_name<'a>(&self, ctx: &'a ResolverContext) -> &'a str {
+        let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
+        def.name().map(|n| n.name.as_str()).unwrap_or("")
+    }
+
+    /// Get the OID assignment from HIR.
+    fn oid<'a>(&self, ctx: &'a ResolverContext) -> &'a HirOidAssignment {
+        let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
+        match def {
+            HirDefinition::ObjectType(d) => &d.oid,
+            HirDefinition::ModuleIdentity(d) => &d.oid,
+            HirDefinition::ObjectIdentity(d) => &d.oid,
+            HirDefinition::Notification(d) => d.oid.as_ref().expect("notification has OID"),
+            HirDefinition::ValueAssignment(d) => &d.oid,
+            HirDefinition::ObjectGroup(d) => &d.oid,
+            HirDefinition::NotificationGroup(d) => &d.oid,
+            HirDefinition::ModuleCompliance(d) => &d.oid,
+            HirDefinition::AgentCapabilities(d) => &d.oid,
+            HirDefinition::TypeDef(_) => panic!("TypeDef has no OID"),
+        }
+    }
 }
 
 /// A TRAP-TYPE definition pending OID derivation.
 /// OID is derived as: enterprise_oid.0.trap_number
+/// Uses indices to reference HIR data instead of cloning.
 struct TrapTypeDefinition {
     module_id: ModuleId,
-    def_name: String,
-    enterprise: String,
-    trap_number: u32,
-    /// Source span for diagnostics.
-    span: crate::lexer::Span,
+    hir_idx: usize,
+    def_idx: usize,
+}
+
+impl TrapTypeDefinition {
+    /// Get the definition name from HIR.
+    fn def_name<'a>(&self, ctx: &'a ResolverContext) -> &'a str {
+        let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
+        def.name().map(|n| n.name.as_str()).unwrap_or("")
+    }
+
+    /// Get the trap info from HIR (enterprise name and trap number).
+    fn trap_info<'a>(&self, ctx: &'a ResolverContext) -> (&'a str, u32, crate::lexer::Span) {
+        let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
+        if let HirDefinition::Notification(d) = def {
+            if let Some(ref trap_info) = d.trap_info {
+                return (&trap_info.enterprise.name, trap_info.trap_number, d.span);
+            }
+        }
+        panic!("TrapTypeDefinition must reference a TRAP-TYPE");
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -340,57 +395,39 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
     // Iterate via module_id_to_hir_index to get ModuleId for each module
     for (&module_id, &hir_idx) in ctx.module_id_to_hir_index.iter() {
         let module = &ctx.hir_modules[hir_idx];
-        for def in &module.definitions {
-            let (name, oid, kind) = match def {
-                HirDefinition::ObjectType(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ObjectType)
-                }
-                HirDefinition::ModuleIdentity(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ModuleIdentity)
-                }
-                HirDefinition::ObjectIdentity(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ObjectIdentity)
-                }
+        for (def_idx, def) in module.definitions.iter().enumerate() {
+            let kind = match def {
+                HirDefinition::ObjectType(_) => DefinitionKind::ObjectType,
+                HirDefinition::ModuleIdentity(_) => DefinitionKind::ModuleIdentity,
+                HirDefinition::ObjectIdentity(_) => DefinitionKind::ObjectIdentity,
                 HirDefinition::Notification(d) => {
-                    if let Some(ref oid) = d.oid {
+                    if d.oid.is_some() {
                         // NOTIFICATION-TYPE with explicit OID
-                        (d.name.name.clone(), oid.clone(), DefinitionKind::Notification)
-                    } else if let Some(ref trap_info) = d.trap_info {
+                        DefinitionKind::Notification
+                    } else if d.trap_info.is_some() {
                         // TRAP-TYPE: OID derived from enterprise + trap_number
                         trap_defs.push(TrapTypeDefinition {
                             module_id,
-                            def_name: d.name.name.clone(),
-                            enterprise: trap_info.enterprise.name.clone(),
-                            trap_number: trap_info.trap_number,
-                            span: d.span,
+                            hir_idx,
+                            def_idx,
                         });
                         continue;
                     } else {
                         continue;
                     }
                 }
-                HirDefinition::ValueAssignment(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ValueAssignment)
-                }
-                HirDefinition::ObjectGroup(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ObjectGroup)
-                }
-                HirDefinition::NotificationGroup(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::NotificationGroup)
-                }
-                HirDefinition::ModuleCompliance(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::ModuleCompliance)
-                }
-                HirDefinition::AgentCapabilities(d) => {
-                    (d.name.name.clone(), d.oid.clone(), DefinitionKind::AgentCapabilities)
-                }
+                HirDefinition::ValueAssignment(_) => DefinitionKind::ValueAssignment,
+                HirDefinition::ObjectGroup(_) => DefinitionKind::ObjectGroup,
+                HirDefinition::NotificationGroup(_) => DefinitionKind::NotificationGroup,
+                HirDefinition::ModuleCompliance(_) => DefinitionKind::ModuleCompliance,
+                HirDefinition::AgentCapabilities(_) => DefinitionKind::AgentCapabilities,
                 HirDefinition::TypeDef(_) => continue,
             };
 
             oid_defs.push(OidDefinition {
                 module_id,
-                def_name: name,
-                oid,
+                hir_idx,
+                def_idx,
                 def_kind: kind,
             });
         }
@@ -407,18 +444,25 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 ) -> bool {
     let module_id = def.module_id;
 
+    // Extract data from HIR upfront to avoid borrow conflicts during mutation
+    let oid = def.oid(ctx);
+    let def_name = def.def_name(ctx).to_string();
+    let oid_span = oid.span;
+    let components: Vec<_> = oid.components.iter().cloned().collect();
+    let num_components = components.len();
+
     // Walk the OID components and build the path
     let mut current_node: Option<NodeId> = None;
     let mut current_oid = Oid::new(Vec::new());
 
-    for (comp_idx, component) in def.oid.components.iter().enumerate() {
-        let is_last = comp_idx == def.oid.components.len() - 1;
+    for (comp_idx, component) in components.iter().enumerate() {
+        let is_last = comp_idx == num_components - 1;
 
         match component {
             HirOidComponent::Name(sym) => {
                 // Look up by name using module-scoped lookup
                 let found = lookup_node_scoped(ctx, module_id, &sym.name);
-                tracer.trace_lookup(module_id, &def.def_name, &sym.name, found.is_some());
+                tracer.trace_lookup(module_id, &def_name, &sym.name, found.is_some());
 
                 if let Some(node_id) = found {
                     current_node = Some(node_id);
@@ -427,8 +471,8 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     }
                 } else {
                     // Unresolved name reference
-                    tracer.trace_unresolved(&def.def_name, &sym.name);
-                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name, def.oid.span);
+                    tracer.trace_unresolved(&def_name, &sym.name);
+                    ctx.record_unresolved_oid(module_id, &def_name, &sym.name, oid_span);
                     return false;
                 }
             }
@@ -467,10 +511,11 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     // Create node at the given number
                     current_oid = current_oid.child(*number);
 
+                    let name_id = ctx.intern(&name.name);
                     if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
                         current_node = Some(existing);
                         // Register the name mapping
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
+                        ctx.register_module_node_symbol(module_id, name_id, existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
                         let new_id = ctx.model.add_node(new_node).unwrap();
@@ -485,14 +530,15 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
+                        ctx.register_module_node_symbol(module_id, name_id, new_id);
                         current_node = Some(new_id);
                     }
                 }
 
                 // Also register the name
                 if let Some(node_id) = current_node {
-                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
+                    let name_id = ctx.intern(&name.name);
+                    ctx.register_module_node_symbol(module_id, name_id, node_id);
                 }
             }
             HirOidComponent::QualifiedName {
@@ -508,8 +554,8 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                 } else {
                     // Unresolved qualified reference
                     let qualified_name = alloc::format!("{}.{}", qual_module.name, name.name);
-                    tracer.trace_unresolved(&def.def_name, &qualified_name);
-                    ctx.record_unresolved_oid(module_id, &def.def_name, &qualified_name, def.oid.span);
+                    tracer.trace_unresolved(&def_name, &qualified_name);
+                    ctx.record_unresolved_oid(module_id, &def_name, &qualified_name, oid_span);
                     return false;
                 }
             }
@@ -528,10 +574,11 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     // Create node at the given number (like NamedNumber behavior)
                     current_oid = current_oid.child(*number);
 
+                    let name_id = ctx.intern(&name.name);
                     if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
                         current_node = Some(existing);
                         // Register the name mapping for this module
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
+                        ctx.register_module_node_symbol(module_id, name_id, existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
                         let new_id = ctx.model.add_node(new_node).unwrap();
@@ -546,14 +593,15 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
+                        ctx.register_module_node_symbol(module_id, name_id, new_id);
                         current_node = Some(new_id);
                     }
                 }
 
                 // Also register the name for this module's scope
                 if let Some(node_id) = current_node {
-                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
+                    let name_id = ctx.intern(&name.name);
+                    ctx.register_module_node_symbol(module_id, name_id, node_id);
                 }
             }
         }
@@ -561,7 +609,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
         // If this is the last component, add the definition
         if is_last {
             if let Some(node_id) = current_node {
-                let label = ctx.intern(&def.def_name);
+                let label = ctx.intern(&def_name);
                 let node_def = NodeDefinition::new(module_id, label);
 
                 if let Some(node) = ctx.model.get_node_mut(node_id) {
@@ -585,7 +633,8 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                 }
 
                 // Register the name -> node mapping for this module
-                ctx.register_module_node_symbol(module_id, def.def_name.clone(), node_id);
+                let def_name_id = ctx.intern(&def_name);
+                ctx.register_module_node_symbol(module_id, def_name_id, node_id);
 
                 // Add to module
                 if let Some(module) = ctx.model.get_module_mut(module_id) {
@@ -594,7 +643,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 
                 // Trace successful resolution
                 let oid_str = current_oid.to_dotted();
-                tracer.trace_resolved(&def.def_name, &oid_str, node_id);
+                tracer.trace_resolved(&def_name, &oid_str, node_id);
             }
         }
     }
@@ -667,7 +716,7 @@ mod tests {
         resolve_oids(&mut ctx);
 
         // Check node exists via module lookup
-        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
         assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
 
         // Check OID is correct (1.3.6.1.4.1.1)
@@ -708,7 +757,7 @@ mod tests {
         resolve_oids(&mut ctx);
 
         // Check node exists
-        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
         assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
 
         // Check OID is correct (1.3.999)
@@ -769,7 +818,7 @@ mod tests {
         resolve_oids(&mut ctx);
 
         // Check node exists via module lookup
-        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
         assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
 
         // Check OID is correct (1.3.6.1.4.1.1) - enterprises is 1.3.6.1.4.1
@@ -807,7 +856,7 @@ mod tests {
         resolve_oids(&mut ctx);
 
         // Check node exists via module lookup
-        let module_id = *ctx.module_index.get("TEST-MIB").unwrap().first().unwrap();
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
         assert!(ctx.lookup_node_for_module(module_id, "testObject").is_some());
 
         // Check OID is correct - should use the existing enterprises node

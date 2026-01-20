@@ -39,10 +39,8 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         ctx.hir_index_to_module_id.insert(hir_idx, module_id);
 
         // Append to candidates list (handles duplicate module names)
-        ctx.module_index
-            .entry(module_name)
-            .or_default()
-            .push(module_id);
+        // Uses StrId key for memory efficiency
+        ctx.module_index.entry(name_str).or_default().push(module_id);
     }
 }
 
@@ -68,8 +66,9 @@ mod tests {
 
         // 2 base modules (SNMPv2-SMI, SNMPv2-TC) + 1 user module
         assert_eq!(ctx.model.module_count(), 3);
-        assert!(ctx.module_index.contains_key("TEST-MIB"));
-        assert!(ctx.module_index.contains_key("SNMPv2-SMI"));
-        assert!(ctx.module_index.contains_key("SNMPv2-TC"));
+        // Check modules are registered by looking them up via the model
+        assert!(ctx.model.get_module_by_name("TEST-MIB").is_some());
+        assert!(ctx.model.get_module_by_name("SNMPv2-SMI").is_some());
+        assert!(ctx.model.get_module_by_name("SNMPv2-TC").is_some());
     }
 }

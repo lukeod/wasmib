@@ -202,9 +202,9 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     }
 
     // Get candidate modules for this source name
-    let candidates: Vec<ModuleId> = ctx
-        .module_index
-        .get(from_module_name)
+    let from_module_name_id = ctx.model.strings().find(from_module_name);
+    let candidates: Vec<ModuleId> = from_module_name_id
+        .and_then(|id| ctx.module_index.get(&id))
         .cloned()
         .unwrap_or_default();
 
@@ -259,7 +259,8 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
             // This candidate has all the symbols - use it for everything
             tracer.trace_candidate_chosen(from_module_name, *candidate_id);
             for sym in &user_symbols {
-                ctx.register_import(importing_module, sym.name.clone(), *candidate_id);
+                let sym_id = ctx.intern(&sym.name);
+                ctx.register_import(importing_module, sym_id, *candidate_id);
             }
             return;
         }

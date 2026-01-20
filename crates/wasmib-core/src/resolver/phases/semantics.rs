@@ -1,8 +1,15 @@
 //! Phase 5: Semantic analysis.
 //!
 //! Infer node kinds, resolve table semantics, and perform validation.
+//!
+//! # Memory Optimization
+//!
+//! This phase uses index references instead of cloning HIR objects.
+//! Instead of `Vec<(ModuleId, HirObjectType)>` which clones the entire struct
+//! including `Option<String>` fields, we use `Vec<HirRef>` which stores only
+//! indices and accesses the data through the context.
 
-use crate::hir::{HirDefVal, HirDefinition, HirTypeSyntax};
+use crate::hir::{HirDefVal, HirDefinition, HirNotification, HirObjectType, HirTypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
     Access, DefVal, IndexItem, IndexSpec, ModuleId, NodeId, NodeKind, ResolvedNotification,
@@ -11,6 +18,17 @@ use crate::model::{
 use crate::resolver::context::ResolverContext;
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
+
+/// Reference to a HIR definition by indices.
+///
+/// This avoids cloning entire `HirObjectType` or `HirNotification` structs,
+/// significantly reducing peak memory when processing large MIB corpora.
+#[derive(Clone, Copy)]
+struct HirRef {
+    module_id: ModuleId,
+    hir_idx: usize,
+    def_idx: usize,
+}
 
 /// Perform semantic analysis on the resolved model.
 pub fn analyze_semantics(ctx: &mut ResolverContext) {
@@ -29,40 +47,25 @@ pub fn analyze_semantics(ctx: &mut ResolverContext) {
 
 /// Infer node kinds from SYNTAX and context.
 fn infer_node_kinds(ctx: &mut ResolverContext) {
-    // Collect OBJECT-TYPE definitions with their ModuleId (avoids string cloning)
-    let object_types: Vec<_> = ctx
-        .module_id_to_hir_index
-        .iter()
-        .flat_map(|(&module_id, &hir_idx)| {
-            ctx.hir_modules
-                .get(hir_idx)
-                .into_iter()
-                .flat_map(move |module| {
-                    module.definitions.iter().filter_map(move |def| {
-                        if let HirDefinition::ObjectType(obj) = def {
-                            Some((module_id, obj.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
-        .collect();
+    // Collect references to OBJECT-TYPE definitions (no cloning)
+    let obj_refs = collect_object_type_refs(ctx);
 
     // First pass: identify TABLEs and ROWs
-    for (module_id, obj) in &object_types {
-        if let Some(node_id) = ctx.lookup_node_for_module(*module_id, &obj.name.name) {
-            let kind = if obj.syntax.is_sequence_of() {
-                NodeKind::Table
-            } else if obj.index.is_some() || obj.augments.is_some() {
-                NodeKind::Row
-            } else {
-                // Default to Scalar, will be refined below
-                NodeKind::Scalar
-            };
+    for obj_ref in &obj_refs {
+        if let Some(obj) = get_object_type(ctx, obj_ref) {
+            if let Some(node_id) = ctx.lookup_node_for_module(obj_ref.module_id, &obj.name.name) {
+                let kind = if obj.syntax.is_sequence_of() {
+                    NodeKind::Table
+                } else if obj.index.is_some() || obj.augments.is_some() {
+                    NodeKind::Row
+                } else {
+                    // Default to Scalar, will be refined below
+                    NodeKind::Scalar
+                };
 
-            if let Some(node) = ctx.model.get_node_mut(node_id) {
-                node.kind = kind;
+                if let Some(node) = ctx.model.get_node_mut(node_id) {
+                    node.kind = kind;
+                }
             }
         }
     }
@@ -83,6 +86,92 @@ fn infer_node_kinds(ctx: &mut ResolverContext) {
             }
         }
     }
+}
+
+/// Collect references to all OBJECT-TYPE definitions without cloning.
+fn collect_object_type_refs(ctx: &ResolverContext) -> Vec<HirRef> {
+    ctx.module_id_to_hir_index
+        .iter()
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module
+                        .definitions
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(def_idx, def)| {
+                            if matches!(def, HirDefinition::ObjectType(_)) {
+                                Some(HirRef {
+                                    module_id,
+                                    hir_idx,
+                                    def_idx,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                })
+        })
+        .collect()
+}
+
+/// Get an OBJECT-TYPE from a reference.
+fn get_object_type<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a HirObjectType> {
+    ctx.hir_modules
+        .get(r.hir_idx)
+        .and_then(|m| m.definitions.get(r.def_idx))
+        .and_then(|def| {
+            if let HirDefinition::ObjectType(obj) = def {
+                Some(obj)
+            } else {
+                None
+            }
+        })
+}
+
+/// Collect references to all NOTIFICATION definitions without cloning.
+fn collect_notification_refs(ctx: &ResolverContext) -> Vec<HirRef> {
+    ctx.module_id_to_hir_index
+        .iter()
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module
+                        .definitions
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(def_idx, def)| {
+                            if matches!(def, HirDefinition::Notification(_)) {
+                                Some(HirRef {
+                                    module_id,
+                                    hir_idx,
+                                    def_idx,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                })
+        })
+        .collect()
+}
+
+/// Get a NOTIFICATION from a reference.
+fn get_notification<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a HirNotification> {
+    ctx.hir_modules
+        .get(r.hir_idx)
+        .and_then(|m| m.definitions.get(r.def_idx))
+        .and_then(|def| {
+            if let HirDefinition::Notification(n) = def {
+                Some(n)
+            } else {
+                None
+            }
+        })
 }
 
 /// Collect children of ROW nodes.
@@ -121,9 +210,8 @@ fn collect_row_children_inner(
 
 /// Resolve table semantics (INDEX and AUGMENTS).
 fn resolve_table_semantics(ctx: &mut ResolverContext) {
-    // Collect OBJECT-TYPEs with INDEX or AUGMENTS
-    // Iterate over all registered ModuleIds to get the correct ModuleId for each HirModule
-    let table_defs: Vec<_> = ctx
+    // Collect references to OBJECT-TYPEs with INDEX or AUGMENTS
+    let table_refs: Vec<_> = ctx
         .module_id_to_hir_index
         .iter()
         .flat_map(|(&module_id, &hir_idx)| {
@@ -131,113 +219,152 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                 .get(hir_idx)
                 .into_iter()
                 .flat_map(move |module| {
-                    module.definitions.iter().filter_map(move |def| {
-                        if let HirDefinition::ObjectType(obj) = def {
-                            if obj.index.is_some() || obj.augments.is_some() {
-                                return Some((
-                                    module_id,
-                                    obj.name.name.clone(),
-                                    obj.index.clone(),
-                                    obj.augments.clone(),
-                                    obj.span,
-                                ));
+                    module
+                        .definitions
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(def_idx, def)| {
+                            if let HirDefinition::ObjectType(obj) = def {
+                                if obj.index.is_some() || obj.augments.is_some() {
+                                    return Some(HirRef {
+                                        module_id,
+                                        hir_idx,
+                                        def_idx,
+                                    });
+                                }
                             }
-                        }
-                        None
-                    })
+                            None
+                        })
                 })
         })
         .collect();
 
-    for (module_id, name, index_opt, augments_opt, span) in table_defs {
+    for table_ref in table_refs {
+        // Extract data needed from the object in a single borrow scope
+        let table_data = {
+            let Some(obj) = get_object_type(ctx, &table_ref) else {
+                continue;
+            };
+            TableData {
+                name: obj.name.name.clone(),
+                span: obj.span,
+                index: obj.index.clone(),
+                augments: obj.augments.clone(),
+            }
+        };
+
+        let module_id = table_ref.module_id;
+
         // Resolve INDEX objects
-        if let Some(ref index_items) = index_opt {
+        if let Some(ref index_items) = table_data.index {
             for item in index_items {
                 // INDEX objects can be local or imported (lookup_node_for_module handles all cases)
-                if ctx.lookup_node_for_module(module_id, &item.object.name).is_none() {
-                    let row_str = ctx.intern(&name);
+                if ctx
+                    .lookup_node_for_module(module_id, &item.object.name)
+                    .is_none()
+                {
+                    let row_str = ctx.intern(&table_data.name);
                     let index_str = ctx.intern(&item.object.name);
-                    ctx.model
-                        .unresolved_mut()
-                        .indexes
-                        .push(UnresolvedIndex {
-                            module: module_id,
-                            row: row_str,
-                            index_object: index_str,
-                            span,
-                        });
+                    ctx.model.unresolved_mut().indexes.push(UnresolvedIndex {
+                        module: module_id,
+                        row: row_str,
+                        index_object: index_str,
+                        span: table_data.span,
+                    });
                 }
             }
         }
 
         // Resolve AUGMENTS target
-        if let Some(ref augments_sym) = augments_opt {
-            if ctx.lookup_node_for_module(module_id, &augments_sym.name).is_none() {
-                ctx.record_unresolved_oid(module_id, &name, &augments_sym.name, span);
+        if let Some(ref augments_sym) = table_data.augments {
+            if ctx
+                .lookup_node_for_module(module_id, &augments_sym.name)
+                .is_none()
+            {
+                ctx.record_unresolved_oid(
+                    module_id,
+                    &table_data.name,
+                    &augments_sym.name,
+                    table_data.span,
+                );
             }
         }
     }
 }
 
+/// Extracted data for table semantics processing.
+struct TableData {
+    name: alloc::string::String,
+    span: Span,
+    index: Option<Vec<crate::hir::HirIndexItem>>,
+    augments: Option<crate::hir::Symbol>,
+}
+
 /// Create ResolvedObject entries for all OBJECT-TYPEs.
 fn create_resolved_objects(ctx: &mut ResolverContext) {
-    // Collect all (ModuleId, HirObjectType) pairs
-    // We iterate over all registered ModuleIds to get the correct ModuleId for each HirModule
-    let object_types: Vec<_> = ctx
-        .module_id_to_hir_index
-        .iter()
-        .flat_map(|(&module_id, &hir_idx)| {
-            ctx.hir_modules
-                .get(hir_idx)
-                .into_iter()
-                .flat_map(move |module| {
-                    module.definitions.iter().filter_map(move |def| {
-                        if let HirDefinition::ObjectType(obj) = def {
-                            Some((module_id, obj.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
-        .collect();
+    // Collect references to all OBJECT-TYPE definitions (no cloning)
+    let obj_refs = collect_object_type_refs(ctx);
 
-    for (module_id, obj) in object_types {
-        let node_id = match ctx.lookup_node_for_module(module_id, &obj.name.name) {
+    for obj_ref in obj_refs {
+        // Extract all data from the object in a single borrow scope
+        let obj_data = {
+            let Some(obj) = get_object_type(ctx, &obj_ref) else {
+                continue;
+            };
+
+            // Extract all data needed for processing
+            ObjectData {
+                name: obj.name.name.clone(),
+                syntax: obj.syntax.clone(),
+                units: obj.units.clone(),
+                access: obj.access,
+                status: obj.status,
+                description: obj.description.clone(),
+                reference: obj.reference.clone(),
+                index: obj.index.clone(),
+                augments: obj.augments.clone(),
+                defval: obj.defval.clone(),
+                span: obj.span,
+            }
+        };
+
+        let module_id = obj_ref.module_id;
+        let node_id = match ctx.lookup_node_for_module(module_id, &obj_data.name) {
             Some(id) => id,
             None => continue,
         };
 
         // Find the type (may be None if unresolved)
-        let type_id = resolve_type_syntax(ctx, &obj.syntax, module_id, &obj.name.name, obj.span);
+        let type_id =
+            resolve_type_syntax(ctx, &obj_data.syntax, module_id, &obj_data.name, obj_data.span);
 
-        let name = ctx.intern(&obj.name.name);
-        let access = hir_access_to_access(obj.access);
-        let status = hir_status_to_status(obj.status);
+        let name = ctx.intern(&obj_data.name);
+        let access = hir_access_to_access(obj_data.access);
+        let status = hir_status_to_status(obj_data.status);
 
         let mut resolved = ResolvedObject::new(node_id, module_id, name, type_id, access);
 
         resolved.status = status;
 
-        if let Some(ref desc) = obj.description {
+        if let Some(ref desc) = obj_data.description {
             resolved.description = Some(ctx.intern(desc));
         }
 
-        if let Some(ref units) = obj.units {
+        if let Some(ref units) = obj_data.units {
             resolved.units = Some(ctx.intern(units));
         }
 
-        if let Some(ref reference) = obj.reference {
+        if let Some(ref reference) = obj_data.reference {
             resolved.reference = Some(ctx.intern(reference));
         }
 
         // Handle INDEX
-        if let Some(ref index_items) = obj.index {
+        if let Some(ref index_items) = obj_data.index {
             let items: Vec<_> = index_items
                 .iter()
                 .filter_map(|item| {
                     ctx.lookup_node_for_module(module_id, &item.object.name)
-                        .map(|node_id| IndexItem::new(node_id, item.implied))
+                        .map(|nid| IndexItem::new(nid, item.implied))
                 })
                 .collect();
             if !items.is_empty() {
@@ -246,17 +373,17 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         }
 
         // Handle AUGMENTS
-        if let Some(ref augments_sym) = obj.augments {
+        if let Some(ref augments_sym) = obj_data.augments {
             resolved.augments = ctx.lookup_node_for_module(module_id, &augments_sym.name);
         }
 
         // Handle DEFVAL
-        if let Some(ref defval) = obj.defval {
+        if let Some(ref defval) = obj_data.defval {
             resolved.defval = Some(convert_defval(ctx, defval, module_id));
         }
 
         // Handle inline enums
-        if let HirTypeSyntax::IntegerEnum(ref enums) = obj.syntax {
+        if let HirTypeSyntax::IntegerEnum(ref enums) = obj_data.syntax {
             let values: Vec<_> = enums
                 .iter()
                 .map(|(sym, val)| (*val, ctx.intern(&sym.name)))
@@ -265,7 +392,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         }
 
         // Handle inline BITS
-        if let HirTypeSyntax::Bits(ref bits) = obj.syntax {
+        if let HirTypeSyntax::Bits(ref bits) = obj_data.syntax {
             let defs: Vec<_> = bits
                 .iter()
                 .map(|(sym, pos)| (*pos, ctx.intern(&sym.name)))
@@ -277,7 +404,11 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
 
         // Update node with object reference (match by module AND label)
         if let Some(node) = ctx.model.get_node_mut(node_id) {
-            if let Some(def) = node.definitions.iter_mut().find(|d| d.label == name && d.module == module_id) {
+            if let Some(def) = node
+                .definitions
+                .iter_mut()
+                .find(|d| d.label == name && d.module == module_id)
+            {
                 def.object = Some(obj_id);
             }
         }
@@ -289,50 +420,67 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
     }
 }
 
+/// Extracted data from HirObjectType to avoid borrow conflicts.
+///
+/// This struct holds a subset of the HirObjectType data needed for creating
+/// ResolvedObject. It allows us to drop the borrow of the HirObjectType early
+/// so we can mutate the context.
+struct ObjectData {
+    name: alloc::string::String,
+    syntax: HirTypeSyntax,
+    units: Option<alloc::string::String>,
+    access: crate::hir::HirAccess,
+    status: crate::hir::HirStatus,
+    description: Option<alloc::string::String>,
+    reference: Option<alloc::string::String>,
+    index: Option<Vec<crate::hir::HirIndexItem>>,
+    augments: Option<crate::hir::Symbol>,
+    defval: Option<HirDefVal>,
+    span: Span,
+}
+
 /// Create ResolvedNotification entries for all NOTIFICATION-TYPE and TRAP-TYPE definitions.
 fn create_resolved_notifications(ctx: &mut ResolverContext) {
-    // Collect all (ModuleId, HirNotification) pairs
-    let notifications: Vec<_> = ctx
-        .module_id_to_hir_index
-        .iter()
-        .flat_map(|(&module_id, &hir_idx)| {
-            ctx.hir_modules
-                .get(hir_idx)
-                .into_iter()
-                .flat_map(move |module| {
-                    module.definitions.iter().filter_map(move |def| {
-                        if let HirDefinition::Notification(notif) = def {
-                            Some((module_id, notif.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
-        .collect();
+    // Collect references to all NOTIFICATION definitions (no cloning)
+    let notif_refs = collect_notification_refs(ctx);
 
-    for (module_id, notif) in notifications {
-        let node_id = match ctx.lookup_node_for_module(module_id, &notif.name.name) {
+    for notif_ref in notif_refs {
+        // Extract data from the notification in a single borrow scope
+        let notif_data = {
+            let Some(notif) = get_notification(ctx, &notif_ref) else {
+                continue;
+            };
+            NotificationData {
+                name: notif.name.name.clone(),
+                status: notif.status,
+                description: notif.description.clone(),
+                reference: notif.reference.clone(),
+                objects: notif.objects.clone(),
+            }
+        };
+
+        let module_id = notif_ref.module_id;
+        let node_id = match ctx.lookup_node_for_module(module_id, &notif_data.name) {
             Some(id) => id,
             None => continue,
         };
 
-        let name = ctx.intern(&notif.name.name);
-        let status = hir_status_to_status(notif.status);
+        let name = ctx.intern(&notif_data.name);
+        let status = hir_status_to_status(notif_data.status);
 
         let mut resolved = ResolvedNotification::new(node_id, module_id, name);
         resolved.status = status;
 
-        if let Some(ref desc) = notif.description {
+        if let Some(ref desc) = notif_data.description {
             resolved.description = Some(ctx.intern(desc));
         }
 
-        if let Some(ref reference) = notif.reference {
+        if let Some(ref reference) = notif_data.reference {
             resolved.reference = Some(ctx.intern(reference));
         }
 
         // Resolve OBJECTS/VARIABLES references to NodeIds
-        for obj_sym in &notif.objects {
+        for obj_sym in &notif_data.objects {
             if let Some(obj_node_id) = ctx.lookup_node_for_module(module_id, &obj_sym.name) {
                 resolved.objects.push(obj_node_id);
             }
@@ -359,6 +507,15 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
             module.add_notification(notif_id);
         }
     }
+}
+
+/// Extracted data for notification processing.
+struct NotificationData {
+    name: alloc::string::String,
+    status: crate::hir::HirStatus,
+    description: Option<alloc::string::String>,
+    reference: Option<alloc::string::String>,
+    objects: Vec<crate::hir::Symbol>,
 }
 
 /// Resolve a type syntax to a TypeId.

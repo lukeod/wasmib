@@ -8,7 +8,6 @@ use crate::model::{
     ValueConstraint,
 };
 use crate::resolver::context::ResolverContext;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Resolve all types across all modules.
@@ -34,25 +33,25 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     let name = ctx.intern("INTEGER");
     let typ = ResolvedType::new(name, module_id, BaseType::Integer32);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(String::from("INTEGER"), type_id);
+    ctx.register_type_symbol(name, type_id);
 
     // OCTET STRING - base octet string type
     let name = ctx.intern("OCTET STRING");
     let typ = ResolvedType::new(name, module_id, BaseType::OctetString);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(String::from("OCTET STRING"), type_id);
+    ctx.register_type_symbol(name, type_id);
 
     // OBJECT IDENTIFIER - base OID type
     let name = ctx.intern("OBJECT IDENTIFIER");
     let typ = ResolvedType::new(name, module_id, BaseType::ObjectIdentifier);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(String::from("OBJECT IDENTIFIER"), type_id);
+    ctx.register_type_symbol(name, type_id);
 
     // BITS - bit string type
     let name = ctx.intern("BITS");
     let typ = ResolvedType::new(name, module_id, BaseType::Bits);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(String::from("BITS"), type_id);
+    ctx.register_type_symbol(name, type_id);
 }
 
 /// Create type nodes for all user-defined types.
@@ -135,7 +134,7 @@ fn create_user_types(ctx: &mut ResolverContext) {
         }
 
         let type_id = ctx.model.add_type(typ).unwrap();
-        ctx.register_type_symbol(td.name.name.clone(), type_id);
+        ctx.register_type_symbol(name, type_id);
 
         // Add to module
         if let Some(module) = ctx.model.get_module_mut(module_id) {

@@ -120,6 +120,9 @@ impl Resolver {
         // Phase 5: Semantic analysis
         analyze_semantics(&mut ctx);
 
+        // Drop HIR modules to free memory - no longer needed after semantics
+        ctx.drop_hir();
+
         // Phase 6: Deduplicate identical definitions from duplicate module files
         deduplicate_definitions(&mut ctx.model);
 
@@ -187,6 +190,9 @@ impl Resolver {
         crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Semantics });
         analyze_semantics(&mut ctx);
         crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Semantics });
+
+        // Drop HIR modules to free memory - no longer needed after semantics
+        ctx.drop_hir();
 
         // Phase 6: Deduplicate identical definitions from duplicate module files
         deduplicate_definitions(&mut ctx.model);
