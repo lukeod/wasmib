@@ -519,7 +519,9 @@ impl<'src> Lexer<'src> {
     /// Scan an identifier or keyword.
     fn scan_identifier_or_keyword(&mut self) -> Token {
         let start = self.pos;
-        let first_char = self.advance().unwrap();
+        // SAFETY: This function is only called after verifying peek() is alphabetic,
+        // but we use unwrap_or for WASM safety to avoid panics on edge cases.
+        let first_char = self.advance().unwrap_or(b'A');
         let is_uppercase = first_char.is_ascii_uppercase();
 
         // Continue scanning identifier characters
@@ -600,7 +602,9 @@ impl<'src> Lexer<'src> {
     /// Scan a number literal.
     fn scan_number(&mut self) -> Token {
         let start = self.pos;
-        let first = self.peek().unwrap();
+        // SAFETY: This function is only called after verifying peek() is a digit,
+        // but we use unwrap_or for WASM safety to avoid panics on edge cases.
+        let first = self.peek().unwrap_or(b'0');
 
         // Check for leading zeros
         if first == b'0' && self.peek_at(1).is_some_and(|b| b.is_ascii_digit()) {
@@ -625,7 +629,9 @@ impl<'src> Lexer<'src> {
         self.advance(); // consume -
 
         // Check for leading zeros
-        let first = self.peek().unwrap();
+        // SAFETY: This function is only called after verifying a digit follows the minus,
+        // but we use unwrap_or for WASM safety to avoid panics on edge cases.
+        let first = self.peek().unwrap_or(b'0');
         if first == b'0' && self.peek_at(1).is_some_and(|b| b.is_ascii_digit()) {
             let span = Span {
                 start: (start + 1) as ByteOffset,
