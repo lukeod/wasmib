@@ -60,27 +60,6 @@ use phases::{analyze_semantics, deduplicate_definitions, register_modules, resol
 #[cfg(feature = "tracing")]
 use phases::{resolve_imports_traced, resolve_oids_traced};
 
-/// Resolver configuration.
-#[derive(Clone, Debug, Default)]
-pub struct ResolverConfig {
-    /// Allow partial results with unresolved references. Default: true.
-    pub allow_partial: bool,
-}
-
-impl ResolverConfig {
-    /// Create a new default config.
-    #[must_use]
-    pub fn new() -> Self {
-        Self { allow_partial: true }
-    }
-
-    /// Create a strict config that requires all references to resolve.
-    #[must_use]
-    pub fn strict() -> Self {
-        Self { allow_partial: false }
-    }
-}
-
 /// Resolution result.
 #[derive(Debug)]
 pub struct ResolveResult {
@@ -102,24 +81,13 @@ impl ResolveResult {
 ///
 /// Transforms HIR modules into a fully resolved Model.
 #[derive(Clone, Debug, Default)]
-pub struct Resolver {
-    #[allow(dead_code)]
-    config: ResolverConfig,
-}
+pub struct Resolver;
 
 impl Resolver {
-    /// Create a new resolver with default configuration.
+    /// Create a new resolver.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            config: ResolverConfig::default(),
-        }
-    }
-
-    /// Create a new resolver with custom configuration.
-    #[must_use]
-    pub fn with_config(config: ResolverConfig) -> Self {
-        Self { config }
+        Self
     }
 
     /// Resolve HIR modules into a Model.
@@ -132,8 +100,7 @@ impl Resolver {
     /// 5. Semantic analysis
     /// 6. Deduplication (remove identical definitions from duplicate module files)
     ///
-    /// Unresolved references are tracked but don't fail resolution
-    /// (unless `allow_partial` is false in config).
+    /// Unresolved references are tracked but do not fail resolution.
     #[must_use]
     pub fn resolve(&self, modules: Vec<HirModule>) -> ResolveResult {
         let mut ctx = ResolverContext::new(modules);
