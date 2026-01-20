@@ -97,17 +97,22 @@ fn deduplicate_node_definitions(model: &mut Model, node_id: NodeId) -> usize {
         return 0;
     }
 
-    // Sort in reverse order so we can remove from the end first
-    indices_to_remove.sort_by(|a, b| b.cmp(a));
+    let removed_count = indices_to_remove.len();
 
-    // Remove the duplicates
+    // Convert to set for O(1) lookup during filter
+    let remove_set: BTreeSet<usize> = indices_to_remove.into_iter().collect();
+
+    // Rebuild definitions vector, filtering out duplicates - O(n) vs O(n²) for repeated remove()
     if let Some(node) = model.get_node_mut(node_id) {
-        for idx in &indices_to_remove {
-            node.definitions.remove(*idx);
-        }
+        let mut idx = 0;
+        node.definitions.retain(|_| {
+            let keep = !remove_set.contains(&idx);
+            idx += 1;
+            keep
+        });
     }
 
-    indices_to_remove.len()
+    removed_count
 }
 
 /// Check if two definitions are semantically equivalent.
