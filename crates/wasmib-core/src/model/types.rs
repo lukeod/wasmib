@@ -29,6 +29,8 @@ pub enum BaseType {
     ObjectIdentifier,
     /// BITS (bit string with named bits).
     Bits,
+    /// SEQUENCE (compound type for table rows).
+    Sequence,
 }
 
 impl BaseType {
@@ -47,6 +49,7 @@ impl BaseType {
             Self::OctetString => "OCTETSTR",
             Self::ObjectIdentifier => "OBJID",
             Self::Bits => "BITS",
+            Self::Sequence => "SEQUENCE",
         }
     }
 }
@@ -239,6 +242,11 @@ pub struct ResolvedType {
     pub is_textual_convention: bool,
     /// Definition status.
     pub status: Status,
+    /// Internal: needs base type resolution from parent.
+    /// This is set during initial type creation when the base type couldn't
+    /// be determined from syntax alone (e.g., TypeRef to another TC).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub needs_base_resolution: bool,
 }
 
 impl ResolvedType {
@@ -259,6 +267,7 @@ impl ResolvedType {
             description: None,
             is_textual_convention: false,
             status: Status::Current,
+            needs_base_resolution: false,
         }
     }
 }

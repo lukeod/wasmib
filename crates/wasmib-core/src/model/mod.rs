@@ -440,6 +440,11 @@ impl Model {
         self.types.get(id.to_index())
     }
 
+    /// Get a mutable reference to a type by ID.
+    pub fn get_type_mut(&mut self, id: TypeId) -> Option<&mut ResolvedType> {
+        self.types.get_mut(id.to_index())
+    }
+
     /// Get the type inheritance chain.
     pub fn get_type_chain(&self, id: TypeId) -> Vec<&ResolvedType> {
         let mut chain = Vec::new();

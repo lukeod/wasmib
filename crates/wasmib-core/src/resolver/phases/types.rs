@@ -4,7 +4,8 @@
 
 use crate::hir::{HirConstraint, HirDefinition, HirRange, HirRangeValue, HirStatus, HirTypeSyntax};
 use crate::model::{
-    BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status, ValueConstraint,
+    BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status, TypeId,
+    ValueConstraint,
 };
 use crate::resolver::context::ResolverContext;
 use alloc::string::String;
@@ -93,8 +94,8 @@ fn create_user_types(ctx: &mut ResolverContext) {
 
         let name = ctx.intern(&td.name.name);
 
-        // Determine base type from syntax
-        let base = syntax_to_base_type(&td.syntax);
+        // Determine base type from syntax (None means it needs parent resolution)
+        let base = syntax_to_base_type(&td.syntax).unwrap_or(BaseType::Integer32);
 
         let mut typ = ResolvedType::new(
             crate::model::TypeId::from_raw(1).unwrap(),
@@ -102,6 +103,9 @@ fn create_user_types(ctx: &mut ResolverContext) {
             module_id,
             base,
         );
+
+        // Track if base type needs resolution from parent
+        typ.needs_base_resolution = syntax_to_base_type(&td.syntax).is_none();
 
         typ.is_textual_convention = td.is_textual_convention;
         typ.status = hir_status_to_status(td.status);
@@ -192,43 +196,100 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
             ctx.lookup_type(&type_name),
             ctx.lookup_type(&base_name),
         ) {
-            // Update parent pointer
-            // Note: We need to get the type_id index and update, but we can't
-            // easily mutate through the model. For now, record unresolved.
-            // In a full implementation, we'd track this differently.
-            let _ = (type_id, parent_id);
+            // Set parent pointer
+            if let Some(typ) = ctx.model.get_type_mut(type_id) {
+                typ.parent_type = Some(parent_id);
+            }
         } else if ctx.lookup_type(&base_name).is_none() {
             ctx.record_unresolved_type(module_id, &type_name, &base_name);
         }
     }
+
+    // Second pass: inherit base types from parents for types that need it
+    inherit_base_types(ctx);
+}
+
+/// Inherit base types from parent types.
+/// This handles cases like `MyString ::= DisplayString` where MyString needs
+/// to inherit OctetString as its base type from DisplayString.
+fn inherit_base_types(ctx: &mut ResolverContext) {
+    // Collect types that need base resolution
+    let types_needing_resolution: Vec<TypeId> = (0..ctx.model.type_count())
+        .filter_map(|idx| {
+            let type_id = TypeId::from_index(idx)?;
+            let typ = ctx.model.get_type(type_id)?;
+            if typ.needs_base_resolution && typ.parent_type.is_some() {
+                Some(type_id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Resolve each type's base from its parent chain
+    for type_id in types_needing_resolution {
+        if let Some(base) = resolve_base_from_chain(ctx, type_id) {
+            if let Some(typ) = ctx.model.get_type_mut(type_id) {
+                typ.base = base;
+                typ.needs_base_resolution = false;
+            }
+        }
+    }
+}
+
+/// Walk the parent chain to find the ultimate base type.
+fn resolve_base_from_chain(ctx: &ResolverContext, type_id: TypeId) -> Option<BaseType> {
+    let mut current = Some(type_id);
+    let mut visited = alloc::collections::BTreeSet::new();
+
+    while let Some(tid) = current {
+        // Cycle detection
+        if !visited.insert(tid) {
+            return None;
+        }
+
+        if let Some(typ) = ctx.model.get_type(tid) {
+            // If this type doesn't need resolution, use its base
+            if !typ.needs_base_resolution {
+                return Some(typ.base);
+            }
+            // Otherwise, continue to parent
+            current = typ.parent_type;
+        } else {
+            break;
+        }
+    }
+
+    None
 }
 
 /// Convert HirTypeSyntax to BaseType.
-fn syntax_to_base_type(syntax: &HirTypeSyntax) -> BaseType {
+/// Returns None for TypeRef that cannot be immediately resolved (will be inherited from parent).
+fn syntax_to_base_type(syntax: &HirTypeSyntax) -> Option<BaseType> {
     match syntax {
         HirTypeSyntax::TypeRef(name) => {
-            // Try to map common type names
+            // Only map primitive/built-in type names; others need parent resolution
             match name.name.as_str() {
-                "Integer32" | "INTEGER" => BaseType::Integer32,
-                "Counter32" => BaseType::Counter32,
-                "Counter64" => BaseType::Counter64,
-                "Gauge32" => BaseType::Gauge32,
-                "Unsigned32" => BaseType::Unsigned32,
-                "TimeTicks" => BaseType::TimeTicks,
-                "IpAddress" => BaseType::IpAddress,
-                "Opaque" => BaseType::Opaque,
-                "OCTET STRING" => BaseType::OctetString,
-                "OBJECT IDENTIFIER" => BaseType::ObjectIdentifier,
-                "BITS" => BaseType::Bits,
-                _ => BaseType::Integer32, // Default fallback
+                "Integer32" | "INTEGER" => Some(BaseType::Integer32),
+                "Counter32" => Some(BaseType::Counter32),
+                "Counter64" => Some(BaseType::Counter64),
+                "Gauge32" => Some(BaseType::Gauge32),
+                "Unsigned32" => Some(BaseType::Unsigned32),
+                "TimeTicks" => Some(BaseType::TimeTicks),
+                "IpAddress" => Some(BaseType::IpAddress),
+                "Opaque" => Some(BaseType::Opaque),
+                "OCTET STRING" => Some(BaseType::OctetString),
+                "OBJECT IDENTIFIER" => Some(BaseType::ObjectIdentifier),
+                "BITS" => Some(BaseType::Bits),
+                _ => None, // Unknown TypeRef - will inherit from parent
             }
         }
-        HirTypeSyntax::IntegerEnum(_) => BaseType::Integer32,
-        HirTypeSyntax::Bits(_) => BaseType::Bits,
-        HirTypeSyntax::OctetString => BaseType::OctetString,
-        HirTypeSyntax::ObjectIdentifier => BaseType::ObjectIdentifier,
+        HirTypeSyntax::IntegerEnum(_) => Some(BaseType::Integer32),
+        HirTypeSyntax::Bits(_) => Some(BaseType::Bits),
+        HirTypeSyntax::OctetString => Some(BaseType::OctetString),
+        HirTypeSyntax::ObjectIdentifier => Some(BaseType::ObjectIdentifier),
         HirTypeSyntax::Constrained { base, .. } => syntax_to_base_type(base),
-        HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => BaseType::ObjectIdentifier,
+        HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => Some(BaseType::Sequence),
     }
 }
 
@@ -335,5 +396,186 @@ mod tests {
         resolve_types(&mut ctx);
 
         assert!(ctx.lookup_type("MyString").is_some());
+    }
+
+    #[test]
+    fn test_type_inheritance_parent_pointer() {
+        // MyString ::= DisplayString
+        // DisplayString is a built-in TC based on OCTET STRING
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: Some("Test type".into()),
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        // Check parent pointer is set
+        let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
+        let my_string = ctx.model.get_type(my_string_id).expect("type should exist");
+        assert!(my_string.parent_type.is_some(), "parent_type should be set");
+
+        let display_string_id = ctx.lookup_type("DisplayString").expect("DisplayString should exist");
+        assert_eq!(my_string.parent_type, Some(display_string_id));
+    }
+
+    #[test]
+    fn test_type_inheritance_base_type() {
+        // MyString ::= DisplayString
+        // DisplayString is based on OCTET STRING, so MyString should have OctetString base
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: Some("Test type".into()),
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
+        let my_string = ctx.model.get_type(my_string_id).expect("type should exist");
+
+        // Base type should be inherited from DisplayString -> OCTET STRING
+        assert_eq!(my_string.base, BaseType::OctetString,
+            "MyString should inherit OctetString base from DisplayString");
+    }
+
+    #[test]
+    fn test_type_chain() {
+        // MyString ::= DisplayString (which is based on OCTET STRING)
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
+
+        // Get the type chain
+        let chain = ctx.model.get_type_chain(my_string_id);
+        assert!(chain.len() >= 2, "chain should have at least MyString and DisplayString");
+
+        // First should be MyString
+        assert_eq!(ctx.model.get_str(chain[0].name), "MyString");
+        // Second should be DisplayString
+        assert_eq!(ctx.model.get_str(chain[1].name), "DisplayString");
+    }
+
+    #[test]
+    fn test_multi_level_inheritance() {
+        // Create: MyString2 ::= MyString ::= DisplayString
+        let typedef1 = HirTypeDef {
+            name: Symbol::from_str("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            display_hint: Some("255a".into()),
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let typedef2 = HirTypeDef {
+            name: Symbol::from_str("MyString2"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("MyString")),
+            display_hint: None, // No hint - should inherit from MyString
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef1), HirDefinition::TypeDef(typedef2)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let my_string2_id = ctx.lookup_type("MyString2").expect("MyString2 should exist");
+        let my_string2 = ctx.model.get_type(my_string2_id).expect("type should exist");
+
+        // Base type should propagate through the chain
+        assert_eq!(my_string2.base, BaseType::OctetString,
+            "MyString2 should inherit OctetString base through MyString -> DisplayString");
+
+        // Type chain should have 3 levels
+        let chain = ctx.model.get_type_chain(my_string2_id);
+        assert!(chain.len() >= 3, "chain should have at least MyString2, MyString, DisplayString");
+
+        // get_effective_hint should find MyString's hint
+        let effective_hint = ctx.model.get_effective_hint(my_string2_id);
+        assert!(effective_hint.is_some(), "should find hint from parent chain");
+        assert_eq!(ctx.model.get_str(effective_hint.unwrap()), "255a");
+    }
+
+    #[test]
+    fn test_sequence_base_type() {
+        // SEQUENCE types should have BaseType::Sequence
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("IfEntry"),
+            syntax: HirTypeSyntax::Sequence(vec![]),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: false,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let if_entry_id = ctx.lookup_type("IfEntry").expect("IfEntry should exist");
+        let if_entry = ctx.model.get_type(if_entry_id).expect("type should exist");
+
+        assert_eq!(if_entry.base, BaseType::Sequence,
+            "SEQUENCE types should have BaseType::Sequence");
     }
 }
