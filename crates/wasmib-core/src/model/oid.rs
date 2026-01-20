@@ -2,7 +2,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt;
+use core::fmt::{self, Write};
 
 /// A fully-resolved numeric OID.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,11 +39,21 @@ impl Oid {
     /// Convert to dotted notation string.
     #[must_use]
     pub fn to_dotted(&self) -> String {
-        self.arcs
-            .iter()
-            .map(|n| alloc::string::ToString::to_string(n))
-            .collect::<Vec<_>>()
-            .join(".")
+        if self.arcs.is_empty() {
+            return String::new();
+        }
+        // Estimate capacity: avg ~3 chars per arc + 1 for dots
+        let mut result = String::with_capacity(self.arcs.len() * 4);
+        let mut iter = self.arcs.iter();
+        if let Some(first) = iter.next() {
+            // write! to String is infallible
+            let _ = write!(result, "{first}");
+            for arc in iter {
+                result.push('.');
+                let _ = write!(result, "{arc}");
+            }
+        }
+        result
     }
 
     /// Get the parent OID (all arcs except the last).
@@ -89,7 +99,9 @@ impl Oid {
     /// Create a child OID by appending an arc.
     #[must_use]
     pub fn child(&self, arc: u32) -> Self {
-        let mut arcs = self.arcs.clone();
+        // Pre-allocate exact capacity to avoid reallocation during push
+        let mut arcs = Vec::with_capacity(self.arcs.len() + 1);
+        arcs.extend_from_slice(&self.arcs);
         arcs.push(arc);
         Self::new(arcs)
     }
