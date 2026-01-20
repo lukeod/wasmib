@@ -27,6 +27,7 @@
 //! - Import resolution (just normalize; actual lookup is resolver's job)
 //! - Built-in type injection
 
+pub mod base_modules;
 mod definition;
 mod lower;
 mod module;
@@ -34,6 +35,7 @@ mod normalize;
 mod syntax;
 mod types;
 
+pub use base_modules::{create_base_modules, is_base_module, BaseModule};
 pub use definition::{
     HirAgentCapabilities, HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity,
     HirNotification, HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType,

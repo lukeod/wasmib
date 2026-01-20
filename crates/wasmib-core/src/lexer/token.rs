@@ -12,6 +12,12 @@ pub struct Span {
 }
 
 impl Span {
+    /// A synthetic span for compiler-generated constructs.
+    ///
+    /// Used for built-in definitions that don't come from source text
+    /// (e.g., synthetic SNMPv2-SMI module).
+    pub const SYNTHETIC: Self = Self { start: 0, end: 0 };
+
     /// Create a new span.
     #[must_use]
     pub const fn new(start: ByteOffset, end: ByteOffset) -> Self {

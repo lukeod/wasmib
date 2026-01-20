@@ -441,8 +441,8 @@ fn test_resolver_snmpv2_mib() {
         println!("  Diag: {}", diag.message);
     }
 
-    // Should have registered the module
-    assert_eq!(result.model.module_count(), 1);
+    // Should have registered the module (2 base modules + 1 user module)
+    assert_eq!(result.model.module_count(), 3);
     assert!(result.model.get_module_by_name("SNMPv2-MIB").is_some());
 
     // Should have resolved some nodes (built-ins + module content)
@@ -499,8 +499,8 @@ fn test_resolver_tier1_builtin_only() {
         println!("  Unresolved OID: {} -> {}", def, comp);
     }
 
-    // Should have all 3 modules
-    assert_eq!(result.model.module_count(), 3);
+    // Should have all 3 user modules + 2 base modules
+    assert_eq!(result.model.module_count(), 5);
 
     // Should have many nodes
     assert!(result.model.node_count() > 30, "Expected many nodes, got {}", result.model.node_count());
@@ -548,8 +548,8 @@ fn test_resolver_tier2_basic_deps() {
         println!("  Unresolved import: {}::{}", from, sym);
     }
 
-    // Should have all 4 modules
-    assert_eq!(result.model.module_count(), 4);
+    // Should have all 4 user modules + 2 base modules
+    assert_eq!(result.model.module_count(), 6);
 
     // Should have many nodes including IF-MIB content
     assert!(result.model.node_count() > 50, "Expected many nodes, got {}", result.model.node_count());
@@ -606,8 +606,8 @@ fn test_resolver_tier3_complex() {
         println!("  Unresolved OID: {} -> {}", def, comp);
     }
 
-    // Should have all 7 modules
-    assert_eq!(result.model.module_count(), 7);
+    // Should have all 7 user modules + 2 base modules
+    assert_eq!(result.model.module_count(), 9);
 
     // Should have many nodes
     assert!(result.model.node_count() > 100, "Expected many nodes, got {}", result.model.node_count());

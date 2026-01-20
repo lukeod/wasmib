@@ -3,7 +3,7 @@
 //! The resolver transforms HIR modules (with unresolved symbol references) into
 //! a fully resolved Model. It handles:
 //!
-//! - Import resolution (from built-ins and user modules)
+//! - Import resolution
 //! - Type resolution (building inheritance chains)
 //! - OID tree construction
 //! - Table/index semantics
@@ -14,14 +14,14 @@
 //! HIR Modules → Resolver → Model
 //! ```
 //!
-//! # Built-in Definitions
+//! # Synthetic Base Modules
 //!
-//! The resolver is pre-seeded with built-in definitions from SMI base modules:
+//! The resolver automatically prepends synthetic `SNMPv2-SMI` and `SNMPv2-TC`
+//! modules containing the built-in definitions:
 //!
-//! - **Types**: Integer32, Counter32, etc. from SNMPv2-SMI
-//! - **Textual Conventions**: DisplayString, TruthValue, etc. from SNMPv2-TC
+//! - **Types**: Integer32, Counter32, etc.
+//! - **Textual Conventions**: DisplayString, TruthValue, etc.
 //! - **OID Roots**: iso, internet, enterprises, etc.
-//! - **MACROs**: OBJECT-TYPE, MODULE-IDENTITY, etc.
 //!
 //! These resolve automatically without requiring user-provided base module files.
 //!
@@ -45,18 +45,11 @@
 //! }
 //! ```
 
-pub mod builtins;
 mod context;
 mod phases;
 
 #[cfg(feature = "tracing")]
 pub mod tracing;
-
-pub use builtins::{
-    resolve_builtin_symbol, BaseModule, BuiltinBaseType, BuiltinMacro,
-    BuiltinOidNode, BuiltinSymbol, BuiltinTextualConvention, TcBaseSyntax, TcConstraint,
-    TcSizeConstraint, BUILTIN_OID_NODES, BUILTIN_TEXTUAL_CONVENTIONS,
-};
 
 use crate::hir::HirModule;
 use crate::lexer::{Diagnostic, Severity, Span};
@@ -294,7 +287,7 @@ impl Resolver {
 /// Check if a module name is a recognized base module.
 #[must_use]
 pub fn is_base_module(name: &str) -> bool {
-    BaseModule::from_name(name).is_some()
+    crate::hir::is_base_module(name)
 }
 
 #[cfg(test)]
@@ -348,7 +341,8 @@ mod tests {
         let result = resolver.resolve(vec![]);
 
         assert!(result.is_complete());
-        assert_eq!(result.model.module_count(), 0);
+        // 2 base modules (SNMPv2-SMI, SNMPv2-TC) are always included
+        assert_eq!(result.model.module_count(), 2);
     }
 
     #[test]
@@ -370,7 +364,8 @@ mod tests {
         let resolver = Resolver::new();
         let result = resolver.resolve(modules);
 
-        assert_eq!(result.model.module_count(), 1);
+        // 2 base modules (SNMPv2-SMI, SNMPv2-TC) + 1 user module
+        assert_eq!(result.model.module_count(), 3);
         assert!(result.model.get_module_by_name("TEST-MIB").is_some());
 
         // Check the object was resolved

@@ -2,42 +2,20 @@
 
 use crate::hir::{HirModule, Symbol};
 use crate::model::{
-    Model, ModuleId, NodeId, Oid, OidNode, StrId, TypeId, UnresolvedImport, UnresolvedOid,
-    UnresolvedType,
+    Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedOid, UnresolvedType,
 };
 use alloc::collections::BTreeMap;
+use alloc::collections::BTreeSet;
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use super::builtins::{self, BuiltinSymbol, BUILTIN_OID_NODES};
-
-/// Reference to a definition (either built-in or user-defined).
+/// Reference to a definition (user-defined).
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
-pub enum DefinitionRef {
-    /// A built-in symbol.
-    Builtin(BuiltinRef),
-    /// A user-defined definition.
-    User {
-        /// Module containing the definition.
-        module: ModuleId,
-        /// Index of the definition in the module.
-        def_index: usize,
-    },
-}
-
-/// Reference to a built-in symbol.
-#[derive(Clone, Copy, Debug)]
-#[allow(dead_code)]
-pub enum BuiltinRef {
-    /// Built-in base type.
-    BaseType(super::builtins::BuiltinBaseType),
-    /// Built-in textual convention (index into BUILTIN_TEXTUAL_CONVENTIONS).
-    TextualConvention(usize),
-    /// Built-in OID node (index into BUILTIN_OID_NODES).
-    OidNode(usize),
-    /// Built-in MACRO.
-    Macro(super::builtins::BuiltinMacro),
+pub struct DefinitionRef {
+    /// Module containing the definition.
+    pub module: ModuleId,
+    /// Index of the definition in the module.
+    pub def_index: usize,
 }
 
 /// Resolution context holding indices and state during resolution.
@@ -53,8 +31,6 @@ pub struct ResolverContext {
     pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
     /// (module_name, symbol_name) -> DefinitionRef mapping.
     pub definition_index: BTreeMap<(String, String), DefinitionRef>,
-    /// Symbol name -> NodeId mapping for OID resolution (built-ins only).
-    pub builtin_symbol_to_node: BTreeMap<String, NodeId>,
     /// Per-module symbol -> NodeId mapping for module-local definitions.
     /// Key: (ModuleId, symbol_name) -> NodeId (uses ModuleId for uniqueness)
     pub module_symbol_to_node: BTreeMap<(ModuleId, String), NodeId>,
@@ -64,8 +40,10 @@ pub struct ResolverContext {
     pub module_imports: BTreeMap<(ModuleId, String), ModuleId>,
     /// Symbol name -> TypeId mapping for type resolution.
     pub symbol_to_type: BTreeMap<String, TypeId>,
-    /// Built-in OID node index -> NodeId mapping.
-    pub builtin_oid_to_node: BTreeMap<usize, NodeId>,
+    /// Global OID roots (iso, zeroDotZero) - nodes without parents.
+    /// Used for anchoring the OID tree.
+    #[allow(dead_code)]
+    pub global_roots: BTreeSet<NodeId>,
 }
 
 impl ResolverContext {
@@ -77,11 +55,10 @@ impl ResolverContext {
             module_index: BTreeMap::new(),
             module_id_to_hir_index: BTreeMap::new(),
             definition_index: BTreeMap::new(),
-            builtin_symbol_to_node: BTreeMap::new(),
             module_symbol_to_node: BTreeMap::new(),
             module_imports: BTreeMap::new(),
             symbol_to_type: BTreeMap::new(),
-            builtin_oid_to_node: BTreeMap::new(),
+            global_roots: BTreeSet::new(),
         }
     }
 
@@ -97,34 +74,11 @@ impl ResolverContext {
     }
 
     /// Look up a definition by module and symbol name.
+    #[allow(dead_code)]
     pub fn lookup_definition(&self, module: &str, symbol: &str) -> Option<DefinitionRef> {
-        // Check user-defined first
-        if let Some(def_ref) = self
-            .definition_index
+        self.definition_index
             .get(&(module.into(), symbol.into()))
-        {
-            return Some(*def_ref);
-        }
-
-        // Check built-ins
-        if let Some(builtin) = builtins::resolve_builtin_symbol(module, symbol) {
-            let builtin_ref = match builtin {
-                BuiltinSymbol::BaseType(bt) => BuiltinRef::BaseType(bt),
-                BuiltinSymbol::TextualConvention(tc) => {
-                    // Find index of this TC
-                    let idx = builtins::BUILTIN_TEXTUAL_CONVENTIONS
-                        .iter()
-                        .position(|t| t.name == tc.name)
-                        .expect("TC not found");
-                    BuiltinRef::TextualConvention(idx)
-                }
-                BuiltinSymbol::OidNode(idx) => BuiltinRef::OidNode(idx),
-                BuiltinSymbol::Macro(m) => BuiltinRef::Macro(m),
-            };
-            return Some(DefinitionRef::Builtin(builtin_ref));
-        }
-
-        None
+            .copied()
     }
 
     /// Look up a node by symbol name in a specific module's scope (by ModuleId).
@@ -180,10 +134,11 @@ impl ResolverContext {
             .and_then(|&idx| self.hir_modules.get(idx))
     }
 
-    /// Look up a built-in node by symbol name (used in tests).
+    /// Look up a node by symbol name from the SNMPv2-SMI module (used in tests).
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn lookup_node(&self, name: &str) -> Option<NodeId> {
-        self.builtin_symbol_to_node.get(name).copied()
+        self.lookup_node_in_module("SNMPv2-SMI", name)
     }
 
     /// Look up a type by symbol name.
@@ -201,53 +156,11 @@ impl ResolverContext {
         self.symbol_to_type.insert(name, type_id);
     }
 
-    /// Seed the model with built-in OID nodes.
-    pub fn seed_builtin_oids(&mut self) {
-        // First pass: create all nodes
-        let mut node_ids = Vec::with_capacity(BUILTIN_OID_NODES.len());
-
-        for builtin in BUILTIN_OID_NODES.iter() {
-            let node = OidNode::new(builtin.arc, None);
-            let node_id = self.model.add_node(node);
-            node_ids.push(node_id);
-        }
-
-        // Second pass: set up parent/child relationships and register
-        for (idx, builtin) in BUILTIN_OID_NODES.iter().enumerate() {
-            let node_id = node_ids[idx];
-
-            // Set parent
-            if let Some(parent_idx) = builtin.parent {
-                let parent_id = node_ids[parent_idx];
-
-                // Update child's parent
-                if let Some(node) = self.model.get_node_mut(node_id) {
-                    node.parent = Some(parent_id);
-                }
-
-                // Add to parent's children
-                if let Some(parent) = self.model.get_node_mut(parent_id) {
-                    parent.add_child(node_id);
-                }
-            } else {
-                // This is a root node
-                self.model.add_root(node_id);
-            }
-
-            // Register symbol -> node mapping (built-ins are globally visible)
-            self.builtin_symbol_to_node.insert(builtin.name.into(), node_id);
-            self.builtin_oid_to_node.insert(idx, node_id);
-
-            // Register OID -> node mapping
-            let oid = Oid::new(builtin.numeric_oid(BUILTIN_OID_NODES));
-            self.model.register_oid(oid, node_id);
-        }
-    }
-
-    /// Get a built-in OID node's NodeId.
+    /// Add a global root node.
     #[allow(dead_code)]
-    pub fn get_builtin_oid_node(&self, idx: usize) -> Option<NodeId> {
-        self.builtin_oid_to_node.get(&idx).copied()
+    pub fn add_global_root(&mut self, node_id: NodeId) {
+        self.global_roots.insert(node_id);
+        self.model.add_root(node_id);
     }
 
     /// Record an unresolved import.

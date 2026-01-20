@@ -2,13 +2,21 @@
 //!
 //! Index all modules and their definitions for subsequent lookup.
 
+use crate::hir::create_base_modules;
 use crate::model::ResolvedModule;
 use crate::resolver::context::{DefinitionRef, ResolverContext};
 
 /// Register all modules and their definitions.
 pub fn register_modules(ctx: &mut ResolverContext) {
-    // Seed built-in OID nodes first
-    ctx.seed_builtin_oids();
+    // Prepend synthetic base modules (SNMPv2-SMI, SNMPv2-TC) to the HIR modules list.
+    // This ensures the built-in OID roots and types are registered before user modules.
+    let base_modules = create_base_modules();
+    let base_count = base_modules.len();
+
+    // Insert base modules at the beginning
+    let mut all_modules = base_modules;
+    all_modules.append(&mut ctx.hir_modules);
+    ctx.hir_modules = all_modules;
 
     // Collect module info first to avoid borrow issues
     let module_info: alloc::vec::Vec<_> = ctx
@@ -25,12 +33,12 @@ pub fn register_modules(ctx: &mut ResolverContext) {
                     def.name().map(|n| (def_idx, n.name.clone()))
                 })
                 .collect();
-            (idx, module_name, def_names)
+            (idx, module_name, def_names, idx < base_count)
         })
         .collect();
 
     // Register each HIR module
-    for (hir_idx, module_name, def_names) in module_info {
+    for (hir_idx, module_name, def_names, _is_base_module) in module_info {
         // Intern module name
         let name_str = ctx.intern(&module_name);
 
@@ -56,7 +64,7 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         for (def_idx, def_name) in def_names {
             ctx.definition_index.insert(
                 (module_name.clone(), def_name),
-                DefinitionRef::User {
+                DefinitionRef {
                     module: module_id,
                     def_index: def_idx,
                 },
@@ -86,8 +94,11 @@ mod tests {
 
         register_modules(&mut ctx);
 
-        assert_eq!(ctx.model.module_count(), 1);
+        // 2 base modules (SNMPv2-SMI, SNMPv2-TC) + 1 user module
+        assert_eq!(ctx.model.module_count(), 3);
         assert!(ctx.module_index.contains_key("TEST-MIB"));
+        assert!(ctx.module_index.contains_key("SNMPv2-SMI"));
+        assert!(ctx.module_index.contains_key("SNMPv2-TC"));
     }
 
     #[test]
@@ -127,16 +138,16 @@ mod tests {
     }
 
     #[test]
-    fn test_builtin_oids_seeded() {
+    fn test_builtin_definitions_indexed() {
         let modules = vec![make_test_module("TEST-MIB", vec![])];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
 
-        // Check built-in OID nodes exist
-        assert!(ctx.lookup_node("iso").is_some());
-        assert!(ctx.lookup_node("internet").is_some());
-        assert!(ctx.lookup_node("enterprises").is_some());
-        assert!(ctx.lookup_node("mib-2").is_some());
+        // Check built-in definitions are indexed (OID nodes are created during OID resolution)
+        assert!(ctx.definition_index.contains_key(&("SNMPv2-SMI".into(), "iso".into())));
+        assert!(ctx.definition_index.contains_key(&("SNMPv2-SMI".into(), "internet".into())));
+        assert!(ctx.definition_index.contains_key(&("SNMPv2-SMI".into(), "enterprises".into())));
+        assert!(ctx.definition_index.contains_key(&("SNMPv2-SMI".into(), "mib-2".into())));
     }
 }

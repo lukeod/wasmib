@@ -8,7 +8,7 @@
 
 use crate::hir::HirDefinition;
 use crate::model::ModuleId;
-use crate::resolver::context::{DefinitionRef, ResolverContext};
+use crate::resolver::context::ResolverContext;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -114,37 +114,14 @@ fn resolve_imports_from_module(
     from_module_name: &str,
     symbols: &[String],
 ) {
-    // Separate built-in OID nodes from user-defined symbols
-    // Note: builtin types (Integer32, DisplayString, etc.) are handled by the type system,
-    // we only need to register builtin OID nodes (enterprises, internet, etc.)
-    let mut builtin_oid_symbols = Vec::new();
-    let mut user_symbols = Vec::new();
+    // Filter out MACROs (they don't need resolution)
+    let user_symbols: Vec<_> = symbols
+        .iter()
+        .filter(|s| !is_macro_symbol(s))
+        .cloned()
+        .collect();
 
-    for symbol in symbols {
-        if is_macro_symbol(symbol) {
-            // MACROs don't need resolution
-            continue;
-        }
-        // Check if this is a builtin OID node (not a type or TC)
-        if ctx.builtin_symbol_to_node.contains_key(symbol) {
-            builtin_oid_symbols.push(symbol.clone());
-        } else if let Some(DefinitionRef::Builtin(_)) = ctx.lookup_definition(from_module_name, symbol) {
-            // It's a builtin type/TC - these are handled by the type system, no action needed
-            continue;
-        } else {
-            user_symbols.push(symbol.clone());
-        }
-    }
-
-    // Register builtin OID imports - map the symbol directly to the builtin node
-    // for the importing module so it can resolve them
-    for symbol in &builtin_oid_symbols {
-        if let Some(node_id) = ctx.builtin_symbol_to_node.get(symbol).copied() {
-            ctx.register_module_node_symbol(importing_module, symbol.clone(), node_id);
-        }
-    }
-
-    // If no user symbols, we're done
+    // If no symbols to resolve (all MACROs), we're done
     if user_symbols.is_empty() {
         return;
     }
@@ -222,30 +199,14 @@ fn resolve_imports_from_module_traced<T: Tracer>(
     symbols: &[String],
     tracer: &mut T,
 ) {
-    // Separate built-in OID nodes from user-defined symbols
-    let mut builtin_oid_symbols = Vec::new();
-    let mut user_symbols = Vec::new();
+    // Filter out MACROs (they don't need resolution)
+    let user_symbols: Vec<_> = symbols
+        .iter()
+        .filter(|s| !is_macro_symbol(s))
+        .cloned()
+        .collect();
 
-    for symbol in symbols {
-        if is_macro_symbol(symbol) {
-            continue;
-        }
-        if ctx.builtin_symbol_to_node.contains_key(symbol) {
-            builtin_oid_symbols.push(symbol.clone());
-        } else if let Some(DefinitionRef::Builtin(_)) = ctx.lookup_definition(from_module_name, symbol) {
-            continue;
-        } else {
-            user_symbols.push(symbol.clone());
-        }
-    }
-
-    // Register builtin OID imports
-    for symbol in &builtin_oid_symbols {
-        if let Some(node_id) = ctx.builtin_symbol_to_node.get(symbol).copied() {
-            ctx.register_module_node_symbol(importing_module, symbol.clone(), node_id);
-        }
-    }
-
+    // If no symbols to resolve (all MACROs), we're done
     if user_symbols.is_empty() {
         return;
     }

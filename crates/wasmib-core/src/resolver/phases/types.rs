@@ -6,89 +6,61 @@ use crate::hir::{HirConstraint, HirDefinition, HirRange, HirRangeValue, HirStatu
 use crate::model::{
     BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status, ValueConstraint,
 };
-use crate::resolver::builtins::{
-    BuiltinBaseType, TcBaseSyntax, BUILTIN_TEXTUAL_CONVENTIONS,
-};
 use crate::resolver::context::ResolverContext;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Resolve all types across all modules.
 pub fn resolve_types(ctx: &mut ResolverContext) {
-    // First: seed built-in types
-    seed_builtin_types(ctx);
+    // First: seed primitive ASN.1 types
+    seed_primitive_types(ctx);
 
-    // Second: create type nodes for all user-defined types
+    // Second: create type nodes for all types (from synthetic base modules and user modules)
     create_user_types(ctx);
 
     // Third: resolve base types and parent pointers
     resolve_type_bases(ctx);
 }
 
-/// Seed the model with built-in base types.
-fn seed_builtin_types(ctx: &mut ResolverContext) {
-    // Add base types
-    for bt in BuiltinBaseType::all() {
-        let name = ctx.intern(bt.name());
-        // Use a pseudo-module for built-ins (module 0 is reserved)
-        let module_id = crate::model::ModuleId::from_raw(1).unwrap();
+/// Seed the model with primitive ASN.1 types.
+///
+/// These are the fundamental types that other types reference.
+fn seed_primitive_types(ctx: &mut ResolverContext) {
+    // Use a pseudo-module for primitives (module_id=1 which is SNMPv2-SMI)
+    let module_id = crate::model::ModuleId::from_raw(1).unwrap();
 
-        let base = builtin_to_base_type(bt);
-        let typ = ResolvedType::new(
-            crate::model::TypeId::from_raw(1).unwrap(), // Will be updated
-            name,
-            module_id,
-            base,
-        );
+    // INTEGER - base integer type
+    let name = ctx.intern("INTEGER");
+    let typ = ResolvedType::new(
+        crate::model::TypeId::from_raw(1).unwrap(),
+        name,
+        module_id,
+        BaseType::Integer32,
+    );
+    let type_id = ctx.model.add_type(typ);
+    ctx.register_type_symbol(String::from("INTEGER"), type_id);
 
-        let type_id = ctx.model.add_type(typ);
-        ctx.register_type_symbol(String::from(bt.name()), type_id);
-    }
+    // OCTET STRING - base octet string type
+    let name = ctx.intern("OCTET STRING");
+    let typ = ResolvedType::new(
+        crate::model::TypeId::from_raw(1).unwrap(),
+        name,
+        module_id,
+        BaseType::OctetString,
+    );
+    let type_id = ctx.model.add_type(typ);
+    ctx.register_type_symbol(String::from("OCTET STRING"), type_id);
 
-    // Add textual conventions
-    for tc in BUILTIN_TEXTUAL_CONVENTIONS.iter() {
-        let name = ctx.intern(tc.name);
-        let module_id = crate::model::ModuleId::from_raw(1).unwrap();
-
-        let base = tc_base_to_base_type(&tc.base_syntax);
-        let mut typ = ResolvedType::new(
-            crate::model::TypeId::from_raw(1).unwrap(),
-            name,
-            module_id,
-            base,
-        );
-
-        typ.is_textual_convention = true;
-        typ.status = hir_status_to_status(tc.status);
-
-        if let Some(hint) = tc.display_hint {
-            typ.hint = Some(ctx.intern(hint));
-        }
-
-        // Handle enum values
-        if let Some(enums) = tc.enum_values {
-            let values: Vec<_> = enums
-                .iter()
-                .map(|(name, val)| (*val, ctx.intern(name)))
-                .collect();
-            typ.enum_values = Some(EnumValues::new(values));
-        }
-
-        // Handle constraints
-        if let Some(ref constraint) = tc.constraint {
-            match constraint {
-                crate::resolver::builtins::TcConstraint::Size(size) => {
-                    typ.size = Some(tc_size_to_constraint(size));
-                }
-                crate::resolver::builtins::TcConstraint::Range { min, max } => {
-                    typ.value_range = Some(ValueConstraint::range(*min, *max));
-                }
-            }
-        }
-
-        let type_id = ctx.model.add_type(typ);
-        ctx.register_type_symbol(String::from(tc.name), type_id);
-    }
+    // OBJECT IDENTIFIER - base OID type
+    let name = ctx.intern("OBJECT IDENTIFIER");
+    let typ = ResolvedType::new(
+        crate::model::TypeId::from_raw(1).unwrap(),
+        name,
+        module_id,
+        BaseType::ObjectIdentifier,
+    );
+    let type_id = ctx.model.add_type(typ);
+    ctx.register_type_symbol(String::from("OBJECT IDENTIFIER"), type_id);
 }
 
 /// Create type nodes for all user-defined types.
@@ -231,30 +203,6 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
     }
 }
 
-/// Convert BuiltinBaseType to BaseType.
-fn builtin_to_base_type(bt: BuiltinBaseType) -> BaseType {
-    match bt {
-        BuiltinBaseType::Integer32 => BaseType::Integer32,
-        BuiltinBaseType::Counter32 => BaseType::Counter32,
-        BuiltinBaseType::Counter64 => BaseType::Counter64,
-        BuiltinBaseType::Gauge32 => BaseType::Gauge32,
-        BuiltinBaseType::Unsigned32 => BaseType::Unsigned32,
-        BuiltinBaseType::TimeTicks => BaseType::TimeTicks,
-        BuiltinBaseType::IpAddress => BaseType::IpAddress,
-        BuiltinBaseType::Opaque => BaseType::Opaque,
-    }
-}
-
-/// Convert TcBaseSyntax to BaseType.
-fn tc_base_to_base_type(syntax: &TcBaseSyntax) -> BaseType {
-    match syntax {
-        TcBaseSyntax::BuiltinType(bt) => builtin_to_base_type(*bt),
-        TcBaseSyntax::Integer => BaseType::Integer32,
-        TcBaseSyntax::OctetString => BaseType::OctetString,
-        TcBaseSyntax::ObjectIdentifier => BaseType::ObjectIdentifier,
-    }
-}
-
 /// Convert HirTypeSyntax to BaseType.
 fn syntax_to_base_type(syntax: &HirTypeSyntax) -> BaseType {
     match syntax {
@@ -290,18 +238,6 @@ fn hir_status_to_status(status: HirStatus) -> Status {
         HirStatus::Current => Status::Current,
         HirStatus::Deprecated => Status::Deprecated,
         HirStatus::Obsolete => Status::Obsolete,
-    }
-}
-
-/// Convert TcSizeConstraint to SizeConstraint.
-fn tc_size_to_constraint(tc: &crate::resolver::builtins::TcSizeConstraint) -> SizeConstraint {
-    use crate::resolver::builtins::TcSizeConstraint;
-    match tc {
-        TcSizeConstraint::Fixed(n) => SizeConstraint::fixed(*n as u32),
-        TcSizeConstraint::Range { min, max } => SizeConstraint::range(*min as u32, *max as u32),
-        TcSizeConstraint::Union(sizes) => SizeConstraint {
-            ranges: sizes.iter().map(|&s| (s as u32, s as u32)).collect(),
-        },
     }
 }
 

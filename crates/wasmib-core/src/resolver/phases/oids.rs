@@ -19,27 +19,15 @@ fn lookup_node_scoped(ctx: &ResolverContext, module_id: ModuleId, symbol: &str) 
 /// Resolve all OIDs across all modules.
 pub fn resolve_oids(ctx: &mut ResolverContext) {
     // Multi-pass resolution to handle forward references.
-    // Pass 1: Definitions with built-in roots (most definitions)
-    // Pass 2+: Iterate user-rooted definitions until no more progress
+    // Keep iterating until no more definitions can be resolved.
     // Final: Derive OIDs for TRAP-TYPE definitions from enterprise + trap_number
 
     // First pass: collect all definitions with OIDs
     let CollectedDefinitions { oid_defs, trap_defs } = collect_oid_definitions(ctx);
 
-    // Sort by resolution order (built-in rooted first)
-    let (builtin_rooted, user_rooted): (Vec<_>, Vec<_>) = oid_defs
-        .into_iter()
-        .partition(|d| is_builtin_rooted(&d.oid));
-
-    // Process built-in rooted definitions first
-    for def in builtin_rooted {
-        resolve_oid_definition(ctx, &def);
-    }
-
-    // Process user-rooted definitions with multiple passes to handle forward references.
-    // Keep iterating until no more definitions can be resolved.
-    let mut pending = user_rooted;
-    let max_iterations = 10; // Safety limit to prevent infinite loops
+    // Process all definitions with multiple passes to handle forward references.
+    let mut pending = oid_defs;
+    let max_iterations = 20; // Safety limit to prevent infinite loops
 
     for _iteration in 0..max_iterations {
         if pending.is_empty() {
@@ -168,43 +156,11 @@ pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T)
     // First pass: collect all definitions with OIDs
     let CollectedDefinitions { oid_defs, trap_defs } = collect_oid_definitions(ctx);
 
-    // Sort by resolution order (built-in rooted first)
-    let (builtin_rooted, user_rooted): (Vec<_>, Vec<_>) = oid_defs
-        .into_iter()
-        .partition(|d| is_builtin_rooted(&d.oid));
+    // Process all definitions with multiple passes to handle forward references
+    let mut pending = oid_defs;
+    let max_iterations = 20;
 
-    // Process built-in rooted definitions first (pass 0)
-    crate::trace_event!(
-        tracer,
-        TraceLevel::Info,
-        TraceEvent::OidPassStart {
-            pass: 0,
-            pending: builtin_rooted.len(),
-        }
-    );
-
-    let mut resolved_count = 0;
-    for def in builtin_rooted {
-        if resolve_oid_definition_traced(ctx, &def, tracer) {
-            resolved_count += 1;
-        }
-    }
-
-    crate::trace_event!(
-        tracer,
-        TraceLevel::Info,
-        TraceEvent::OidPassEnd {
-            pass: 0,
-            resolved: resolved_count,
-            remaining: user_rooted.len(),
-        }
-    );
-
-    // Process user-rooted definitions with multiple passes
-    let mut pending = user_rooted;
-    let max_iterations = 10;
-
-    for iteration in 1..=max_iterations {
+    for iteration in 0..max_iterations {
         if pending.is_empty() {
             break;
         }
@@ -390,32 +346,6 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
     CollectedDefinitions { oid_defs, trap_defs }
 }
 
-/// Check if an OID starts with a built-in root.
-fn is_builtin_rooted(oid: &HirOidAssignment) -> bool {
-    if oid.components.is_empty() {
-        return false;
-    }
-
-    match &oid.components[0] {
-        HirOidComponent::Name(sym) => {
-            matches!(
-                sym.name.as_str(),
-                "iso" | "org" | "dod" | "internet" | "mgmt" | "mib-2" | "transmission"
-                    | "experimental" | "private" | "enterprises" | "security" | "snmpV2"
-                    | "snmpDomains" | "snmpProxys" | "snmpModules" | "zeroDotZero" | "directory"
-            )
-        }
-        HirOidComponent::NamedNumber { name, .. } => {
-            matches!(
-                name.name.as_str(),
-                "iso" | "org" | "dod" | "internet" | "mgmt" | "mib-2"
-            )
-        }
-        HirOidComponent::Number(1) => true, // iso
-        HirOidComponent::Number(_) => false,
-    }
-}
-
 /// Resolve a single OID definition.
 fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
     let module_id = def.module_id;
@@ -452,11 +382,13 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                     let new_node = OidNode::new(*arc, current_node);
                     let new_id = ctx.model.add_node(new_node);
 
-                    // Add as child of parent
+                    // Add as child of parent, or register as root
                     if let Some(parent_id) = current_node {
                         if let Some(parent) = ctx.model.get_node_mut(parent_id) {
                             parent.add_child(new_id);
                         }
+                    } else {
+                        ctx.model.add_root(new_id);
                     }
 
                     ctx.model.register_oid(current_oid.clone(), new_id);
@@ -482,11 +414,13 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                         let new_node = OidNode::new(*number, current_node);
                         let new_id = ctx.model.add_node(new_node);
 
-                        // Add as child of parent
+                        // Add as child of parent, or register as root
                         if let Some(parent_id) = current_node {
                             if let Some(parent) = ctx.model.get_node_mut(parent_id) {
                                 parent.add_child(new_id);
                             }
+                        } else {
+                            ctx.model.add_root(new_id);
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
@@ -602,6 +536,8 @@ fn resolve_oid_definition_traced<T: Tracer>(
                         if let Some(parent) = ctx.model.get_node_mut(parent_id) {
                             parent.add_child(new_id);
                         }
+                    } else {
+                        ctx.model.add_root(new_id);
                     }
 
                     ctx.model.register_oid(current_oid.clone(), new_id);
@@ -628,6 +564,8 @@ fn resolve_oid_definition_traced<T: Tracer>(
                             if let Some(parent) = ctx.model.get_node_mut(parent_id) {
                                 parent.add_child(new_id);
                             }
+                        } else {
+                            ctx.model.add_root(new_id);
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
@@ -827,26 +765,5 @@ mod tests {
 
         // Check unresolved OID was recorded
         assert_eq!(ctx.model.unresolved().oids.len(), 1);
-    }
-
-    #[test]
-    fn test_is_builtin_rooted() {
-        let builtin = HirOidAssignment::new(
-            vec![HirOidComponent::Name(Symbol::from_str("enterprises"))],
-            Span::new(0, 0),
-        );
-        assert!(is_builtin_rooted(&builtin));
-
-        let user = HirOidAssignment::new(
-            vec![HirOidComponent::Name(Symbol::from_str("userDefined"))],
-            Span::new(0, 0),
-        );
-        assert!(!is_builtin_rooted(&user));
-
-        let iso = HirOidAssignment::new(
-            vec![HirOidComponent::Number(1)],
-            Span::new(0, 0),
-        );
-        assert!(is_builtin_rooted(&iso));
     }
 }
