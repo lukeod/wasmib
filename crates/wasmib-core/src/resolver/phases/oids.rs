@@ -126,7 +126,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
             existing
         } else {
             let new_node = OidNode::new(0, Some(enterprise_node_id));
-            let new_id = ctx.model.add_node(new_node);
+            let new_id = ctx.model.add_node(new_node).unwrap();
 
             // Add as child of enterprise
             if let Some(parent) = ctx.model.get_node_mut(enterprise_node_id) {
@@ -142,7 +142,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
             existing
         } else {
             let new_node = OidNode::new(def.trap_number, Some(trap_zero_node_id));
-            let new_id = ctx.model.add_node(new_node);
+            let new_id = ctx.model.add_node(new_node).unwrap();
 
             // Add as child of .0 node
             if let Some(parent) = ctx.model.get_node_mut(trap_zero_node_id) {
@@ -434,7 +434,7 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                 } else {
                     // Create new node
                     let new_node = OidNode::new(*arc, current_node);
-                    let new_id = ctx.model.add_node(new_node);
+                    let new_id = ctx.model.add_node(new_node).unwrap();
 
                     // Add as child of parent, or register as root
                     if let Some(parent_id) = current_node {
@@ -466,7 +466,7 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                         ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node);
+                        let new_id = ctx.model.add_node(new_node).unwrap();
 
                         // Add as child of parent, or register as root
                         if let Some(parent_id) = current_node {
@@ -527,7 +527,7 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                         ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node);
+                        let new_id = ctx.model.add_node(new_node).unwrap();
 
                         // Add as child of parent, or register as root
                         if let Some(parent_id) = current_node {
@@ -645,7 +645,7 @@ fn resolve_oid_definition_traced<T: Tracer>(
                     current_node = Some(existing);
                 } else {
                     let new_node = OidNode::new(*arc, current_node);
-                    let new_id = ctx.model.add_node(new_node);
+                    let new_id = ctx.model.add_node(new_node).unwrap();
 
                     if let Some(parent_id) = current_node {
                         if let Some(parent) = ctx.model.get_node_mut(parent_id) {
@@ -673,7 +673,7 @@ fn resolve_oid_definition_traced<T: Tracer>(
                         ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node);
+                        let new_id = ctx.model.add_node(new_node).unwrap();
 
                         if let Some(parent_id) = current_node {
                             if let Some(parent) = ctx.model.get_node_mut(parent_id) {
@@ -743,7 +743,7 @@ fn resolve_oid_definition_traced<T: Tracer>(
                         ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node);
+                        let new_id = ctx.model.add_node(new_node).unwrap();
 
                         if let Some(parent_id) = current_node {
                             if let Some(parent) = ctx.model.get_node_mut(parent_id) {

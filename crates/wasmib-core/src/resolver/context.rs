@@ -216,8 +216,8 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
         ctx.register_import(module_a, "foo".into(), module_b);
@@ -240,12 +240,12 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Create a node in module B - OidNode::new takes (subid, parent)
         let node = OidNode::new(1, None);
-        let node_id = ctx.model.add_node(node);
+        let node_id = ctx.model.add_node(node).unwrap();
         ctx.register_module_node_symbol(module_b, "foo".into(), node_id);
 
         // A imports "foo" from B
@@ -269,16 +269,16 @@ mod tests {
         // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
 
         // Create nodes in both modules
         let node_a = OidNode::new(1, None);
-        let node_a_id = ctx.model.add_node(node_a);
+        let node_a_id = ctx.model.add_node(node_a).unwrap();
         ctx.register_module_node_symbol(module_a, "foo".into(), node_a_id);
 
         let node_b = OidNode::new(2, None);
-        let node_b_id = ctx.model.add_node(node_b);
+        let node_b_id = ctx.model.add_node(node_b).unwrap();
         ctx.register_module_node_symbol(module_b, "foo".into(), node_b_id);
 
         // A also imports "foo" from B (should be ignored since local exists)
@@ -302,13 +302,13 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let name_c = ctx.intern("ModuleC");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
-        let module_c = ctx.model.add_module(ResolvedModule::new(name_c));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
+        let module_c = ctx.model.add_module(ResolvedModule::new(name_c)).unwrap();
 
         // Create node in C
         let node = OidNode::new(1, None);
-        let node_id = ctx.model.add_node(node);
+        let node_id = ctx.model.add_node(node).unwrap();
         ctx.register_module_node_symbol(module_c, "foo".into(), node_id);
 
         // A -> B -> C import chain

@@ -32,8 +32,7 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         // Create resolved module (ID assigned by add_module)
         let module = ResolvedModule::new(name_str);
 
-        // Add to model
-        let module_id = ctx.model.add_module(module);
+        let module_id = ctx.model.add_module(module).unwrap();
 
         // Track ModuleId -> hir_modules index mapping
         ctx.module_id_to_hir_index.insert(module_id, hir_idx);

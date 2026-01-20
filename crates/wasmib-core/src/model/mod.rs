@@ -146,6 +146,43 @@ pub struct UnresolvedIndex {
     pub span: Span,
 }
 
+/// Error returned when model storage capacity is exceeded.
+///
+/// The model uses `NonZeroU32` IDs, limiting each collection to `u32::MAX - 1` items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CapacityError {
+    /// The kind of storage that exceeded capacity.
+    pub kind: CapacityErrorKind,
+}
+
+/// The kind of storage that exceeded capacity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapacityErrorKind {
+    /// Too many modules (limit: u32::MAX - 1).
+    Modules,
+    /// Too many OID nodes (limit: u32::MAX - 1).
+    Nodes,
+    /// Too many types (limit: u32::MAX - 1).
+    Types,
+    /// Too many objects (limit: u32::MAX - 1).
+    Objects,
+    /// Too many notifications (limit: u32::MAX - 1).
+    Notifications,
+}
+
+impl core::fmt::Display for CapacityError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let kind = match self.kind {
+            CapacityErrorKind::Modules => "modules",
+            CapacityErrorKind::Nodes => "nodes",
+            CapacityErrorKind::Types => "types",
+            CapacityErrorKind::Objects => "objects",
+            CapacityErrorKind::Notifications => "notifications",
+        };
+        write!(f, "model capacity exceeded: too many {} (limit: {})", kind, u32::MAX - 1)
+    }
+}
+
 /// Decomposed model for serialization.
 ///
 /// This struct contains all data needed to reconstruct a Model.
@@ -244,12 +281,18 @@ impl Model {
     // === Module Operations ===
 
     /// Add a module and return its ID.
-    pub fn add_module(&mut self, mut module: ResolvedModule) -> ModuleId {
-        let id = ModuleId::from_index(self.modules.len()).expect("too many modules");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` modules.
+    /// 
+    pub fn add_module(&mut self, mut module: ResolvedModule) -> Result<ModuleId, CapacityError> {
+        let id = ModuleId::from_index(self.modules.len())
+            .ok_or(CapacityError { kind: CapacityErrorKind::Modules })?;
         module.id = id;
         self.module_name_to_id.insert(module.name, id);
         self.modules.push(module);
-        id
+        Ok(id)
     }
 
     /// Get a module by ID.
@@ -287,10 +330,16 @@ impl Model {
     // === Node Operations ===
 
     /// Add a node and return its ID.
-    pub fn add_node(&mut self, node: OidNode) -> NodeId {
-        let id = NodeId::from_index(self.nodes.len()).expect("too many nodes");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` nodes.
+    /// 
+    pub fn add_node(&mut self, node: OidNode) -> Result<NodeId, CapacityError> {
+        let id = NodeId::from_index(self.nodes.len())
+            .ok_or(CapacityError { kind: CapacityErrorKind::Nodes })?;
         self.nodes.push(node);
-        id
+        Ok(id)
     }
 
     /// Get a node by ID.
@@ -435,11 +484,17 @@ impl Model {
     // === Type Operations ===
 
     /// Add a type and return its ID.
-    pub fn add_type(&mut self, mut typ: ResolvedType) -> TypeId {
-        let id = TypeId::from_index(self.types.len()).expect("too many types");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` types.
+    /// 
+    pub fn add_type(&mut self, mut typ: ResolvedType) -> Result<TypeId, CapacityError> {
+        let id = TypeId::from_index(self.types.len())
+            .ok_or(CapacityError { kind: CapacityErrorKind::Types })?;
         typ.id = id;
         self.types.push(typ);
-        id
+        Ok(id)
     }
 
     /// Get a type by ID.
@@ -488,11 +543,17 @@ impl Model {
     // === Object Operations ===
 
     /// Add an object and return its ID.
-    pub fn add_object(&mut self, mut obj: ResolvedObject) -> ObjectId {
-        let id = ObjectId::from_index(self.objects.len()).expect("too many objects");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` objects.
+    /// 
+    pub fn add_object(&mut self, mut obj: ResolvedObject) -> Result<ObjectId, CapacityError> {
+        let id = ObjectId::from_index(self.objects.len())
+            .ok_or(CapacityError { kind: CapacityErrorKind::Objects })?;
         obj.id = id;
         self.objects.push(obj);
-        id
+        Ok(id)
     }
 
     /// Get an object by ID.
@@ -510,11 +571,17 @@ impl Model {
     // === Notification Operations ===
 
     /// Add a notification and return its ID.
-    pub fn add_notification(&mut self, mut notif: ResolvedNotification) -> NotificationId {
-        let id = NotificationId::from_index(self.notifications.len()).expect("too many notifications");
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` notifications.
+    /// 
+    pub fn add_notification(&mut self, mut notif: ResolvedNotification) -> Result<NotificationId, CapacityError> {
+        let id = NotificationId::from_index(self.notifications.len())
+            .ok_or(CapacityError { kind: CapacityErrorKind::Notifications })?;
         notif.id = id;
         self.notifications.push(notif);
-        id
+        Ok(id)
     }
 
     /// Get a notification by ID.
@@ -670,7 +737,7 @@ mod tests {
         let name = model.intern("IF-MIB");
         let module = ResolvedModule::new(name);
 
-        let id = model.add_module(module);
+        let id = model.add_module(module).unwrap();
         assert_eq!(model.module_count(), 1);
         assert!(model.get_module(id).is_some());
     }
@@ -681,7 +748,7 @@ mod tests {
         let name = model.intern("IF-MIB");
         let module = ResolvedModule::new(name);
 
-        model.add_module(module);
+        model.add_module(module).unwrap();
         assert!(model.get_module_by_name("IF-MIB").is_some());
         assert!(model.get_module_by_name("NOT-EXIST").is_none());
     }
@@ -691,7 +758,7 @@ mod tests {
         let mut model = Model::new();
         let node = OidNode::new(1, None);
 
-        let id = model.add_node(node);
+        let id = model.add_node(node).unwrap();
         assert_eq!(model.node_count(), 1);
         assert!(model.get_node(id).is_some());
     }
@@ -700,7 +767,7 @@ mod tests {
     fn test_register_and_get_oid() {
         let mut model = Model::new();
         let node = OidNode::new(1, None);
-        let id = model.add_node(node);
+        let id = model.add_node(node).unwrap();
 
         let oid = Oid::new(vec![1]);
         model.register_oid(oid.clone(), id);

@@ -266,7 +266,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             resolved.inline_bits = Some(crate::model::BitDefinitions::new(defs));
         }
 
-        let obj_id = ctx.model.add_object(resolved);
+        let obj_id = ctx.model.add_object(resolved).unwrap();
 
         // Update node with object reference (match by module AND label)
         if let Some(node) = ctx.model.get_node_mut(node_id) {
@@ -339,7 +339,7 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
             // that reference objects from modules we don't have loaded shouldn't fail.
         }
 
-        let notif_id = ctx.model.add_notification(resolved);
+        let notif_id = ctx.model.add_notification(resolved).unwrap();
 
         // Update node with notification reference (match by module AND label)
         if let Some(node) = ctx.model.get_node_mut(node_id) {
