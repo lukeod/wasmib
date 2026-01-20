@@ -2,6 +2,26 @@
 //!
 //! Each definition type is normalized from its AST counterpart.
 //! SMIv1 and SMIv2 forms are unified where appropriate.
+//!
+//! # Optional vs Required Description Fields
+//!
+//! Per the leniency philosophy, `description` is `Option<String>` for definitions
+//! where real-world MIBs commonly omit it:
+//!
+//! - **`HirObjectType`**: Many vendor MIBs omit DESCRIPTION despite RFC 2578 requiring it.
+//! - **`HirNotification`**: SMIv1 TRAP-TYPE has no DESCRIPTION clause.
+//! - **`HirTypeDef`**: Simple type assignments (non-TC) have no DESCRIPTION clause.
+//!
+//! `description` is required (`String`) for definitions where the RFC mandates it and
+//! real-world compliance is high:
+//!
+//! - **`HirModuleIdentity`**: RFC 2578 requires DESCRIPTION; universally present.
+//! - **`HirObjectIdentity`**: RFC 2578 requires DESCRIPTION.
+//! - **`HirObjectGroup`**, **`HirNotificationGroup`**: RFC 2580 requires DESCRIPTION.
+//! - **`HirModuleCompliance`**, **`HirAgentCapabilities`**: RFC 2580 requires DESCRIPTION.
+//!
+//! This design allows wasmib to parse non-compliant MIBs while preserving required
+//! metadata for well-formed definitions.
 
 use super::syntax::{HirDefVal, HirOidAssignment, HirTypeSyntax};
 use super::types::{HirAccess, HirStatus, Symbol};
@@ -100,7 +120,7 @@ pub struct HirObjectType {
     pub access: HirAccess,
     /// STATUS (normalized from SMIv1 if needed).
     pub status: HirStatus,
-    /// DESCRIPTION.
+    /// DESCRIPTION (optional: many vendor MIBs omit this despite RFC requirement).
     pub description: Option<String>,
     /// REFERENCE.
     pub reference: Option<String>,
@@ -191,7 +211,7 @@ pub struct HirNotification {
     pub objects: Vec<Symbol>,
     /// STATUS.
     pub status: HirStatus,
-    /// DESCRIPTION.
+    /// DESCRIPTION (optional: SMIv1 TRAP-TYPE has no DESCRIPTION clause).
     pub description: Option<String>,
     /// REFERENCE.
     pub reference: Option<String>,
@@ -227,7 +247,7 @@ pub struct HirTypeDef {
     pub display_hint: Option<String>,
     /// STATUS.
     pub status: HirStatus,
-    /// DESCRIPTION.
+    /// DESCRIPTION (optional: simple type assignments have no DESCRIPTION clause).
     pub description: Option<String>,
     /// REFERENCE.
     pub reference: Option<String>,
