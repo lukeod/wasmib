@@ -146,6 +146,20 @@ fn create_user_types(ctx: &mut ResolverContext) {
 
 /// Resolve base types and set parent pointers.
 fn resolve_type_bases(ctx: &mut ResolverContext) {
+    // First pass: link TypeRef-based types to their parent
+    link_typeref_parents(ctx);
+
+    // Second pass: link primitive-syntax types to their primitive parents
+    // This handles types like `DisplayString SYNTAX OCTET STRING (SIZE ...)` which
+    // should have parent_type pointing to "OCTET STRING".
+    link_primitive_syntax_parents(ctx);
+
+    // Third pass: inherit base types from parents for types that need it
+    inherit_base_types(ctx);
+}
+
+/// Link types that use TypeRef syntax to their parent types.
+fn link_typeref_parents(ctx: &mut ResolverContext) {
     // For each type with a TypeRef syntax, try to resolve the parent
     let type_refs: Vec<_> = ctx
         .hir_modules
@@ -190,9 +204,76 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
             ctx.record_unresolved_type(module_id, &type_name, &base_name, span);
         }
     }
+}
 
-    // Second pass: inherit base types from parents for types that need it
-    inherit_base_types(ctx);
+/// Get the primitive type name for a syntax that uses primitive syntax directly.
+///
+/// Returns the primitive type name to link as parent for:
+/// - `HirTypeSyntax::OctetString` -> "OCTET STRING"
+/// - `HirTypeSyntax::ObjectIdentifier` -> "OBJECT IDENTIFIER"
+/// - `HirTypeSyntax::IntegerEnum` -> "INTEGER"
+/// - `HirTypeSyntax::Bits` -> "BITS"
+/// - `HirTypeSyntax::Constrained { base: OctetString/ObjectIdentifier, .. }` -> respective primitive
+fn get_primitive_parent_name(syntax: &HirTypeSyntax) -> Option<&'static str> {
+    match syntax {
+        HirTypeSyntax::OctetString => Some("OCTET STRING"),
+        HirTypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
+        HirTypeSyntax::IntegerEnum(_) => Some("INTEGER"),
+        HirTypeSyntax::Bits(_) => Some("BITS"),
+        HirTypeSyntax::Constrained { base, .. } => {
+            match **base {
+                HirTypeSyntax::OctetString => Some("OCTET STRING"),
+                HirTypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
+                // TypeRef cases are handled in link_typeref_parents
+                _ => None,
+            }
+        }
+        // TypeRef, SequenceOf, Sequence are handled elsewhere or don't need primitive linking
+        _ => None,
+    }
+}
+
+/// Link types that use primitive syntax directly to their primitive parent types.
+///
+/// This handles textual conventions and types that are defined using:
+/// - `SYNTAX OCTET STRING (SIZE ...)`
+/// - `SYNTAX OBJECT IDENTIFIER`
+/// - `SYNTAX INTEGER { enum values }`
+/// - `SYNTAX BITS { bit values }`
+fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
+    // Collect types that need primitive parent linking
+    let primitive_links: Vec<_> = ctx
+        .hir_modules
+        .iter()
+        .flat_map(|module| {
+            module
+                .definitions
+                .iter()
+                .filter_map(|def| {
+                    if let HirDefinition::TypeDef(td) = def {
+                        get_primitive_parent_name(&td.syntax)
+                            .map(|primitive_name| (td.name.name.clone(), primitive_name))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect();
+
+    // Link each type to its primitive parent
+    for (type_name, primitive_name) in primitive_links {
+        if let (Some(type_id), Some(parent_id)) = (
+            ctx.lookup_type(&type_name),
+            ctx.lookup_type(primitive_name),
+        ) {
+            if let Some(typ) = ctx.model.get_type_mut(type_id) {
+                // Only set if not already set (TypeRef linking takes precedence)
+                if typ.parent_type.is_none() {
+                    typ.parent_type = Some(parent_id);
+                }
+            }
+        }
+    }
 }
 
 /// Inherit base types from parent types.
@@ -567,5 +648,267 @@ mod tests {
 
         assert_eq!(if_entry.base, BaseType::Sequence,
             "SEQUENCE types should have BaseType::Sequence");
+    }
+
+    // ============================================================
+    // Tests for primitive syntax parent linking (Issue #3 fix)
+    // ============================================================
+
+    #[test]
+    fn test_octet_string_syntax_parent_linking() {
+        // PhysAddress-like TC: SYNTAX OCTET STRING (no constraint)
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("TestPhysAddress"),
+            syntax: HirTypeSyntax::OctetString,
+            display_hint: Some("1x:".into()),
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let type_id = ctx.lookup_type("TestPhysAddress").expect("type should exist");
+        let typ = ctx.model.get_type(type_id).expect("type should exist");
+
+        // Should have parent_type pointing to OCTET STRING primitive
+        assert!(typ.parent_type.is_some(), "parent_type should be set for OctetString syntax");
+
+        let parent_id = typ.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+    }
+
+    #[test]
+    fn test_constrained_octet_string_parent_linking() {
+        use alloc::boxed::Box;
+        // DisplayString-like TC: SYNTAX OCTET STRING (SIZE (0..255))
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("TestDisplayString"),
+            syntax: HirTypeSyntax::Constrained {
+                base: Box::new(HirTypeSyntax::OctetString),
+                constraint: HirConstraint::Size(vec![HirRange {
+                    min: HirRangeValue::Unsigned(0),
+                    max: Some(HirRangeValue::Unsigned(255)),
+                }]),
+            },
+            display_hint: Some("255a".into()),
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let type_id = ctx.lookup_type("TestDisplayString").expect("type should exist");
+        let typ = ctx.model.get_type(type_id).expect("type should exist");
+
+        // Should have parent_type pointing to OCTET STRING primitive
+        assert!(typ.parent_type.is_some(), "parent_type should be set for constrained OctetString");
+
+        let parent_id = typ.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+    }
+
+    #[test]
+    fn test_object_identifier_syntax_parent_linking() {
+        // AutonomousType-like TC: SYNTAX OBJECT IDENTIFIER
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("TestAutonomousType"),
+            syntax: HirTypeSyntax::ObjectIdentifier,
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let type_id = ctx.lookup_type("TestAutonomousType").expect("type should exist");
+        let typ = ctx.model.get_type(type_id).expect("type should exist");
+
+        // Should have parent_type pointing to OBJECT IDENTIFIER primitive
+        assert!(typ.parent_type.is_some(), "parent_type should be set for ObjectIdentifier syntax");
+
+        let parent_id = typ.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "OBJECT IDENTIFIER");
+    }
+
+    #[test]
+    fn test_integer_enum_syntax_parent_linking() {
+        // TruthValue-like TC: SYNTAX INTEGER { true(1), false(2) }
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("TestTruthValue"),
+            syntax: HirTypeSyntax::IntegerEnum(vec![
+                (Symbol::from_str("true"), 1),
+                (Symbol::from_str("false"), 2),
+            ]),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let type_id = ctx.lookup_type("TestTruthValue").expect("type should exist");
+        let typ = ctx.model.get_type(type_id).expect("type should exist");
+
+        // Should have parent_type pointing to INTEGER primitive
+        assert!(typ.parent_type.is_some(), "parent_type should be set for IntegerEnum syntax");
+
+        let parent_id = typ.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "INTEGER");
+    }
+
+    #[test]
+    fn test_bits_syntax_parent_linking() {
+        // BITS-based type: SYNTAX BITS { flag1(0), flag2(1) }
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("TestBitsType"),
+            syntax: HirTypeSyntax::Bits(vec![
+                (Symbol::from_str("flag1"), 0),
+                (Symbol::from_str("flag2"), 1),
+            ]),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let type_id = ctx.lookup_type("TestBitsType").expect("type should exist");
+        let typ = ctx.model.get_type(type_id).expect("type should exist");
+
+        // Should have parent_type pointing to BITS primitive
+        assert!(typ.parent_type.is_some(), "parent_type should be set for Bits syntax");
+
+        let parent_id = typ.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "BITS");
+    }
+
+    #[test]
+    fn test_builtin_tc_has_primitive_parent() {
+        // Verify that built-in TCs like DisplayString have parent linking to primitives
+        let modules = vec![make_test_module("TEST-MIB", vec![])];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        // DisplayString should have OCTET STRING as parent
+        let display_string_id = ctx.lookup_type("DisplayString").expect("DisplayString should exist");
+        let display_string = ctx.model.get_type(display_string_id).expect("type should exist");
+
+        assert!(display_string.parent_type.is_some(), "DisplayString should have parent_type");
+        let parent_id = display_string.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+
+        // TruthValue should have INTEGER as parent
+        let truth_value_id = ctx.lookup_type("TruthValue").expect("TruthValue should exist");
+        let truth_value = ctx.model.get_type(truth_value_id).expect("type should exist");
+
+        assert!(truth_value.parent_type.is_some(), "TruthValue should have parent_type");
+        let parent_id = truth_value.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "INTEGER");
+
+        // AutonomousType should have OBJECT IDENTIFIER as parent
+        let autonomous_type_id = ctx.lookup_type("AutonomousType").expect("AutonomousType should exist");
+        let autonomous_type = ctx.model.get_type(autonomous_type_id).expect("type should exist");
+
+        assert!(autonomous_type.parent_type.is_some(), "AutonomousType should have parent_type");
+        let parent_id = autonomous_type.parent_type.unwrap();
+        let parent = ctx.model.get_type(parent_id).expect("parent should exist");
+        assert_eq!(ctx.model.get_str(parent.name), "OBJECT IDENTIFIER");
+    }
+
+    #[test]
+    fn test_full_type_chain_includes_primitive() {
+        // MyString -> DisplayString -> OCTET STRING
+        let typedef = HirTypeDef {
+            name: Symbol::from_str("MyString"),
+            syntax: HirTypeSyntax::TypeRef(Symbol::from_str("DisplayString")),
+            display_hint: None,
+            status: HirStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![HirDefinition::TypeDef(typedef)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
+        let chain = ctx.model.get_type_chain(my_string_id);
+
+        // Chain should be: MyString -> DisplayString -> OCTET STRING
+        assert!(chain.len() >= 3, "chain should have at least 3 types, got {}", chain.len());
+
+        let names: Vec<_> = chain.iter()
+            .map(|t| ctx.model.get_str(t.name))
+            .collect();
+
+        assert_eq!(names[0], "MyString");
+        assert_eq!(names[1], "DisplayString");
+        assert_eq!(names[2], "OCTET STRING");
     }
 }
