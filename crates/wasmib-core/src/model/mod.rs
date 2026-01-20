@@ -71,6 +71,8 @@ pub struct UnresolvedReferences {
     pub oids: Vec<UnresolvedOid>,
     /// Unresolved index objects.
     pub indexes: Vec<UnresolvedIndex>,
+    /// Unresolved notification object references.
+    pub notification_objects: Vec<UnresolvedNotificationObject>,
 }
 
 impl UnresolvedReferences {
@@ -81,12 +83,17 @@ impl UnresolvedReferences {
             && self.types.is_empty()
             && self.oids.is_empty()
             && self.indexes.is_empty()
+            && self.notification_objects.is_empty()
     }
 
     /// Get the total count of unresolved references.
     #[must_use]
     pub fn count(&self) -> usize {
-        self.imports.len() + self.types.len() + self.oids.len() + self.indexes.len()
+        self.imports.len()
+            + self.types.len()
+            + self.oids.len()
+            + self.indexes.len()
+            + self.notification_objects.len()
     }
 }
 
@@ -157,6 +164,24 @@ pub struct UnresolvedIndex {
     /// Unresolved index object name.
     pub index_object: StrId,
     /// Source location of the index reference.
+    pub span: Span,
+}
+
+/// An unresolved notification object reference.
+///
+/// Notifications (NOTIFICATION-TYPE, TRAP-TYPE) reference objects in their
+/// OBJECTS clause. When those object references cannot be resolved (e.g.,
+/// the object's module isn't loaded), this struct records the failure.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct UnresolvedNotificationObject {
+    /// Module containing the notification.
+    pub module: ModuleId,
+    /// Notification definition name.
+    pub notification: StrId,
+    /// Unresolved object name.
+    pub object: StrId,
+    /// Source location of the notification.
     pub span: Span,
 }
 

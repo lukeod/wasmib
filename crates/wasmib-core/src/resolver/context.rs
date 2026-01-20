@@ -10,7 +10,7 @@ use crate::hir::HirModule;
 use crate::lexer::Span;
 use crate::model::{
     Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedImportReason,
-    UnresolvedOid, UnresolvedType,
+    UnresolvedNotificationObject, UnresolvedOid, UnresolvedType,
 };
 use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
@@ -246,6 +246,27 @@ impl ResolverContext {
             component: comp_str,
             span,
         });
+    }
+
+    /// Record an unresolved notification object reference.
+    pub fn record_unresolved_notification_object(
+        &mut self,
+        module: ModuleId,
+        notification: &str,
+        object: &str,
+        span: Span,
+    ) {
+        let notif_str = self.intern(notification);
+        let obj_str = self.intern(object);
+        self.model
+            .unresolved_mut()
+            .notification_objects
+            .push(UnresolvedNotificationObject {
+                module,
+                notification: notif_str,
+                object: obj_str,
+                span,
+            });
     }
 
     /// Drop HIR modules to free memory.

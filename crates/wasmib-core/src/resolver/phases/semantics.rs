@@ -458,6 +458,7 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
                 description: notif.description.clone(),
                 reference: notif.reference.clone(),
                 objects: notif.objects.clone(),
+                span: notif.span,
             }
         };
 
@@ -484,10 +485,16 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
         for obj_sym in &notif_data.objects {
             if let Some(obj_node_id) = ctx.lookup_node_for_module(module_id, &obj_sym.name) {
                 resolved.objects.push(obj_node_id);
+            } else {
+                // Record the unresolved object reference for diagnostic purposes.
+                // Resolution continues (lenient philosophy) but the failure is tracked.
+                ctx.record_unresolved_notification_object(
+                    module_id,
+                    &notif_data.name,
+                    &obj_sym.name,
+                    notif_data.span,
+                );
             }
-            // Note: We silently skip unresolved object references rather than recording
-            // them as unresolved. This matches the lenient philosophy - notifications
-            // that reference objects from modules we don't have loaded shouldn't fail.
         }
 
         let notif_id = ctx.model.add_notification(resolved).unwrap();
@@ -516,6 +523,7 @@ struct NotificationData {
     description: Option<alloc::string::String>,
     reference: Option<alloc::string::String>,
     objects: Vec<crate::hir::Symbol>,
+    span: Span,
 }
 
 /// Resolve a type syntax to a `TypeId`.
@@ -1153,6 +1161,109 @@ mod tests {
         assert!(
             def.notification.is_some(),
             "node definition should have notification id"
+        );
+    }
+
+    #[test]
+    fn test_unresolved_notification_object_recorded() {
+        // Create a notification that references a non-existent object
+        let notif = make_notification(
+            "testNotification",
+            vec!["nonExistentObject"],
+            vec![
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Notification should still be created
+        assert_eq!(ctx.model.notification_count(), 1);
+
+        // But the unresolved object reference should be recorded
+        let unresolved = ctx.model.unresolved();
+        assert!(
+            !unresolved.notification_objects.is_empty(),
+            "should have recorded unresolved notification object"
+        );
+
+        // Verify the unresolved reference details
+        let unresolved_obj = &unresolved.notification_objects[0];
+        assert_eq!(
+            ctx.model.get_str(unresolved_obj.notification),
+            "testNotification"
+        );
+        assert_eq!(
+            ctx.model.get_str(unresolved_obj.object),
+            "nonExistentObject"
+        );
+    }
+
+    #[test]
+    fn test_notification_mixed_resolved_and_unresolved_objects() {
+        // Create one object that exists
+        let obj = make_object_type(
+            "existingObject",
+            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            vec![
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        // Create a notification that references both existing and non-existing objects
+        let notif = make_notification(
+            "testNotification",
+            vec!["existingObject", "missingObject"],
+            vec![
+                HirOidComponent::Name(Symbol::from_name("enterprises")),
+                HirOidComponent::Number(2),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj, notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Notification should have one resolved object
+        let notif = ctx
+            .model
+            .get_notification(crate::model::NotificationId::from_raw(1).unwrap())
+            .unwrap();
+        assert_eq!(notif.objects.len(), 1, "should have one resolved object");
+
+        // And one unresolved object should be recorded
+        let unresolved = ctx.model.unresolved();
+        assert_eq!(
+            unresolved.notification_objects.len(),
+            1,
+            "should have one unresolved notification object"
+        );
+        assert_eq!(
+            ctx.model.get_str(unresolved.notification_objects[0].object),
+            "missingObject"
         );
     }
 }
