@@ -125,13 +125,6 @@ pub struct ResolvedObject {
     pub reference: Option<StrId>,
 }
 
-/// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by `Model::add_object()`.
-const UNASSIGNED_OBJECT_ID: ObjectId = match ObjectId::from_raw(1) {
-    Some(id) => id,
-    None => unreachable!(),
-};
-
 impl ResolvedObject {
     /// Create a new resolved object.
     ///
@@ -146,7 +139,7 @@ impl ResolvedObject {
         access: Access,
     ) -> Self {
         Self {
-            id: UNASSIGNED_OBJECT_ID,
+            id: ObjectId::placeholder(),
             node,
             module,
             name,
@@ -199,14 +192,6 @@ pub struct ResolvedNotification {
     pub reference: Option<StrId>,
 }
 
-/// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by `Model::add_notification()`.
-const UNASSIGNED_NOTIFICATION_ID: super::ids::NotificationId =
-    match super::ids::NotificationId::from_raw(1) {
-        Some(id) => id,
-        None => unreachable!(),
-    };
-
 impl ResolvedNotification {
     /// Create a new resolved notification.
     ///
@@ -215,7 +200,7 @@ impl ResolvedNotification {
     #[must_use]
     pub fn new(node: NodeId, module: ModuleId, name: StrId) -> Self {
         Self {
-            id: UNASSIGNED_NOTIFICATION_ID,
+            id: super::ids::NotificationId::placeholder(),
             node,
             module,
             name,

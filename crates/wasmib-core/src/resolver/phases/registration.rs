@@ -17,15 +17,9 @@ pub fn register_modules(ctx: &mut ResolverContext) {
     all_modules.append(&mut ctx.hir_modules);
     ctx.hir_modules = all_modules;
 
-    // Collect module names first to avoid borrow issues
-    let module_names: alloc::vec::Vec<_> = ctx
-        .hir_modules
-        .iter()
-        .map(|m| m.name.name.clone())
-        .collect();
-
-    // Register each HIR module
-    for (hir_idx, module_name) in module_names.into_iter().enumerate() {
+    // Register each HIR module (iterate by index to avoid borrow issues)
+    for hir_idx in 0..ctx.hir_modules.len() {
+        let module_name = ctx.hir_modules[hir_idx].name.name.clone();
         // Intern module name
         let name_str = ctx.intern(&module_name);
 

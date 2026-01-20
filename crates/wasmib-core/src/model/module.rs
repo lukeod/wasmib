@@ -51,13 +51,6 @@ pub struct ResolvedModule {
     pub notifications: Vec<NotificationId>,
 }
 
-/// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by `Model::add_module()`.
-const UNASSIGNED_ID: ModuleId = match ModuleId::from_raw(1) {
-    Some(id) => id,
-    None => unreachable!(),
-};
-
 impl ResolvedModule {
     /// Create a new resolved module.
     ///
@@ -66,7 +59,7 @@ impl ResolvedModule {
     #[must_use]
     pub fn new(name: StrId) -> Self {
         Self {
-            id: UNASSIGNED_ID,
+            id: ModuleId::placeholder(),
             name,
             last_updated: None,
             organization: None,
@@ -112,7 +105,7 @@ mod tests {
         let module = ResolvedModule::new(name);
 
         // ID is a placeholder until added to model
-        assert_eq!(module.id, UNASSIGNED_ID);
+        assert_eq!(module.id, ModuleId::placeholder());
         assert_eq!(module.name, name);
         assert!(module.nodes.is_empty());
         assert!(module.types.is_empty());

@@ -278,13 +278,6 @@ pub struct ResolvedType {
     pub needs_base_resolution: bool,
 }
 
-/// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by `Model::add_type()`.
-const UNASSIGNED_ID: TypeId = match TypeId::from_raw(1) {
-    Some(id) => id,
-    None => unreachable!(),
-};
-
 impl ResolvedType {
     /// Create a new resolved type.
     ///
@@ -293,7 +286,7 @@ impl ResolvedType {
     #[must_use]
     pub fn new(name: StrId, module: ModuleId, base: BaseType) -> Self {
         Self {
-            id: UNASSIGNED_ID,
+            id: TypeId::placeholder(),
             name,
             module,
             base,

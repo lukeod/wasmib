@@ -59,19 +59,27 @@ pub struct Parser<'src> {
     pos: usize,
     /// Collected diagnostics (lexer + parser).
     diagnostics: Vec<Diagnostic>,
+    /// Cached EOF token (avoids repeated construction).
+    eof_token: Token,
 }
 
 impl<'src> Parser<'src> {
     /// Create a new parser for the given source bytes.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)] // Source files bounded by 4GB
     pub fn new(source: &'src [u8]) -> Self {
         let lexer = Lexer::new(source);
         let (tokens, lexer_diagnostics) = lexer.tokenize();
+        let eof_token = Token {
+            kind: TokenKind::Eof,
+            span: Span::new(source.len() as u32, source.len() as u32),
+        };
         Self {
             source,
             tokens,
             pos: 0,
             diagnostics: lexer_diagnostics,
+            eof_token,
         }
     }
 
@@ -133,13 +141,9 @@ impl<'src> Parser<'src> {
 
     // === Token access methods ===
 
-    /// Get the EOF token for this source.
-    #[allow(clippy::cast_possible_truncation)] // Source files bounded by 4GB
+    /// Get the cached EOF token.
     fn eof_token(&self) -> Token {
-        Token {
-            kind: TokenKind::Eof,
-            span: Span::new(self.source.len() as u32, self.source.len() as u32),
-        }
+        self.eof_token
     }
 
     /// Check if we're at EOF.
@@ -1422,7 +1426,10 @@ impl<'src> Parser<'src> {
     }
 
     /// Skip unknown DEFVAL content outside braces.
-    fn parse_defval_skip_unknown(&mut self, content_start: u32) -> Result<DefValContent, Diagnostic> {
+    fn parse_defval_skip_unknown(
+        &mut self,
+        content_start: u32,
+    ) -> Result<DefValContent, Diagnostic> {
         let mut depth = 0;
         while !self.is_eof() {
             match self.peek().kind {

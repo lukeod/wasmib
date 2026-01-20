@@ -43,6 +43,18 @@ macro_rules! define_id {
             pub const fn to_index(self) -> usize {
                 (self.0.get() - 1) as usize
             }
+
+            /// Placeholder ID for use before an entity is added to the model.
+            ///
+            /// This is a compile-time constant that can be used to initialize
+            /// ID fields before the actual ID is assigned by the model.
+            #[must_use]
+            pub const fn placeholder() -> Self {
+                match Self::from_raw(1) {
+                    Some(id) => id,
+                    None => unreachable!(),
+                }
+            }
         }
     };
 }
