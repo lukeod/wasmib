@@ -52,20 +52,20 @@ fn infer_node_kinds(ctx: &mut ResolverContext) {
 
     // First pass: identify TABLEs and ROWs
     for obj_ref in &obj_refs {
-        if let Some(obj) = get_object_type(ctx, obj_ref) {
-            if let Some(node_id) = ctx.lookup_node_for_module(obj_ref.module_id, &obj.name.name) {
-                let kind = if obj.syntax.is_sequence_of() {
-                    NodeKind::Table
-                } else if obj.index.is_some() || obj.augments.is_some() {
-                    NodeKind::Row
-                } else {
-                    // Default to Scalar, will be refined below
-                    NodeKind::Scalar
-                };
+        if let Some(obj) = get_object_type(ctx, obj_ref)
+            && let Some(node_id) = ctx.lookup_node_for_module(obj_ref.module_id, &obj.name.name)
+        {
+            let kind = if obj.syntax.is_sequence_of() {
+                NodeKind::Table
+            } else if obj.index.is_some() || obj.augments.is_some() {
+                NodeKind::Row
+            } else {
+                // Default to Scalar, will be refined below
+                NodeKind::Scalar
+            };
 
-                if let Some(node) = ctx.model.get_node_mut(node_id) {
-                    node.kind = kind;
-                }
+            if let Some(node) = ctx.model.get_node_mut(node_id) {
+                node.kind = kind;
             }
         }
     }
@@ -80,10 +80,10 @@ fn infer_node_kinds(ctx: &mut ResolverContext) {
         .collect();
 
     for child_id in row_children {
-        if let Some(node) = ctx.model.get_node_mut(child_id) {
-            if matches!(node.kind, NodeKind::Scalar) {
-                node.kind = NodeKind::Column;
-            }
+        if let Some(node) = ctx.model.get_node_mut(child_id)
+            && matches!(node.kind, NodeKind::Scalar)
+        {
+            node.kind = NodeKind::Column;
         }
     }
 }
@@ -183,7 +183,7 @@ fn collect_row_children(ctx: &ResolverContext, node_id: NodeId) -> Vec<NodeId> {
     result
 }
 
-/// Inner recursive helper for collect_row_children with cycle detection.
+/// Inner recursive helper for `collect_row_children` with cycle detection.
 fn collect_row_children_inner(
     ctx: &ResolverContext,
     node_id: NodeId,
@@ -224,14 +224,14 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                         .iter()
                         .enumerate()
                         .filter_map(move |(def_idx, def)| {
-                            if let HirDefinition::ObjectType(obj) = def {
-                                if obj.index.is_some() || obj.augments.is_some() {
-                                    return Some(HirRef {
-                                        module_id,
-                                        hir_idx,
-                                        def_idx,
-                                    });
-                                }
+                            if let HirDefinition::ObjectType(obj) = def
+                                && (obj.index.is_some() || obj.augments.is_some())
+                            {
+                                return Some(HirRef {
+                                    module_id,
+                                    hir_idx,
+                                    def_idx,
+                                });
                             }
                             None
                         })
@@ -276,18 +276,17 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
         }
 
         // Resolve AUGMENTS target
-        if let Some(ref augments_sym) = table_data.augments {
-            if ctx
+        if let Some(ref augments_sym) = table_data.augments
+            && ctx
                 .lookup_node_for_module(module_id, &augments_sym.name)
                 .is_none()
-            {
-                ctx.record_unresolved_oid(
-                    module_id,
-                    &table_data.name,
-                    &augments_sym.name,
-                    table_data.span,
-                );
-            }
+        {
+            ctx.record_unresolved_oid(
+                module_id,
+                &table_data.name,
+                &augments_sym.name,
+                table_data.span,
+            );
         }
     }
 }
@@ -300,7 +299,7 @@ struct TableData {
     augments: Option<crate::hir::Symbol>,
 }
 
-/// Create ResolvedObject entries for all OBJECT-TYPEs.
+/// Create `ResolvedObject` entries for all OBJECT-TYPEs.
 fn create_resolved_objects(ctx: &mut ResolverContext) {
     // Collect references to all OBJECT-TYPE definitions (no cloning)
     let obj_refs = collect_object_type_refs(ctx);
@@ -335,8 +334,13 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         };
 
         // Find the type (may be None if unresolved)
-        let type_id =
-            resolve_type_syntax(ctx, &obj_data.syntax, module_id, &obj_data.name, obj_data.span);
+        let type_id = resolve_type_syntax(
+            ctx,
+            &obj_data.syntax,
+            module_id,
+            &obj_data.name,
+            obj_data.span,
+        );
 
         let name = ctx.intern(&obj_data.name);
         let access = hir_access_to_access(obj_data.access);
@@ -403,14 +407,13 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         let obj_id = ctx.model.add_object(resolved).unwrap();
 
         // Update node with object reference (match by module AND label)
-        if let Some(node) = ctx.model.get_node_mut(node_id) {
-            if let Some(def) = node
+        if let Some(node) = ctx.model.get_node_mut(node_id)
+            && let Some(def) = node
                 .definitions
                 .iter_mut()
                 .find(|d| d.label == name && d.module == module_id)
-            {
-                def.object = Some(obj_id);
-            }
+        {
+            def.object = Some(obj_id);
         }
 
         // Add to module
@@ -420,10 +423,10 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
     }
 }
 
-/// Extracted data from HirObjectType to avoid borrow conflicts.
+/// Extracted data from `HirObjectType` to avoid borrow conflicts.
 ///
-/// This struct holds a subset of the HirObjectType data needed for creating
-/// ResolvedObject. It allows us to drop the borrow of the HirObjectType early
+/// This struct holds a subset of the `HirObjectType` data needed for creating
+/// `ResolvedObject`. It allows us to drop the borrow of the `HirObjectType` early
 /// so we can mutate the context.
 struct ObjectData {
     name: alloc::string::String,
@@ -439,7 +442,7 @@ struct ObjectData {
     span: Span,
 }
 
-/// Create ResolvedNotification entries for all NOTIFICATION-TYPE and TRAP-TYPE definitions.
+/// Create `ResolvedNotification` entries for all NOTIFICATION-TYPE and TRAP-TYPE definitions.
 fn create_resolved_notifications(ctx: &mut ResolverContext) {
     // Collect references to all NOTIFICATION definitions (no cloning)
     let notif_refs = collect_notification_refs(ctx);
@@ -492,14 +495,13 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
         let notif_id = ctx.model.add_notification(resolved).unwrap();
 
         // Update node with notification reference (match by module AND label)
-        if let Some(node) = ctx.model.get_node_mut(node_id) {
-            if let Some(def) = node
+        if let Some(node) = ctx.model.get_node_mut(node_id)
+            && let Some(def) = node
                 .definitions
                 .iter_mut()
                 .find(|d| d.label == name && d.module == module_id)
-            {
-                def.notification = Some(notif_id);
-            }
+        {
+            def.notification = Some(notif_id);
         }
 
         // Add to module
@@ -518,7 +520,7 @@ struct NotificationData {
     objects: Vec<crate::hir::Symbol>,
 }
 
-/// Resolve a type syntax to a TypeId.
+/// Resolve a type syntax to a `TypeId`.
 ///
 /// Returns `None` if the type reference couldn't be resolved, and records
 /// the unresolved type in `UnresolvedReferences`.
@@ -531,13 +533,12 @@ fn resolve_type_syntax(
 ) -> Option<crate::model::TypeId> {
     match syntax {
         HirTypeSyntax::TypeRef(name) => {
-            match ctx.lookup_type(&name.name) {
-                Some(type_id) => Some(type_id),
-                None => {
-                    // Record the unresolved type reference
-                    ctx.record_unresolved_type(module_id, object_name, &name.name, span);
-                    None
-                }
+            if let Some(type_id) = ctx.lookup_type(&name.name) {
+                Some(type_id)
+            } else {
+                // Record the unresolved type reference
+                ctx.record_unresolved_type(module_id, object_name, &name.name, span);
+                None
             }
         }
         HirTypeSyntax::Constrained { base, .. } => {
@@ -551,12 +552,8 @@ fn resolve_type_syntax(
             // BITS type
             ctx.lookup_type("BITS")
         }
-        HirTypeSyntax::OctetString => {
-            ctx.lookup_type("OCTET STRING")
-        }
-        HirTypeSyntax::ObjectIdentifier => {
-            ctx.lookup_type("OBJECT IDENTIFIER")
-        }
+        HirTypeSyntax::OctetString => ctx.lookup_type("OCTET STRING"),
+        HirTypeSyntax::ObjectIdentifier => ctx.lookup_type("OBJECT IDENTIFIER"),
         HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => {
             // Table/row types - these don't have a meaningful "type" in the SNMP sense
             // They're structural, not data types. Return None as there's no appropriate type.
@@ -566,7 +563,7 @@ fn resolve_type_syntax(
     }
 }
 
-/// Convert HirDefVal to resolved DefVal.
+/// Convert `HirDefVal` to resolved `DefVal`.
 fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: ModuleId) -> DefVal {
     match defval {
         HirDefVal::Integer(n) => DefVal::Integer(*n),
@@ -575,9 +572,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: Modu
         HirDefVal::HexString(s) => DefVal::HexString(s.clone()),
         HirDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
         HirDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
-        HirDefVal::Bits(syms) => {
-            DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect())
-        }
+        HirDefVal::Bits(syms) => DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect()),
         HirDefVal::OidRef(sym) => {
             // Try to resolve the OID reference
             let resolved_node = ctx.lookup_node_for_module(module_id, &sym.name);
@@ -593,24 +588,23 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: Modu
         HirDefVal::OidValue(components) => {
             // Try to resolve the OID value by looking up the first component
             // This is a best-effort resolution
-            if let Some(first) = components.first() {
-                if let Some(name) = first.name() {
-                    if let Some(node) = ctx.lookup_node_for_module(module_id, &name.name) {
-                        return DefVal::OidRef {
-                            node: Some(node),
-                            symbol: None,
-                        };
-                    }
-                }
+            if let Some(first) = components.first()
+                && let Some(name) = first.name()
+                && let Some(node) = ctx.lookup_node_for_module(module_id, &name.name)
+            {
+                return DefVal::OidRef {
+                    node: Some(node),
+                    symbol: None,
+                };
             }
             // If we can't resolve it, store the first symbol as unresolved
-            if let Some(first) = components.first() {
-                if let Some(name) = first.name() {
-                    return DefVal::OidRef {
-                        node: None,
-                        symbol: Some(ctx.intern(&name.name)),
-                    };
-                }
+            if let Some(first) = components.first()
+                && let Some(name) = first.name()
+            {
+                return DefVal::OidRef {
+                    node: None,
+                    symbol: Some(ctx.intern(&name.name)),
+                };
             }
             // Fallback for numeric-only OIDs (rare in DEFVAL)
             DefVal::OidRef {
@@ -644,11 +638,14 @@ fn hir_status_to_status(status: crate::hir::HirStatus) -> Status {
 mod tests {
     use super::*;
     use crate::hir::{
-        HirImport, HirIndexItem, HirModule, HirNotification, HirObjectType, HirOidAssignment,
-        HirOidComponent, HirTypeSyntax, HirAccess, HirDefinition, HirStatus, Symbol,
+        HirAccess, HirDefinition, HirImport, HirIndexItem, HirModule, HirNotification,
+        HirObjectType, HirOidAssignment, HirOidComponent, HirStatus, HirTypeSyntax, Symbol,
     };
     use crate::lexer::Span;
-    use crate::resolver::phases::{imports::resolve_imports, registration::register_modules, oids::resolve_oids, types::resolve_types};
+    use crate::resolver::phases::{
+        imports::resolve_imports, oids::resolve_oids, registration::register_modules,
+        types::resolve_types,
+    };
     use alloc::vec;
 
     fn make_object_type(
@@ -674,14 +671,24 @@ mod tests {
     }
 
     /// Create a test module with imports.
-    /// imports is a list of (symbol, from_module) pairs.
-    fn make_test_module_with_imports(name: &str, defs: Vec<HirDefinition>, imports: Vec<(&str, &str)>) -> HirModule {
+    /// imports is a list of (symbol, `from_module`) pairs.
+    fn make_test_module_with_imports(
+        name: &str,
+        defs: Vec<HirDefinition>,
+        imports: Vec<(&str, &str)>,
+    ) -> HirModule {
         let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
         module.definitions = defs;
         // HirImport::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
-            .map(|(sym, from)| HirImport::new(Symbol::from_str(from), Symbol::from_str(sym), Span::new(0, 0)))
+            .map(|(sym, from)| {
+                HirImport::new(
+                    Symbol::from_str(from),
+                    Symbol::from_str(sym),
+                    Span::new(0, 0),
+                )
+            })
             .collect();
         module
     }
@@ -712,10 +719,10 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Check table node kind
-        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testTable") {
-            if let Some(node) = ctx.model.get_node(node_id) {
-                assert_eq!(node.kind, NodeKind::Table);
-            }
+        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testTable")
+            && let Some(node) = ctx.model.get_node(node_id)
+        {
+            assert_eq!(node.kind, NodeKind::Table);
         }
     }
 
@@ -728,7 +735,10 @@ mod tests {
                 HirOidComponent::Name(Symbol::from_str("enterprises")),
                 HirOidComponent::Number(1),
             ],
-            Some(vec![HirIndexItem::new(Symbol::from_str("testIndex"), false)]),
+            Some(vec![HirIndexItem::new(
+                Symbol::from_str("testIndex"),
+                false,
+            )]),
         );
 
         let modules = vec![make_test_module_with_imports(
@@ -745,10 +755,10 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Check row node kind
-        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testEntry") {
-            if let Some(node) = ctx.model.get_node(node_id) {
-                assert_eq!(node.kind, NodeKind::Row);
-            }
+        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testEntry")
+            && let Some(node) = ctx.model.get_node(node_id)
+        {
+            assert_eq!(node.kind, NodeKind::Row);
         }
     }
 
@@ -811,9 +821,14 @@ mod tests {
         assert_eq!(ctx.model.object_count(), 1);
 
         // Get the object and verify type_id is None
-        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap());
         assert!(obj.is_some());
-        assert!(obj.unwrap().type_id.is_none(), "type_id should be None for unresolved type");
+        assert!(
+            obj.unwrap().type_id.is_none(),
+            "type_id should be None for unresolved type"
+        );
     }
 
     #[test]
@@ -844,7 +859,10 @@ mod tests {
 
         // Check that the unresolved type was recorded
         let unresolved = ctx.model.unresolved();
-        assert!(!unresolved.types.is_empty(), "should have recorded unresolved type");
+        assert!(
+            !unresolved.types.is_empty(),
+            "should have recorded unresolved type"
+        );
 
         // Verify the unresolved type reference details
         let unresolved_type = &unresolved.types[0];
@@ -879,9 +897,14 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Object should be created with a valid type_id
-        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap());
         assert!(obj.is_some());
-        assert!(obj.unwrap().type_id.is_some(), "type_id should be Some for resolved type");
+        assert!(
+            obj.unwrap().type_id.is_some(),
+            "type_id should be Some for resolved type"
+        );
     }
 
     #[test]
@@ -911,9 +934,14 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Table object should have None type_id (structural, not data type)
-        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap());
         assert!(obj.is_some());
-        assert!(obj.unwrap().type_id.is_none(), "table type_id should be None");
+        assert!(
+            obj.unwrap().type_id.is_none(),
+            "table type_id should be None"
+        );
     }
 
     #[test]
@@ -946,7 +974,9 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Object should have valid type_id pointing to BITS type
-        let obj = ctx.model.get_object(crate::model::ObjectId::from_raw(1).unwrap());
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap());
         assert!(obj.is_some());
         let obj = obj.unwrap();
         assert!(obj.type_id.is_some(), "BITS type_id should be Some");
@@ -1000,7 +1030,9 @@ mod tests {
         assert_eq!(ctx.model.notification_count(), 1);
 
         // Get the notification and verify fields
-        let notif = ctx.model.get_notification(crate::model::NotificationId::from_raw(1).unwrap());
+        let notif = ctx
+            .model
+            .get_notification(crate::model::NotificationId::from_raw(1).unwrap());
         assert!(notif.is_some());
         let notif = notif.unwrap();
         assert_eq!(ctx.model.get_str(notif.name), "testNotification");
@@ -1046,7 +1078,9 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Check notification has one object resolved
-        let notif = ctx.model.get_notification(crate::model::NotificationId::from_raw(1).unwrap());
+        let notif = ctx
+            .model
+            .get_notification(crate::model::NotificationId::from_raw(1).unwrap());
         assert!(notif.is_some());
         let notif = notif.unwrap();
         assert_eq!(notif.objects.len(), 1);
@@ -1112,9 +1146,14 @@ mod tests {
         analyze_semantics(&mut ctx);
 
         // Get the node and verify it has the notification reference
-        let node_id = ctx.lookup_node_in_module("TEST-MIB", "testNotification").unwrap();
+        let node_id = ctx
+            .lookup_node_in_module("TEST-MIB", "testNotification")
+            .unwrap();
         let node = ctx.model.get_node(node_id).unwrap();
         let def = node.definitions.first().unwrap();
-        assert!(def.notification.is_some(), "node definition should have notification id");
+        assert!(
+            def.notification.is_some(),
+            "node definition should have notification id"
+        );
     }
 }

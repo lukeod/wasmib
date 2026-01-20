@@ -31,15 +31,15 @@ pub enum DefVal {
     BinaryString(String),
 
     /// Enum label reference: `DEFVAL { enabled }`, `DEFVAL { true }`
-    /// The StrId refers to an enumeration value name defined in the object's type.
+    /// The `StrId` refers to an enumeration value name defined in the object's type.
     Enum(StrId),
 
     /// BITS value (set of bit labels): `DEFVAL { { flag1, flag2 } }`, `DEFVAL { {} }`
-    /// Each StrId refers to a bit name defined in the object's BITS type.
+    /// Each `StrId` refers to a bit name defined in the object's BITS type.
     Bits(Vec<StrId>),
 
     /// OID reference: `DEFVAL { sysName }` or `DEFVAL { { iso 3 6 1 } }`
-    /// If the OID could be resolved, contains the NodeId; otherwise None with
+    /// If the OID could be resolved, contains the `NodeId`; otherwise None with
     /// the symbolic name stored separately.
     OidRef {
         /// Resolved node (if found).
@@ -126,7 +126,7 @@ pub struct ResolvedObject {
 }
 
 /// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by Model::add_object().
+/// This value is always overwritten by `Model::add_object()`.
 const UNASSIGNED_OBJECT_ID: ObjectId = match ObjectId::from_raw(1) {
     Some(id) => id,
     None => unreachable!(),
@@ -200,7 +200,7 @@ pub struct ResolvedNotification {
 }
 
 /// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by Model::add_notification().
+/// This value is always overwritten by `Model::add_notification()`.
 const UNASSIGNED_NOTIFICATION_ID: super::ids::NotificationId =
     match super::ids::NotificationId::from_raw(1) {
         Some(id) => id,
@@ -248,7 +248,10 @@ mod tests {
         let spec1 = IndexSpec::new(vec![IndexItem::new(node1, false)]);
         assert!(!spec1.has_implied());
 
-        let spec2 = IndexSpec::new(vec![IndexItem::new(node1, false), IndexItem::new(node2, true)]);
+        let spec2 = IndexSpec::new(vec![
+            IndexItem::new(node1, false),
+            IndexItem::new(node2, true),
+        ]);
         assert!(spec2.has_implied());
     }
 }

@@ -1,7 +1,7 @@
 //! HIR definition types.
 //!
 //! Each definition type is normalized from its AST counterpart.
-//! SMIv1 and SMIv2 forms are unified where appropriate.
+//! `SMIv1` and `SMIv2` forms are unified where appropriate.
 //!
 //! # Optional vs Required Description Fields
 //!
@@ -9,7 +9,7 @@
 //! where real-world MIBs commonly omit it:
 //!
 //! - **`HirObjectType`**: Many vendor MIBs omit DESCRIPTION despite RFC 2578 requiring it.
-//! - **`HirNotification`**: SMIv1 TRAP-TYPE has no DESCRIPTION clause.
+//! - **`HirNotification`**: `SMIv1` TRAP-TYPE has no DESCRIPTION clause.
 //! - **`HirTypeDef`**: Simple type assignments (non-TC) have no DESCRIPTION clause.
 //!
 //! `description` is required (`String`) for definitions where the RFC mandates it and
@@ -32,7 +32,7 @@ use alloc::vec::Vec;
 /// A normalized definition in a MIB module.
 #[derive(Clone, Debug)]
 pub enum HirDefinition {
-    /// OBJECT-TYPE (both SMIv1 and SMIv2).
+    /// OBJECT-TYPE (both `SMIv1` and `SMIv2`).
     ObjectType(HirObjectType),
     /// MODULE-IDENTITY.
     ModuleIdentity(HirModuleIdentity),
@@ -116,9 +116,9 @@ pub struct HirObjectType {
     pub syntax: HirTypeSyntax,
     /// UNITS clause.
     pub units: Option<String>,
-    /// MAX-ACCESS (normalized from ACCESS if SMIv1).
+    /// MAX-ACCESS (normalized from ACCESS if `SMIv1`).
     pub access: HirAccess,
-    /// STATUS (normalized from SMIv1 if needed).
+    /// STATUS (normalized from `SMIv1` if needed).
     pub status: HirStatus,
     /// DESCRIPTION (optional: many vendor MIBs omit this despite RFC requirement).
     pub description: Option<String>,
@@ -202,7 +202,7 @@ pub struct HirObjectIdentity {
 
 /// Unified notification definition.
 ///
-/// Represents both SMIv1 TRAP-TYPE and SMIv2 NOTIFICATION-TYPE.
+/// Represents both `SMIv1` TRAP-TYPE and `SMIv2` NOTIFICATION-TYPE.
 #[derive(Clone, Debug)]
 pub struct HirNotification {
     /// Notification name.
@@ -211,7 +211,7 @@ pub struct HirNotification {
     pub objects: Vec<Symbol>,
     /// STATUS.
     pub status: HirStatus,
-    /// DESCRIPTION (optional: SMIv1 TRAP-TYPE has no DESCRIPTION clause).
+    /// DESCRIPTION (optional: `SMIv1` TRAP-TYPE has no DESCRIPTION clause).
     pub description: Option<String>,
     /// REFERENCE.
     pub reference: Option<String>,
@@ -225,7 +225,7 @@ pub struct HirNotification {
     pub span: Span,
 }
 
-/// SMIv1 TRAP-TYPE specific information.
+/// `SMIv1` TRAP-TYPE specific information.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HirTrapInfo {
     /// ENTERPRISE OID reference.

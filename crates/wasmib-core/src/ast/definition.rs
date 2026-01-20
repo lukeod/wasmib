@@ -24,7 +24,7 @@ pub enum Definition {
     /// `name NOTIFICATION-TYPE ... ::= { parent subid }`
     NotificationType(NotificationTypeDef),
 
-    /// `name TRAP-TYPE ... ::= number` (SMIv1)
+    /// `name TRAP-TYPE ... ::= number` (`SMIv1`)
     TrapType(TrapTypeDef),
 
     /// `name TEXTUAL-CONVENTION ... SYNTAX ...`
@@ -142,7 +142,7 @@ pub struct ObjectTypeDef {
 
 /// MODULE-IDENTITY definition.
 ///
-/// Provides module-level metadata. Must be the first definition in SMIv2 modules.
+/// Provides module-level metadata. Must be the first definition in `SMIv2` modules.
 #[derive(Clone, Debug)]
 pub struct ModuleIdentityDef {
     /// Identity name.
@@ -182,7 +182,7 @@ pub struct ObjectIdentityDef {
     pub span: Span,
 }
 
-/// NOTIFICATION-TYPE definition (SMIv2).
+/// NOTIFICATION-TYPE definition (`SMIv2`).
 #[derive(Clone, Debug)]
 pub struct NotificationTypeDef {
     /// Notification name.
@@ -201,7 +201,7 @@ pub struct NotificationTypeDef {
     pub span: Span,
 }
 
-/// TRAP-TYPE definition (SMIv1).
+/// TRAP-TYPE definition (`SMIv1`).
 #[derive(Clone, Debug)]
 pub struct TrapTypeDef {
     /// Trap name.

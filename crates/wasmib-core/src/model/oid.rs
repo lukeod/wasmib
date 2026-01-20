@@ -32,7 +32,7 @@ impl Oid {
         if s.is_empty() {
             return Some(Self::new(Vec::new()));
         }
-        let arcs: Result<Vec<u32>, _> = s.split('.').map(|p| p.parse()).collect();
+        let arcs: Result<Vec<u32>, _> = s.split('.').map(str::parse).collect();
         arcs.ok().map(Self::new)
     }
 

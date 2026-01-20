@@ -7,16 +7,16 @@ use core::fmt;
 /// SMI language version.
 ///
 /// Detected from imports during HIR lowering:
-/// - SMIv2 if imports from SNMPv2-SMI, SNMPv2-TC, or SNMPv2-CONF
-/// - SMIv1 otherwise (default)
+/// - `SMIv2` if imports from SNMPv2-SMI, SNMPv2-TC, or SNMPv2-CONF
+/// - `SMIv1` otherwise (default)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SmiLanguage {
     /// Language not yet determined.
     #[default]
     Unknown,
-    /// SMIv1 (RFC 1155, 1212, 1215).
+    /// `SMIv1` (RFC 1155, 1212, 1215).
     Smiv1,
-    /// SMIv2 (RFC 2578, 2579, 2580).
+    /// `SMIv2` (RFC 2578, 2579, 2580).
     Smiv2,
     /// SPPI Policy Information Base (RFC 3159) - low priority.
     Sppi,
@@ -108,18 +108,18 @@ impl From<&Ident> for Symbol {
 
 /// Normalized access value.
 ///
-/// Unifies SMIv1 `ACCESS` and SMIv2 `MAX-ACCESS` into a single representation.
+/// Unifies `SMIv1` `ACCESS` and `SMIv2` `MAX-ACCESS` into a single representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum HirAccess {
     /// Object is read-only.
     ReadOnly,
     /// Object is read-write.
     ReadWrite,
-    /// Object is read-create (SMIv2 only, implies read-write + row creation).
+    /// Object is read-create (`SMIv2` only, implies read-write + row creation).
     ReadCreate,
     /// Object is not accessible (internal use, typically index columns).
     NotAccessible,
-    /// Object is accessible only for notifications (SMIv2 only).
+    /// Object is accessible only for notifications (`SMIv2` only).
     AccessibleForNotify,
     /// Object is write-only (deprecated, but seen in wild).
     WriteOnly,
@@ -140,7 +140,7 @@ impl fmt::Display for HirAccess {
 
 /// Normalized status value.
 ///
-/// SMIv1 status values are mapped to SMIv2 equivalents:
+/// `SMIv1` status values are mapped to `SMIv2` equivalents:
 /// - `mandatory` → `Current`
 /// - `optional` → `Deprecated` (with implicit note)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

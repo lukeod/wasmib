@@ -52,7 +52,7 @@ pub struct ResolvedModule {
 }
 
 /// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by Model::add_module().
+/// This value is always overwritten by `Model::add_module()`.
 const UNASSIGNED_ID: ModuleId = match ModuleId::from_raw(1) {
     Some(id) => id,
     None => unreachable!(),

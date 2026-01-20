@@ -5,7 +5,7 @@
 //! directories (e.g., RFC1213-MIB in /std, /cisco, /juniper).
 //!
 //! Deduplication criteria:
-//! - Same module name (not ModuleId - different files have different IDs)
+//! - Same module name (not `ModuleId` - different files have different IDs)
 //! - Same label (symbol name)
 //! - Same OID (implied by being on the same node)
 //! - Semantically identical definition (type, access, enums, etc.)
@@ -38,7 +38,7 @@ pub fn deduplicate_definitions(model: &mut Model) -> usize {
 
     #[cfg(feature = "std")]
     if total_removed > 0 {
-        eprintln!("[dedup] Removed {} duplicate definitions", total_removed);
+        eprintln!("[dedup] Removed {total_removed} duplicate definitions");
     }
 
     total_removed
@@ -71,7 +71,7 @@ fn deduplicate_node_definitions(model: &mut Model, node_id: NodeId) -> usize {
     // Find indices to remove (duplicates within same module name)
     let mut indices_to_remove: Vec<usize> = Vec::new();
 
-    for (_module_name, defs) in &by_module_name {
+    for defs in by_module_name.values() {
         if defs.len() <= 1 {
             continue;
         }
@@ -161,7 +161,7 @@ fn definitions_are_equivalent(
     }
 }
 
-/// Check if two ResolvedObjects are semantically equivalent.
+/// Check if two `ResolvedObjects` are semantically equivalent.
 fn objects_are_equivalent(model: &Model, a: &ResolvedObject, b: &ResolvedObject) -> bool {
     // Compare type structure (not just TypeId, as duplicates have different IDs)
     // Both None = equivalent, both Some = compare structurally, mixed = not equivalent
@@ -228,7 +228,7 @@ fn types_are_equivalent(model: &Model, type_a: TypeId, type_b: TypeId) -> bool {
     types_are_equivalent_inner(model, type_a, type_b, &mut visited)
 }
 
-/// Inner recursive helper for types_are_equivalent with cycle detection.
+/// Inner recursive helper for `types_are_equivalent` with cycle detection.
 fn types_are_equivalent_inner(
     model: &Model,
     type_a: TypeId,

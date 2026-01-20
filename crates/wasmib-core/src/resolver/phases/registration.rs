@@ -40,7 +40,10 @@ pub fn register_modules(ctx: &mut ResolverContext) {
 
         // Append to candidates list (handles duplicate module names)
         // Uses StrId key for memory efficiency
-        ctx.module_index.entry(name_str).or_default().push(module_id);
+        ctx.module_index
+            .entry(name_str)
+            .or_default()
+            .push(module_id);
     }
 }
 

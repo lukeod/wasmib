@@ -12,7 +12,7 @@
 //! - Arena-based storage with stable index IDs
 //! - Global string interner for identifiers, descriptions, etc.
 //! - OID tree with multiple definitions per OID
-//! - Fast lookups by OID, name, Module::Name
+//! - Fast lookups by OID, name, `Module::Name`
 //! - Resolved type chains and inheritance
 //!
 //! # Usage
@@ -158,15 +158,15 @@ pub struct CapacityError {
 /// The kind of storage that exceeded capacity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapacityErrorKind {
-    /// Too many modules (limit: u32::MAX - 1).
+    /// Too many modules (limit: `u32::MAX` - 1).
     Modules,
-    /// Too many OID nodes (limit: u32::MAX - 1).
+    /// Too many OID nodes (limit: `u32::MAX` - 1).
     Nodes,
-    /// Too many types (limit: u32::MAX - 1).
+    /// Too many types (limit: `u32::MAX` - 1).
     Types,
-    /// Too many objects (limit: u32::MAX - 1).
+    /// Too many objects (limit: `u32::MAX` - 1).
     Objects,
-    /// Too many notifications (limit: u32::MAX - 1).
+    /// Too many notifications (limit: `u32::MAX` - 1).
     Notifications,
 }
 
@@ -179,7 +179,12 @@ impl core::fmt::Display for CapacityError {
             CapacityErrorKind::Objects => "objects",
             CapacityErrorKind::Notifications => "notifications",
         };
-        write!(f, "model capacity exceeded: too many {} (limit: {})", kind, u32::MAX - 1)
+        write!(
+            f,
+            "model capacity exceeded: too many {} (limit: {})",
+            kind,
+            u32::MAX - 1
+        )
     }
 }
 
@@ -285,10 +290,11 @@ impl Model {
     /// # Errors
     ///
     /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` modules.
-    /// 
+    ///
     pub fn add_module(&mut self, mut module: ResolvedModule) -> Result<ModuleId, CapacityError> {
-        let id = ModuleId::from_index(self.modules.len())
-            .ok_or(CapacityError { kind: CapacityErrorKind::Modules })?;
+        let id = ModuleId::from_index(self.modules.len()).ok_or(CapacityError {
+            kind: CapacityErrorKind::Modules,
+        })?;
         module.id = id;
         self.module_name_to_id.insert(module.name, id);
         self.modules.push(module);
@@ -334,10 +340,11 @@ impl Model {
     /// # Errors
     ///
     /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` nodes.
-    /// 
+    ///
     pub fn add_node(&mut self, node: OidNode) -> Result<NodeId, CapacityError> {
-        let id = NodeId::from_index(self.nodes.len())
-            .ok_or(CapacityError { kind: CapacityErrorKind::Nodes })?;
+        let id = NodeId::from_index(self.nodes.len()).ok_or(CapacityError {
+            kind: CapacityErrorKind::Nodes,
+        })?;
         self.nodes.push(node);
         Ok(id)
     }
@@ -372,7 +379,8 @@ impl Model {
     }
 
     /// Get all nodes with a given name.
-    /// Uses the name index for O(1) lookup after finding the StrId.
+    /// Uses the name index for O(1) lookup after finding the `StrId`.
+    #[must_use]
     pub fn get_nodes_by_name(&self, name: &str) -> Vec<&OidNode> {
         let Some(str_id) = self.strings.find(name) else {
             return Vec::new();
@@ -421,6 +429,7 @@ impl Model {
     }
 
     /// Get children of a node.
+    #[must_use]
     pub fn children(&self, node: &OidNode) -> Vec<&OidNode> {
         node.children
             .iter()
@@ -488,10 +497,11 @@ impl Model {
     /// # Errors
     ///
     /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` types.
-    /// 
+    ///
     pub fn add_type(&mut self, mut typ: ResolvedType) -> Result<TypeId, CapacityError> {
-        let id = TypeId::from_index(self.types.len())
-            .ok_or(CapacityError { kind: CapacityErrorKind::Types })?;
+        let id = TypeId::from_index(self.types.len()).ok_or(CapacityError {
+            kind: CapacityErrorKind::Types,
+        })?;
         typ.id = id;
         self.types.push(typ);
         Ok(id)
@@ -509,6 +519,7 @@ impl Model {
     }
 
     /// Get the type inheritance chain.
+    #[must_use]
     pub fn get_type_chain(&self, id: TypeId) -> Vec<&ResolvedType> {
         let mut chain = Vec::new();
         let mut current = Some(id);
@@ -547,10 +558,11 @@ impl Model {
     /// # Errors
     ///
     /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` objects.
-    /// 
+    ///
     pub fn add_object(&mut self, mut obj: ResolvedObject) -> Result<ObjectId, CapacityError> {
-        let id = ObjectId::from_index(self.objects.len())
-            .ok_or(CapacityError { kind: CapacityErrorKind::Objects })?;
+        let id = ObjectId::from_index(self.objects.len()).ok_or(CapacityError {
+            kind: CapacityErrorKind::Objects,
+        })?;
         obj.id = id;
         self.objects.push(obj);
         Ok(id)
@@ -575,10 +587,14 @@ impl Model {
     /// # Errors
     ///
     /// Returns [`CapacityError`] if the model already contains `u32::MAX - 1` notifications.
-    /// 
-    pub fn add_notification(&mut self, mut notif: ResolvedNotification) -> Result<NotificationId, CapacityError> {
-        let id = NotificationId::from_index(self.notifications.len())
-            .ok_or(CapacityError { kind: CapacityErrorKind::Notifications })?;
+    ///
+    pub fn add_notification(
+        &mut self,
+        mut notif: ResolvedNotification,
+    ) -> Result<NotificationId, CapacityError> {
+        let id = NotificationId::from_index(self.notifications.len()).ok_or(CapacityError {
+            kind: CapacityErrorKind::Notifications,
+        })?;
         notif.id = id;
         self.notifications.push(notif);
         Ok(id)

@@ -21,7 +21,7 @@ pub struct Module {
     pub definitions_kind: DefinitionsKind,
     /// Import clauses.
     pub imports: Vec<ImportClause>,
-    /// Export clause (SMIv1 only, rare).
+    /// Export clause (`SMIv1` only, rare).
     pub exports: Option<ExportsClause>,
     /// Module body definitions.
     pub body: Vec<Definition>,
@@ -98,7 +98,7 @@ impl ImportClause {
     }
 }
 
-/// An exports clause (SMIv1 only).
+/// An exports clause (`SMIv1` only).
 ///
 /// The EXPORTS keyword is handled by the lexer skip state, so this type
 /// only records that an EXPORTS clause was present.

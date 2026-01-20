@@ -74,7 +74,7 @@ impl HirImport {
         }
     }
 
-    /// Check if this import is from an SMIv2 base module.
+    /// Check if this import is from an `SMIv2` base module.
     #[must_use]
     pub fn is_smiv2_import(&self) -> bool {
         matches!(

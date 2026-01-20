@@ -41,7 +41,8 @@ trait ImportTracer {
     fn trace_candidate_chosen(&mut self, _from_module: &str, _chosen_id: ModuleId) {}
 
     /// Called when an import cannot be resolved.
-    fn trace_unresolved(&mut self, _importing_module: ModuleId, _from_module: &str, _symbol: &str) {}
+    fn trace_unresolved(&mut self, _importing_module: ModuleId, _from_module: &str, _symbol: &str) {
+    }
 }
 
 /// No-op tracer for non-traced resolution.
@@ -151,10 +152,10 @@ fn extract_last_updated(ctx: &ResolverContext, module_id: ModuleId) -> Option<St
     let hir_module = ctx.hir_modules.get(*hir_idx)?;
 
     for def in &hir_module.definitions {
-        if let HirDefinition::ModuleIdentity(mi) = def {
-            if !mi.last_updated.is_empty() {
-                return Some(normalize_timestamp(&mi.last_updated));
-            }
+        if let HirDefinition::ModuleIdentity(mi) = def
+            && !mi.last_updated.is_empty()
+        {
+            return Some(normalize_timestamp(&mi.last_updated));
         }
     }
     None
@@ -173,7 +174,7 @@ fn normalize_timestamp(ts: &str) -> String {
         if let Ok(yy) = ts_trimmed[0..2].parse::<u32>() {
             // Assume: 70-99 -> 1970-1999, 00-69 -> 2000-2069
             let century = if yy >= 70 { "19" } else { "20" };
-            return format!("{}{}Z", century, ts_trimmed);
+            return format!("{century}{ts_trimmed}Z");
         }
     }
 
@@ -241,7 +242,12 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
             // Get LAST-UPDATED for tiebreaking (prefer newer modules)
             let last_updated = extract_last_updated(ctx, candidate_id);
 
-            tracer.trace_candidate_scored(from_module_name, candidate_id, symbol_count, total_symbols);
+            tracer.trace_candidate_scored(
+                from_module_name,
+                candidate_id,
+                symbol_count,
+                total_symbols,
+            );
 
             scored_candidates.push((candidate_id, symbol_count, last_updated));
         }
@@ -299,20 +305,11 @@ mod tests {
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
 
-    fn make_test_module_with_imports(
-        name: &str,
-        imports: Vec<(&str, &str)>,
-    ) -> HirModule {
+    fn make_test_module_with_imports(name: &str, imports: Vec<(&str, &str)>) -> HirModule {
         let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
         module.imports = imports
             .into_iter()
-            .map(|(m, s)| {
-                HirImport::new(
-                    Symbol::from_str(m),
-                    Symbol::from_str(s),
-                    Span::new(0, 0),
-                )
-            })
+            .map(|(m, s)| HirImport::new(Symbol::from_str(m), Symbol::from_str(s), Span::new(0, 0)))
             .collect();
         module
     }
@@ -321,10 +318,7 @@ mod tests {
     fn test_resolve_builtin_import() {
         let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![
-                ("SNMPv2-SMI", "Counter32"),
-                ("SNMPv2-SMI", "enterprises"),
-            ],
+            vec![("SNMPv2-SMI", "Counter32"), ("SNMPv2-SMI", "enterprises")],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -369,23 +363,22 @@ mod tests {
     fn test_cross_module_import() {
         // Create two modules where one imports from the other
         let mut dep_module = HirModule::new(Symbol::from_str("DEP-MIB"), Span::new(0, 0));
-        dep_module.definitions.push(crate::hir::HirDefinition::ValueAssignment(
-            crate::hir::HirValueAssignment {
-                name: Symbol::from_str("depNode"),
-                oid: crate::hir::HirOidAssignment::new(
-                    vec![crate::hir::HirOidComponent::Name(Symbol::from_str(
-                        "enterprises",
-                    ))],
-                    Span::new(0, 0),
-                ),
-                span: Span::new(0, 0),
-            },
-        ));
+        dep_module
+            .definitions
+            .push(crate::hir::HirDefinition::ValueAssignment(
+                crate::hir::HirValueAssignment {
+                    name: Symbol::from_str("depNode"),
+                    oid: crate::hir::HirOidAssignment::new(
+                        vec![crate::hir::HirOidComponent::Name(Symbol::from_str(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
 
-        let main_module = make_test_module_with_imports(
-            "MAIN-MIB",
-            vec![("DEP-MIB", "depNode")],
-        );
+        let main_module = make_test_module_with_imports("MAIN-MIB", vec![("DEP-MIB", "depNode")]);
 
         let modules = vec![dep_module, main_module];
         let mut ctx = ResolverContext::new(modules);

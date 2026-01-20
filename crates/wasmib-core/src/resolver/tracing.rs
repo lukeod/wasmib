@@ -60,7 +60,7 @@ pub enum TraceEvent<'a> {
     ImportCandidateScored {
         /// The module name being imported from (e.g., "FOO-MIB").
         from_module: &'a str,
-        /// The ModuleId of the candidate being scored.
+        /// The `ModuleId` of the candidate being scored.
         candidate_id: ModuleId,
         /// Number of requested symbols found in this candidate.
         symbols_found: usize,
@@ -71,12 +71,12 @@ pub enum TraceEvent<'a> {
     ImportCandidateChosen {
         /// The module name being imported from.
         from_module: &'a str,
-        /// The ModuleId that was chosen.
+        /// The `ModuleId` that was chosen.
         chosen_id: ModuleId,
     },
     /// An import could not be resolved.
     ImportUnresolved {
-        /// The ModuleId of the importing module.
+        /// The `ModuleId` of the importing module.
         importing_module: ModuleId,
         /// The module name being imported from.
         from_module: &'a str,
@@ -118,7 +118,7 @@ pub enum TraceEvent<'a> {
         def_name: &'a str,
         /// The resolved OID as a dotted string.
         oid: &'a str,
-        /// The NodeId assigned.
+        /// The `NodeId` assigned.
         node_id: NodeId,
     },
     /// An OID could not be resolved.
@@ -204,14 +204,17 @@ mod tests {
         }
 
         fn trace(&mut self, level: TraceLevel, event: TraceEvent<'_>) {
-            self.events.push((level, format!("{:?}", event)));
+            self.events.push((level, format!("{event:?}")));
         }
     }
 
     #[test]
     fn test_noop_tracer() {
         let mut tracer = NoopTracer;
-        tracer.trace(TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Oids });
+        tracer.trace(
+            TraceLevel::Info,
+            TraceEvent::PhaseStart { phase: Phase::Oids },
+        );
         // Should not panic
     }
 
@@ -226,8 +229,14 @@ mod tests {
     #[test]
     fn test_tracer_collects_events() {
         let mut tracer = TestTracer::new(TraceLevel::Info);
-        tracer.trace(TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Oids });
-        tracer.trace(TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Oids });
+        tracer.trace(
+            TraceLevel::Info,
+            TraceEvent::PhaseStart { phase: Phase::Oids },
+        );
+        tracer.trace(
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd { phase: Phase::Oids },
+        );
         assert_eq!(tracer.events.len(), 2);
     }
 
@@ -236,11 +245,19 @@ mod tests {
         let mut tracer = TestTracer::new(TraceLevel::Info);
 
         // This should be captured
-        trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Oids });
+        trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart { phase: Phase::Oids }
+        );
         assert_eq!(tracer.events.len(), 1);
 
         // This should not be captured (below level)
-        trace_event!(tracer, TraceLevel::Debug, TraceEvent::PhaseEnd { phase: Phase::Oids });
+        trace_event!(
+            tracer,
+            TraceLevel::Debug,
+            TraceEvent::PhaseEnd { phase: Phase::Oids }
+        );
         assert_eq!(tracer.events.len(), 1);
     }
 }

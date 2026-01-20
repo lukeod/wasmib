@@ -273,13 +273,13 @@ pub struct ResolvedType {
     pub status: Status,
     /// Internal: needs base type resolution from parent.
     /// This is set during initial type creation when the base type couldn't
-    /// be determined from syntax alone (e.g., TypeRef to another TC).
+    /// be determined from syntax alone (e.g., `TypeRef` to another TC).
     #[cfg_attr(feature = "serde", serde(skip))]
     pub needs_base_resolution: bool,
 }
 
 /// Placeholder ID used before entity is added to the model.
-/// This value is always overwritten by Model::add_type().
+/// This value is always overwritten by `Model::add_type()`.
 const UNASSIGNED_ID: TypeId = match TypeId::from_raw(1) {
     Some(id) => id,
     None => unreachable!(),

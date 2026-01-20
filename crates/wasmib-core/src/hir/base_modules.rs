@@ -37,21 +37,21 @@ use super::{
 /// SMI base modules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BaseModule {
-    /// SNMPv2-SMI (RFC 2578) - SMIv2 base types, OIDs, MACROs.
+    /// SNMPv2-SMI (RFC 2578) - `SMIv2` base types, OIDs, MACROs.
     SnmpV2Smi,
     /// SNMPv2-TC (RFC 2579) - Textual conventions.
     SnmpV2Tc,
     /// SNMPv2-CONF (RFC 2580) - Conformance MACROs.
     SnmpV2Conf,
-    /// RFC1155-SMI - SMIv1 base types, OIDs.
+    /// RFC1155-SMI - `SMIv1` base types, OIDs.
     Rfc1155Smi,
-    /// RFC1065-SMI - Original SMIv1 base (predates RFC 1155).
+    /// RFC1065-SMI - Original `SMIv1` base (predates RFC 1155).
     Rfc1065Smi,
-    /// RFC-1212 - SMIv1 OBJECT-TYPE MACRO.
+    /// RFC-1212 - `SMIv1` OBJECT-TYPE MACRO.
     Rfc1212,
-    /// RFC-1215 - SMIv1 TRAP-TYPE MACRO.
+    /// RFC-1215 - `SMIv1` TRAP-TYPE MACRO.
     Rfc1215,
-    /// RFC1213-MIB - Legacy module (mib-2, DisplayString).
+    /// RFC1213-MIB - Legacy module (mib-2, `DisplayString`).
     Rfc1213Mib,
 }
 
@@ -71,13 +71,13 @@ impl BaseModule {
         }
     }
 
-    /// Check if this is an SMIv2 module.
+    /// Check if this is an `SMIv2` module.
     #[must_use]
     pub const fn is_smiv2(self) -> bool {
         matches!(self, Self::SnmpV2Smi | Self::SnmpV2Tc | Self::SnmpV2Conf)
     }
 
-    /// Check if this is an SMIv1 module.
+    /// Check if this is an `SMIv1` module.
     #[must_use]
     pub const fn is_smiv1(self) -> bool {
         matches!(
@@ -153,7 +153,7 @@ fn create_snmpv2_smi() -> HirModule {
 
 /// Create the synthetic SNMPv2-TC module.
 ///
-/// Contains textual convention definitions (DisplayString, TruthValue, etc.)
+/// Contains textual convention definitions (`DisplayString`, `TruthValue`, etc.)
 fn create_snmpv2_tc() -> HirModule {
     let mut module = HirModule::new(Symbol::from_str("SNMPv2-TC"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv2;
@@ -167,7 +167,7 @@ fn create_snmpv2_tc() -> HirModule {
     module
 }
 
-/// Create OID root definitions as ValueAssignments.
+/// Create OID root definitions as `ValueAssignments`.
 fn create_oid_definitions() -> Vec<HirDefinition> {
     vec![
         // ccitt OBJECT IDENTIFIER ::= { 0 }
@@ -306,7 +306,7 @@ fn create_oid_definitions() -> Vec<HirDefinition> {
     ]
 }
 
-/// Create a ValueAssignment for an OID definition.
+/// Create a `ValueAssignment` for an OID definition.
 fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition {
     HirDefinition::ValueAssignment(HirValueAssignment {
         name: Symbol::from_str(name),
@@ -315,9 +315,9 @@ fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition
     })
 }
 
-/// Create base type definitions as TypeDefs.
+/// Create base type definitions as `TypeDefs`.
 ///
-/// These are the SMIv2 base types from RFC 2578.
+/// These are the `SMIv2` base types from RFC 2578.
 fn create_base_type_definitions() -> Vec<HirDefinition> {
     vec![
         // Integer32 ::= INTEGER (-2147483648..2147483647)
@@ -402,7 +402,7 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
     ]
 }
 
-/// Create a TypeDef for a base type definition.
+/// Create a `TypeDef` for a base type definition.
 fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
     HirDefinition::TypeDef(HirTypeDef {
         name: Symbol::from_str(name),
@@ -416,7 +416,7 @@ fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
     })
 }
 
-/// Create textual convention definitions as TypeDefs.
+/// Create textual convention definitions as `TypeDefs`.
 ///
 /// These are from SNMPv2-TC (RFC 2579).
 fn create_tc_definitions() -> Vec<HirDefinition> {
@@ -567,7 +567,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
     ]
 }
 
-/// Create a TypeDef for a textual convention.
+/// Create a `TypeDef` for a textual convention.
 fn make_tc(name: &str, display_hint: Option<&str>, syntax: HirTypeSyntax) -> HirDefinition {
     HirDefinition::TypeDef(HirTypeDef {
         name: Symbol::from_str(name),
@@ -581,7 +581,7 @@ fn make_tc(name: &str, display_hint: Option<&str>, syntax: HirTypeSyntax) -> Hir
     })
 }
 
-/// Create a TypeDef for an obsolete textual convention.
+/// Create a `TypeDef` for an obsolete textual convention.
 fn make_tc_obsolete(
     name: &str,
     display_hint: Option<&str>,
@@ -599,7 +599,7 @@ fn make_tc_obsolete(
     })
 }
 
-/// Create a TypeDef for a textual convention with enumerated values.
+/// Create a `TypeDef` for a textual convention with enumerated values.
 fn make_tc_with_enum(name: &str, values: &[(&str, i64)]) -> HirDefinition {
     let enum_values: Vec<(Symbol, i64)> = values
         .iter()
@@ -717,12 +717,12 @@ mod tests {
         // Verify all three X.208 root arcs have correct numeric values
         let find_oid_value = |name: &str| -> Option<u32> {
             module.definitions.iter().find_map(|d| {
-                if let HirDefinition::ValueAssignment(va) = d {
-                    if va.name.name == name && va.oid.components.len() == 1 {
-                        if let HirOidComponent::Number(n) = va.oid.components[0] {
-                            return Some(n);
-                        }
-                    }
+                if let HirDefinition::ValueAssignment(va) = d
+                    && va.name.name == name
+                    && va.oid.components.len() == 1
+                    && let HirOidComponent::Number(n) = va.oid.components[0]
+                {
+                    return Some(n);
                 }
                 None
             })
@@ -738,10 +738,10 @@ mod tests {
         let module = create_snmpv2_smi();
 
         // Find the enterprises definition
-        let enterprises = module.definitions.iter().find(|d| {
-            d.name()
-                .is_some_and(|n| n.name == "enterprises")
-        });
+        let enterprises = module
+            .definitions
+            .iter()
+            .find(|d| d.name().is_some_and(|n| n.name == "enterprises"));
         assert!(enterprises.is_some());
 
         // It should have OID components { private 1 }

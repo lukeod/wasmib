@@ -114,7 +114,7 @@ pub enum HirTypeSyntax {
         constraint: HirConstraint,
     },
 
-    /// SEQUENCE OF entry_type (for tables): `SEQUENCE OF IfEntry`
+    /// SEQUENCE OF `entry_type` (for tables): `SEQUENCE OF IfEntry`
     SequenceOf(Symbol),
 
     /// SEQUENCE with fields (for row types).

@@ -149,7 +149,7 @@ impl<'src> Parser<'src> {
         if self.check(kind) {
             Ok(self.advance())
         } else {
-            Err(self.error(&alloc::format!("expected {:?}", kind)))
+            Err(self.error(&alloc::format!("expected {kind:?}")))
         }
     }
 
@@ -190,30 +190,26 @@ impl<'src> Parser<'src> {
     /// Parse a u32 from token text, emitting diagnostic on failure.
     /// Returns 0 as fallback to allow continued parsing.
     fn parse_u32(&mut self, span: Span, context: &str) -> u32 {
-        match self.text(span).parse::<u32>() {
-            Ok(v) => v,
-            Err(_) => {
-                self.diagnostics.push(self.error_at(
-                    span,
-                    &alloc::format!("invalid {} (not a valid u32)", context),
-                ));
-                0
-            }
+        if let Ok(v) = self.text(span).parse::<u32>() {
+            v
+        } else {
+            self.diagnostics
+                .push(self.error_at(span, &alloc::format!("invalid {context} (not a valid u32)")));
+            0
         }
     }
 
     /// Parse an i64 from token text, emitting diagnostic on failure.
     /// Returns 0 as fallback to allow continued parsing.
     fn parse_i64(&mut self, span: Span, context: &str) -> i64 {
-        match self.text(span).parse::<i64>() {
-            Ok(v) => v,
-            Err(_) => {
-                self.diagnostics.push(self.error_at(
-                    span,
-                    &alloc::format!("invalid {} (not a valid integer)", context),
-                ));
-                0
-            }
+        if let Ok(v) = self.text(span).parse::<i64>() {
+            v
+        } else {
+            self.diagnostics.push(self.error_at(
+                span,
+                &alloc::format!("invalid {context} (not a valid integer)"),
+            ));
+            0
         }
     }
 
@@ -224,25 +220,22 @@ impl<'src> Parser<'src> {
         let text = self.text(span);
         let hex_part = text
             .trim_start_matches('\'')
-            .trim_end_matches(|c| c == '\'' || c == 'H' || c == 'h');
+            .trim_end_matches(['\'', 'H', 'h']);
 
         if hex_part.is_empty() {
-            self.diagnostics.push(self.error_at(
-                span,
-                &alloc::format!("empty {} value", context),
-            ));
+            self.diagnostics
+                .push(self.error_at(span, &alloc::format!("empty {context} value")));
             return 0;
         }
 
-        match u64::from_str_radix(hex_part, 16) {
-            Ok(v) => v,
-            Err(_) => {
-                self.diagnostics.push(self.error_at(
-                    span,
-                    &alloc::format!("invalid {} (not valid hexadecimal)", context),
-                ));
-                0
-            }
+        if let Ok(v) = u64::from_str_radix(hex_part, 16) {
+            v
+        } else {
+            self.diagnostics.push(self.error_at(
+                span,
+                &alloc::format!("invalid {context} (not valid hexadecimal)"),
+            ));
+            0
         }
     }
 
@@ -455,10 +448,7 @@ impl<'src> Parser<'src> {
                 self.parse_definition()
             }
 
-            _ => Err(self.error(&alloc::format!(
-                "unexpected token: {:?}",
-                self.peek().kind
-            ))),
+            _ => Err(self.error(&alloc::format!("unexpected token: {:?}", self.peek().kind))),
         }
     }
 
@@ -667,7 +657,10 @@ impl<'src> Parser<'src> {
                         span,
                     }
                 } else {
-                    TypeSyntax::TypeRef(Ident::new("Integer32".into(), Span::new(start, self.peek().span.start)))
+                    TypeSyntax::TypeRef(Ident::new(
+                        "Integer32".into(),
+                        Span::new(start, self.peek().span.start),
+                    ))
                 }
             }
             TokenKind::KwBits => {
@@ -682,7 +675,10 @@ impl<'src> Parser<'src> {
                     TypeSyntax::Bits { named_bits, span }
                 } else {
                     // Plain BITS type reference
-                    TypeSyntax::TypeRef(Ident::new("BITS".into(), Span::new(start, self.peek().span.start)))
+                    TypeSyntax::TypeRef(Ident::new(
+                        "BITS".into(),
+                        Span::new(start, self.peek().span.start),
+                    ))
                 }
             }
             TokenKind::KwOctet => {
@@ -714,8 +710,7 @@ impl<'src> Parser<'src> {
                     // SEQUENCE OF EntryType
                     self.advance();
                     let entry_token = self.expect_identifier()?;
-                    let entry_type =
-                        self.make_ident(entry_token);
+                    let entry_type = self.make_ident(entry_token);
                     let span = Span::new(start, entry_token.span.end);
                     TypeSyntax::SequenceOf { entry_type, span }
                 } else {
@@ -876,16 +871,16 @@ impl<'src> Parser<'src> {
                 None
             };
 
-            let end = max
-                .as_ref()
-                .map(|v| match v {
+            let end = max.as_ref().map_or(
+                match &min {
                     RangeValue::Signed(_) | RangeValue::Unsigned(_) => self.current_span().start,
                     RangeValue::Ident(i) => i.span.end,
-                })
-                .unwrap_or(match &min {
+                },
+                |v| match v {
                     RangeValue::Signed(_) | RangeValue::Unsigned(_) => self.current_span().start,
                     RangeValue::Ident(i) => i.span.end,
-                });
+                },
+            );
 
             ranges.push(Range {
                 min,
@@ -1245,10 +1240,8 @@ impl<'src> Parser<'src> {
                                     || self.check(TokenKind::UppercaseIdent)
                                 {
                                     let token = self.advance();
-                                    labels.push(Ident::new(
-                                        self.text(token.span).into(),
-                                        token.span,
-                                    ));
+                                    labels
+                                        .push(Ident::new(self.text(token.span).into(), token.span));
                                 }
                             }
                             let end_token = self.expect(TokenKind::RBrace)?;
@@ -1287,8 +1280,7 @@ impl<'src> Parser<'src> {
                                     || self.check(TokenKind::UppercaseIdent)
                                 {
                                     let token = self.advance();
-                                    let name =
-                                        self.make_ident(token);
+                                    let name = self.make_ident(token);
                                     if self.check(TokenKind::LParen) {
                                         self.advance();
                                         let num_token = self.expect(TokenKind::Number)?;
@@ -1332,8 +1324,7 @@ impl<'src> Parser<'src> {
                                 if self.check(TokenKind::LParen) {
                                     self.advance();
                                     let num_token = self.expect(TokenKind::Number)?;
-                                    let number =
-                                        self.parse_u32(num_token.span, "OID component");
+                                    let number = self.parse_u32(num_token.span, "OID component");
                                     let end_paren = self.expect(TokenKind::RParen)?;
                                     components.push(OidComponent::NamedNumber {
                                         name,
@@ -1475,18 +1466,16 @@ impl<'src> Parser<'src> {
 
         let span = Span::new(start, oid.span.end);
 
-        Ok(Definition::ModuleIdentity(
-            crate::ast::ModuleIdentityDef {
-                name,
-                last_updated,
-                organization,
-                contact_info,
-                description,
-                revisions,
-                oid_assignment: oid,
-                span,
-            },
-        ))
+        Ok(Definition::ModuleIdentity(crate::ast::ModuleIdentityDef {
+            name,
+            last_updated,
+            organization,
+            contact_info,
+            description,
+            revisions,
+            oid_assignment: oid,
+            span,
+        }))
     }
 
     /// Parse OBJECT-IDENTITY definition.
@@ -1519,16 +1508,14 @@ impl<'src> Parser<'src> {
 
         let span = Span::new(start, oid.span.end);
 
-        Ok(Definition::ObjectIdentity(
-            crate::ast::ObjectIdentityDef {
-                name,
-                status,
-                description,
-                reference,
-                oid_assignment: oid,
-                span,
-            },
-        ))
+        Ok(Definition::ObjectIdentity(crate::ast::ObjectIdentityDef {
+            name,
+            status,
+            description,
+            reference,
+            oid_assignment: oid,
+            span,
+        }))
     }
 
     /// Parse NOTIFICATION-TYPE definition.
@@ -1585,7 +1572,7 @@ impl<'src> Parser<'src> {
         ))
     }
 
-    /// Parse TRAP-TYPE definition (SMIv1).
+    /// Parse TRAP-TYPE definition (`SMIv1`).
     fn parse_trap_type(&mut self) -> Result<Definition, Diagnostic> {
         let start = self.current_span().start;
 
@@ -2662,10 +2649,7 @@ mod tests {
                 assert_eq!(o.object.name, "testObject");
                 assert!(o.syntax.is_some());
                 assert!(o.min_access.is_some());
-                assert_eq!(
-                    o.min_access.as_ref().unwrap().value,
-                    AccessValue::ReadOnly
-                );
+                assert_eq!(o.min_access.as_ref().unwrap().value, AccessValue::ReadOnly);
                 assert!(o.description.value.contains("Restricted"));
             } else {
                 panic!("expected Object compliance");
@@ -2790,7 +2774,11 @@ mod tests {
         let parser = Parser::new(source);
         let module = parser.parse_module();
 
-        assert!(module.diagnostics.is_empty(), "Parse errors: {:?}", module.diagnostics);
+        assert!(
+            module.diagnostics.is_empty(),
+            "Parse errors: {:?}",
+            module.diagnostics
+        );
         assert_eq!(module.body.len(), 1);
 
         if let Definition::ModuleCompliance(def) = &module.body[0] {
@@ -2823,10 +2811,7 @@ mod tests {
             if let crate::ast::Compliance::Object(o) = &cm.compliances[3] {
                 assert_eq!(o.object.name, "ifLinkUpDownTrapEnable");
                 assert!(o.min_access.is_some());
-                assert_eq!(
-                    o.min_access.as_ref().unwrap().value,
-                    AccessValue::ReadOnly
-                );
+                assert_eq!(o.min_access.as_ref().unwrap().value, AccessValue::ReadOnly);
             } else {
                 panic!("expected Object compliance");
             }

@@ -9,20 +9,20 @@
 //! 5. **Semantics**: Infer node kinds, resolve table semantics
 //! 6. **Deduplication**: Remove duplicate definitions from identical module copies
 
-pub mod registration;
-pub mod imports;
-pub mod types;
-pub mod oids;
-pub mod semantics;
 pub mod dedup;
+pub mod imports;
+pub mod oids;
+pub mod registration;
+pub mod semantics;
+pub mod types;
 
-pub use registration::register_modules;
+pub use dedup::deduplicate_definitions;
 pub use imports::resolve_imports;
 #[cfg(feature = "tracing")]
 pub use imports::resolve_imports_traced;
-pub use types::resolve_types;
 pub use oids::resolve_oids;
 #[cfg(feature = "tracing")]
 pub use oids::resolve_oids_traced;
+pub use registration::register_modules;
 pub use semantics::analyze_semantics;
-pub use dedup::deduplicate_definitions;
+pub use types::resolve_types;

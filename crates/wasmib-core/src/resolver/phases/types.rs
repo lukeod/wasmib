@@ -157,7 +157,7 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
     inherit_base_types(ctx);
 }
 
-/// Link types that use TypeRef syntax to their parent types.
+/// Link types that use `TypeRef` syntax to their parent types.
 fn link_typeref_parents(ctx: &mut ResolverContext) {
     // For each type with a TypeRef syntax, try to resolve the parent
     let type_refs: Vec<_> = ctx
@@ -165,22 +165,29 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         .iter()
         .enumerate()
         .flat_map(|(module_idx, module)| {
-            module
-                .definitions
-                .iter()
-                .filter_map(move |def| {
-                    if let HirDefinition::TypeDef(td) = def {
-                        if let HirTypeSyntax::TypeRef(ref base_name) = td.syntax {
-                            return Some((module_idx, td.name.name.clone(), base_name.name.clone(), td.span));
-                        }
-                        if let HirTypeSyntax::Constrained { ref base, .. } = td.syntax {
-                            if let HirTypeSyntax::TypeRef(ref base_name) = **base {
-                                return Some((module_idx, td.name.name.clone(), base_name.name.clone(), td.span));
-                            }
-                        }
+            module.definitions.iter().filter_map(move |def| {
+                if let HirDefinition::TypeDef(td) = def {
+                    if let HirTypeSyntax::TypeRef(ref base_name) = td.syntax {
+                        return Some((
+                            module_idx,
+                            td.name.name.clone(),
+                            base_name.name.clone(),
+                            td.span,
+                        ));
                     }
-                    None
-                })
+                    if let HirTypeSyntax::Constrained { ref base, .. } = td.syntax
+                        && let HirTypeSyntax::TypeRef(ref base_name) = **base
+                    {
+                        return Some((
+                            module_idx,
+                            td.name.name.clone(),
+                            base_name.name.clone(),
+                            td.span,
+                        ));
+                    }
+                }
+                None
+            })
         })
         .collect();
 
@@ -191,10 +198,9 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         };
 
         // Look up the type and its base
-        if let (Some(type_id), Some(parent_id)) = (
-            ctx.lookup_type(&type_name),
-            ctx.lookup_type(&base_name),
-        ) {
+        if let (Some(type_id), Some(parent_id)) =
+            (ctx.lookup_type(&type_name), ctx.lookup_type(&base_name))
+        {
             // Set parent pointer
             if let Some(typ) = ctx.model.get_type_mut(type_id) {
                 typ.parent_type = Some(parent_id);
@@ -245,39 +251,34 @@ fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
         .hir_modules
         .iter()
         .flat_map(|module| {
-            module
-                .definitions
-                .iter()
-                .filter_map(|def| {
-                    if let HirDefinition::TypeDef(td) = def {
-                        get_primitive_parent_name(&td.syntax)
-                            .map(|primitive_name| (td.name.name.clone(), primitive_name))
-                    } else {
-                        None
-                    }
-                })
+            module.definitions.iter().filter_map(|def| {
+                if let HirDefinition::TypeDef(td) = def {
+                    get_primitive_parent_name(&td.syntax)
+                        .map(|primitive_name| (td.name.name.clone(), primitive_name))
+                } else {
+                    None
+                }
+            })
         })
         .collect();
 
     // Link each type to its primitive parent
     for (type_name, primitive_name) in primitive_links {
-        if let (Some(type_id), Some(parent_id)) = (
-            ctx.lookup_type(&type_name),
-            ctx.lookup_type(primitive_name),
-        ) {
-            if let Some(typ) = ctx.model.get_type_mut(type_id) {
-                // Only set if not already set (TypeRef linking takes precedence)
-                if typ.parent_type.is_none() {
-                    typ.parent_type = Some(parent_id);
-                }
+        if let (Some(type_id), Some(parent_id)) =
+            (ctx.lookup_type(&type_name), ctx.lookup_type(primitive_name))
+            && let Some(typ) = ctx.model.get_type_mut(type_id)
+        {
+            // Only set if not already set (TypeRef linking takes precedence)
+            if typ.parent_type.is_none() {
+                typ.parent_type = Some(parent_id);
             }
         }
     }
 }
 
 /// Inherit base types from parent types.
-/// This handles cases like `MyString ::= DisplayString` where MyString needs
-/// to inherit OctetString as its base type from DisplayString.
+/// This handles cases like `MyString ::= DisplayString` where `MyString` needs
+/// to inherit `OctetString` as its base type from `DisplayString`.
 fn inherit_base_types(ctx: &mut ResolverContext) {
     // Collect types that need base resolution
     let types_needing_resolution: Vec<TypeId> = (0..ctx.model.type_count())
@@ -294,11 +295,11 @@ fn inherit_base_types(ctx: &mut ResolverContext) {
 
     // Resolve each type's base from its parent chain
     for type_id in types_needing_resolution {
-        if let Some(base) = resolve_base_from_chain(ctx, type_id) {
-            if let Some(typ) = ctx.model.get_type_mut(type_id) {
-                typ.base = base;
-                typ.needs_base_resolution = false;
-            }
+        if let Some(base) = resolve_base_from_chain(ctx, type_id)
+            && let Some(typ) = ctx.model.get_type_mut(type_id)
+        {
+            typ.base = base;
+            typ.needs_base_resolution = false;
         }
     }
 }
@@ -329,8 +330,8 @@ fn resolve_base_from_chain(ctx: &ResolverContext, type_id: TypeId) -> Option<Bas
     None
 }
 
-/// Convert HirTypeSyntax to BaseType.
-/// Returns None for TypeRef that cannot be immediately resolved (will be inherited from parent).
+/// Convert `HirTypeSyntax` to `BaseType`.
+/// Returns None for `TypeRef` that cannot be immediately resolved (will be inherited from parent).
 fn syntax_to_base_type(syntax: &HirTypeSyntax) -> Option<BaseType> {
     match syntax {
         HirTypeSyntax::TypeRef(name) => {
@@ -359,7 +360,7 @@ fn syntax_to_base_type(syntax: &HirTypeSyntax) -> Option<BaseType> {
     }
 }
 
-/// Convert HirStatus to Status.
+/// Convert `HirStatus` to Status.
 fn hir_status_to_status(status: HirStatus) -> Status {
     match status {
         HirStatus::Current => Status::Current,
@@ -368,30 +369,34 @@ fn hir_status_to_status(status: HirStatus) -> Status {
     }
 }
 
-/// Convert HIR ranges to SizeConstraint.
+/// Convert HIR ranges to `SizeConstraint`.
 fn hir_ranges_to_size_constraint(ranges: &[HirRange]) -> SizeConstraint {
     let size_ranges: Vec<_> = ranges
         .iter()
         .map(|r| {
             let min = range_value_to_u32(&r.min);
-            let max = r.max.as_ref().map_or(min, |m| range_value_to_u32(m));
+            let max = r.max.as_ref().map_or(min, range_value_to_u32);
             (min, max)
         })
         .collect();
-    SizeConstraint { ranges: size_ranges }
+    SizeConstraint {
+        ranges: size_ranges,
+    }
 }
 
-/// Convert HIR ranges to ValueConstraint.
+/// Convert HIR ranges to `ValueConstraint`.
 fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
     let value_ranges: Vec<_> = ranges
         .iter()
         .map(|r| {
             let min = range_value_to_bound(&r.min);
-            let max = r.max.as_ref().map_or(min, |m| range_value_to_bound(m));
+            let max = r.max.as_ref().map_or(min, range_value_to_bound);
             (min, max)
         })
         .collect();
-    ValueConstraint { ranges: value_ranges }
+    ValueConstraint {
+        ranges: value_ranges,
+    }
 }
 
 fn range_value_to_u32(v: &HirRangeValue) -> u32 {
@@ -497,7 +502,9 @@ mod tests {
         let my_string = ctx.model.get_type(my_string_id).expect("type should exist");
         assert!(my_string.parent_type.is_some(), "parent_type should be set");
 
-        let display_string_id = ctx.lookup_type("DisplayString").expect("DisplayString should exist");
+        let display_string_id = ctx
+            .lookup_type("DisplayString")
+            .expect("DisplayString should exist");
         assert_eq!(my_string.parent_type, Some(display_string_id));
     }
 
@@ -529,8 +536,11 @@ mod tests {
         let my_string = ctx.model.get_type(my_string_id).expect("type should exist");
 
         // Base type should be inherited from DisplayString -> OCTET STRING
-        assert_eq!(my_string.base, BaseType::OctetString,
-            "MyString should inherit OctetString base from DisplayString");
+        assert_eq!(
+            my_string.base,
+            BaseType::OctetString,
+            "MyString should inherit OctetString base from DisplayString"
+        );
     }
 
     #[test]
@@ -560,7 +570,10 @@ mod tests {
 
         // Get the type chain
         let chain = ctx.model.get_type_chain(my_string_id);
-        assert!(chain.len() >= 2, "chain should have at least MyString and DisplayString");
+        assert!(
+            chain.len() >= 2,
+            "chain should have at least MyString and DisplayString"
+        );
 
         // First should be MyString
         assert_eq!(ctx.model.get_str(chain[0].name), "MyString");
@@ -595,27 +608,44 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef1), HirDefinition::TypeDef(typedef2)],
+            vec![
+                HirDefinition::TypeDef(typedef1),
+                HirDefinition::TypeDef(typedef2),
+            ],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
         resolve_types(&mut ctx);
 
-        let my_string2_id = ctx.lookup_type("MyString2").expect("MyString2 should exist");
-        let my_string2 = ctx.model.get_type(my_string2_id).expect("type should exist");
+        let my_string2_id = ctx
+            .lookup_type("MyString2")
+            .expect("MyString2 should exist");
+        let my_string2 = ctx
+            .model
+            .get_type(my_string2_id)
+            .expect("type should exist");
 
         // Base type should propagate through the chain
-        assert_eq!(my_string2.base, BaseType::OctetString,
-            "MyString2 should inherit OctetString base through MyString -> DisplayString");
+        assert_eq!(
+            my_string2.base,
+            BaseType::OctetString,
+            "MyString2 should inherit OctetString base through MyString -> DisplayString"
+        );
 
         // Type chain should have 3 levels
         let chain = ctx.model.get_type_chain(my_string2_id);
-        assert!(chain.len() >= 3, "chain should have at least MyString2, MyString, DisplayString");
+        assert!(
+            chain.len() >= 3,
+            "chain should have at least MyString2, MyString, DisplayString"
+        );
 
         // get_effective_hint should find MyString's hint
         let effective_hint = ctx.model.get_effective_hint(my_string2_id);
-        assert!(effective_hint.is_some(), "should find hint from parent chain");
+        assert!(
+            effective_hint.is_some(),
+            "should find hint from parent chain"
+        );
         assert_eq!(ctx.model.get_str(effective_hint.unwrap()), "255a");
     }
 
@@ -645,8 +675,11 @@ mod tests {
         let if_entry_id = ctx.lookup_type("IfEntry").expect("IfEntry should exist");
         let if_entry = ctx.model.get_type(if_entry_id).expect("type should exist");
 
-        assert_eq!(if_entry.base, BaseType::Sequence,
-            "SEQUENCE types should have BaseType::Sequence");
+        assert_eq!(
+            if_entry.base,
+            BaseType::Sequence,
+            "SEQUENCE types should have BaseType::Sequence"
+        );
     }
 
     // ============================================================
@@ -676,11 +709,16 @@ mod tests {
         register_modules(&mut ctx);
         resolve_types(&mut ctx);
 
-        let type_id = ctx.lookup_type("TestPhysAddress").expect("type should exist");
+        let type_id = ctx
+            .lookup_type("TestPhysAddress")
+            .expect("type should exist");
         let typ = ctx.model.get_type(type_id).expect("type should exist");
 
         // Should have parent_type pointing to OCTET STRING primitive
-        assert!(typ.parent_type.is_some(), "parent_type should be set for OctetString syntax");
+        assert!(
+            typ.parent_type.is_some(),
+            "parent_type should be set for OctetString syntax"
+        );
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
@@ -717,11 +755,16 @@ mod tests {
         register_modules(&mut ctx);
         resolve_types(&mut ctx);
 
-        let type_id = ctx.lookup_type("TestDisplayString").expect("type should exist");
+        let type_id = ctx
+            .lookup_type("TestDisplayString")
+            .expect("type should exist");
         let typ = ctx.model.get_type(type_id).expect("type should exist");
 
         // Should have parent_type pointing to OCTET STRING primitive
-        assert!(typ.parent_type.is_some(), "parent_type should be set for constrained OctetString");
+        assert!(
+            typ.parent_type.is_some(),
+            "parent_type should be set for constrained OctetString"
+        );
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
@@ -751,11 +794,16 @@ mod tests {
         register_modules(&mut ctx);
         resolve_types(&mut ctx);
 
-        let type_id = ctx.lookup_type("TestAutonomousType").expect("type should exist");
+        let type_id = ctx
+            .lookup_type("TestAutonomousType")
+            .expect("type should exist");
         let typ = ctx.model.get_type(type_id).expect("type should exist");
 
         // Should have parent_type pointing to OBJECT IDENTIFIER primitive
-        assert!(typ.parent_type.is_some(), "parent_type should be set for ObjectIdentifier syntax");
+        assert!(
+            typ.parent_type.is_some(),
+            "parent_type should be set for ObjectIdentifier syntax"
+        );
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
@@ -788,11 +836,16 @@ mod tests {
         register_modules(&mut ctx);
         resolve_types(&mut ctx);
 
-        let type_id = ctx.lookup_type("TestTruthValue").expect("type should exist");
+        let type_id = ctx
+            .lookup_type("TestTruthValue")
+            .expect("type should exist");
         let typ = ctx.model.get_type(type_id).expect("type should exist");
 
         // Should have parent_type pointing to INTEGER primitive
-        assert!(typ.parent_type.is_some(), "parent_type should be set for IntegerEnum syntax");
+        assert!(
+            typ.parent_type.is_some(),
+            "parent_type should be set for IntegerEnum syntax"
+        );
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
@@ -829,7 +882,10 @@ mod tests {
         let typ = ctx.model.get_type(type_id).expect("type should exist");
 
         // Should have parent_type pointing to BITS primitive
-        assert!(typ.parent_type.is_some(), "parent_type should be set for Bits syntax");
+        assert!(
+            typ.parent_type.is_some(),
+            "parent_type should be set for Bits syntax"
+        );
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
@@ -846,28 +902,52 @@ mod tests {
         resolve_types(&mut ctx);
 
         // DisplayString should have OCTET STRING as parent
-        let display_string_id = ctx.lookup_type("DisplayString").expect("DisplayString should exist");
-        let display_string = ctx.model.get_type(display_string_id).expect("type should exist");
+        let display_string_id = ctx
+            .lookup_type("DisplayString")
+            .expect("DisplayString should exist");
+        let display_string = ctx
+            .model
+            .get_type(display_string_id)
+            .expect("type should exist");
 
-        assert!(display_string.parent_type.is_some(), "DisplayString should have parent_type");
+        assert!(
+            display_string.parent_type.is_some(),
+            "DisplayString should have parent_type"
+        );
         let parent_id = display_string.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
         assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
 
         // TruthValue should have INTEGER as parent
-        let truth_value_id = ctx.lookup_type("TruthValue").expect("TruthValue should exist");
-        let truth_value = ctx.model.get_type(truth_value_id).expect("type should exist");
+        let truth_value_id = ctx
+            .lookup_type("TruthValue")
+            .expect("TruthValue should exist");
+        let truth_value = ctx
+            .model
+            .get_type(truth_value_id)
+            .expect("type should exist");
 
-        assert!(truth_value.parent_type.is_some(), "TruthValue should have parent_type");
+        assert!(
+            truth_value.parent_type.is_some(),
+            "TruthValue should have parent_type"
+        );
         let parent_id = truth_value.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
         assert_eq!(ctx.model.get_str(parent.name), "INTEGER");
 
         // AutonomousType should have OBJECT IDENTIFIER as parent
-        let autonomous_type_id = ctx.lookup_type("AutonomousType").expect("AutonomousType should exist");
-        let autonomous_type = ctx.model.get_type(autonomous_type_id).expect("type should exist");
+        let autonomous_type_id = ctx
+            .lookup_type("AutonomousType")
+            .expect("AutonomousType should exist");
+        let autonomous_type = ctx
+            .model
+            .get_type(autonomous_type_id)
+            .expect("type should exist");
 
-        assert!(autonomous_type.parent_type.is_some(), "AutonomousType should have parent_type");
+        assert!(
+            autonomous_type.parent_type.is_some(),
+            "AutonomousType should have parent_type"
+        );
         let parent_id = autonomous_type.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
         assert_eq!(ctx.model.get_str(parent.name), "OBJECT IDENTIFIER");
@@ -900,11 +980,13 @@ mod tests {
         let chain = ctx.model.get_type_chain(my_string_id);
 
         // Chain should be: MyString -> DisplayString -> OCTET STRING
-        assert!(chain.len() >= 3, "chain should have at least 3 types, got {}", chain.len());
+        assert!(
+            chain.len() >= 3,
+            "chain should have at least 3 types, got {}",
+            chain.len()
+        );
 
-        let names: Vec<_> = chain.iter()
-            .map(|t| ctx.model.get_str(t.name))
-            .collect();
+        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
 
         assert_eq!(names[0], "MyString");
         assert_eq!(names[1], "DisplayString");

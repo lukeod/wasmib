@@ -170,9 +170,8 @@ impl<'src> Lexer<'src> {
                     self.advance();
                 }
                 break;
-            } else {
-                self.advance();
             }
+            self.advance();
         }
     }
 
@@ -316,10 +315,7 @@ impl<'src> Lexer<'src> {
         // Unknown character - skip to end of line (matching libsmi behavior)
         // This provides better error recovery by not emitting cascading error tokens
         let span = self.span_from(start);
-        self.error(
-            span,
-            alloc::format!("unexpected character: 0x{:02x}", b),
-        );
+        self.error(span, alloc::format!("unexpected character: 0x{b:02x}"));
         self.skip_to_eol();
         // Continue tokenizing from the next line
         self.next_token()
@@ -384,17 +380,15 @@ impl<'src> Lexer<'src> {
                                     return self.next_token();
                                 }
                             }
-                        } else {
-                            // Just --, end comment normally
-                            self.advance();
-                            self.advance();
-                            self.state = LexerState::Normal;
-                            return self.next_token();
                         }
-                    } else {
-                        // Single dash in comment, just advance
+                        // Just --, end comment normally
                         self.advance();
+                        self.advance();
+                        self.state = LexerState::Normal;
+                        return self.next_token();
                     }
+                    // Single dash in comment, just advance
+                    self.advance();
                 }
                 _ => {
                     self.advance();
@@ -422,9 +416,9 @@ impl<'src> Lexer<'src> {
                 // Verify delimiter follows per libsmi: ([^a-zA-Z0-9-])|--
                 // A delimiter is: EOF, non-alphanumeric AND non-hyphen, OR double-hyphen (comment)
                 let is_delimiter = match self.peek() {
-                    None => true, // EOF is a valid delimiter
+                    None => true,                                // EOF is a valid delimiter
                     Some(b'-') => self.peek_at(1) == Some(b'-'), // -- is a valid delimiter
-                    Some(b) => !b.is_ascii_alphanumeric(), // Non-alphanumeric is a delimiter
+                    Some(b) => !b.is_ascii_alphanumeric(),       // Non-alphanumeric is a delimiter
                 };
                 if is_delimiter {
                     self.state = LexerState::Normal;
@@ -583,10 +577,7 @@ impl<'src> Lexer<'src> {
         // Per libsmi scanner-smi.l:699-705, these emit errors but we continue parsing
         if is_forbidden_keyword(text_str) {
             let span = self.span_from(start);
-            self.error(
-                span,
-                alloc::format!("forbidden ASN.1 keyword: {text_str}"),
-            );
+            self.error(span, alloc::format!("forbidden ASN.1 keyword: {text_str}"));
             return self.token(TokenKind::ForbiddenKeyword, start);
         }
 
@@ -777,7 +768,7 @@ mod tests {
     }
 
     /// Helper to tokenize and get text slices.
-    fn token_texts<'a>(source: &'a str) -> Vec<&'a str> {
+    fn token_texts(source: &str) -> Vec<&str> {
         let lexer = Lexer::new(source.as_bytes());
         let (tokens, _) = lexer.tokenize();
         tokens
@@ -1047,13 +1038,13 @@ mod tests {
 
     #[test]
     fn test_imports_clause() {
-        let source = r#"
+        let source = r"
             IMPORTS
                 MODULE-IDENTITY, OBJECT-TYPE
                     FROM SNMPv2-SMI
                 DisplayString
                     FROM SNMPv2-TC;
-        "#;
+        ";
         let kinds = token_kinds(source);
         assert_eq!(
             kinds,
@@ -1076,7 +1067,7 @@ mod tests {
     #[test]
     fn test_macro_skip() {
         // MACRO body should be skipped entirely
-        let source = r#"
+        let source = r"
             OBJECT-TYPE MACRO ::=
             BEGIN
                 TYPE NOTATION ::= ...lots of content...
@@ -1084,7 +1075,7 @@ mod tests {
             END
 
             ifIndex OBJECT-TYPE
-        "#;
+        ";
         let kinds = token_kinds(source);
         assert_eq!(
             kinds,
@@ -1104,21 +1095,21 @@ mod tests {
         // END followed by single hyphen should NOT terminate macro
         // per libsmi delimiter: ([^a-zA-Z0-9-])|--
         // But END followed by double-hyphen (comment) SHOULD terminate
-        let source = r#"
+        let source = r"
             OBJECT-TYPE MACRO ::=
             BEGIN
                 END-something is not a delimiter
             END
 
             ifIndex OBJECT-TYPE
-        "#;
+        ";
         let kinds = token_kinds(source);
         assert_eq!(
             kinds,
             vec![
                 TokenKind::KwObjectType,
                 TokenKind::KwMacro,
-                TokenKind::KwEnd, // From final "END" (not "END-something")
+                TokenKind::KwEnd,          // From final "END" (not "END-something")
                 TokenKind::LowercaseIdent, // ifIndex
                 TokenKind::KwObjectType,
                 TokenKind::Eof,
@@ -1130,21 +1121,21 @@ mod tests {
     fn test_macro_end_with_double_hyphen() {
         // END followed by -- (comment) should terminate macro
         // because -- is a valid delimiter per libsmi
-        let source = r#"
+        let source = r"
             OBJECT-TYPE MACRO ::=
             BEGIN
                 some content
             END-- comment terminates macro
 
             ifIndex OBJECT-TYPE
-        "#;
+        ";
         let kinds = token_kinds(source);
         assert_eq!(
             kinds,
             vec![
                 TokenKind::KwObjectType,
                 TokenKind::KwMacro,
-                TokenKind::KwEnd, // END-- works as delimiter
+                TokenKind::KwEnd,          // END-- works as delimiter
                 TokenKind::LowercaseIdent, // ifIndex
                 TokenKind::KwObjectType,
                 TokenKind::Eof,
@@ -1511,7 +1502,9 @@ mod tests {
     #[test]
     fn test_forbidden_keywords_list() {
         // Test several forbidden keywords
-        let forbidden = ["ABSENT", "ANY", "BIT", "BOOLEAN", "DEFAULT", "NULL", "PRIVATE", "SET"];
+        let forbidden = [
+            "ABSENT", "ANY", "BIT", "BOOLEAN", "DEFAULT", "NULL", "PRIVATE", "SET",
+        ];
 
         for kw in forbidden {
             let lexer = Lexer::new(kw.as_bytes());
@@ -1662,10 +1655,7 @@ mod tests {
         // 81 dashes = separator line common in MIBs
         // After processing 78 dashes (39 pairs), we're in Comment state with 3 dashes left
         // The ---{eol} rule should consume those 3 dashes + newline
-        let source = format!(
-            "foo\n{}\nbar",
-            "-".repeat(81)
-        );
+        let source = format!("foo\n{}\nbar", "-".repeat(81));
         let lexer = Lexer::new(source.as_bytes());
         let (tokens, _) = lexer.tokenize();
 

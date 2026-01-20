@@ -2,7 +2,7 @@
 //!
 //! # Memory Optimization
 //!
-//! This module uses `StrId` keys instead of `String` keys in BTreeMaps.
+//! This module uses `StrId` keys instead of `String` keys in `BTreeMaps`.
 //! Each `StrId` is 4 bytes vs ~24+ bytes for String, significantly reducing
 //! memory when processing large MIB corpora with hundreds of thousands of symbols.
 
@@ -21,25 +21,25 @@ pub struct ResolverContext {
     pub model: Model,
     /// HIR modules being resolved.
     pub hir_modules: Vec<HirModule>,
-    /// Module name -> list of ModuleIds (handles duplicate module names).
+    /// Module name -> list of `ModuleIds` (handles duplicate module names).
     /// Multiple files may declare the same MODULE-IDENTITY name.
-    /// Uses StrId keys for memory efficiency.
+    /// Uses `StrId` keys for memory efficiency.
     pub module_index: BTreeMap<StrId, Vec<ModuleId>>,
-    /// ModuleId -> index in hir_modules for reverse lookup.
+    /// `ModuleId` -> index in `hir_modules` for reverse lookup.
     pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
-    /// Index in hir_modules -> ModuleId (reverse of module_id_to_hir_index).
+    /// Index in `hir_modules` -> `ModuleId` (reverse of `module_id_to_hir_index`).
     pub hir_index_to_module_id: BTreeMap<usize, ModuleId>,
-    /// Per-module symbol -> NodeId mapping for module-local definitions.
-    /// Key: (ModuleId, symbol_name) -> NodeId (uses ModuleId for uniqueness)
-    /// Uses StrId for symbol names for memory efficiency.
+    /// Per-module symbol -> `NodeId` mapping for module-local definitions.
+    /// Key: (`ModuleId`, `symbol_name`) -> `NodeId` (uses `ModuleId` for uniqueness)
+    /// Uses `StrId` for symbol names for memory efficiency.
     pub module_symbol_to_node: BTreeMap<(ModuleId, StrId), NodeId>,
-    /// Import declarations: (ModuleId, symbol) -> source ModuleId
+    /// Import declarations: (`ModuleId`, symbol) -> source `ModuleId`
     /// Used for dynamic lookup during OID resolution.
     /// Tracks which specific module was chosen for each import.
-    /// Uses StrId for symbol names for memory efficiency.
+    /// Uses `StrId` for symbol names for memory efficiency.
     pub module_imports: BTreeMap<(ModuleId, StrId), ModuleId>,
-    /// Symbol name -> TypeId mapping for type resolution.
-    /// Uses StrId keys for memory efficiency.
+    /// Symbol name -> `TypeId` mapping for type resolution.
+    /// Uses `StrId` keys for memory efficiency.
     pub symbol_to_type: BTreeMap<StrId, TypeId>,
 }
 
@@ -58,13 +58,13 @@ impl ResolverContext {
         }
     }
 
-    /// Get the ModuleId for an HIR module index.
+    /// Get the `ModuleId` for an HIR module index.
     /// Returns None if the index is not registered (shouldn't happen after registration phase).
     pub fn get_module_id_for_hir_index(&self, hir_index: usize) -> Option<ModuleId> {
         self.hir_index_to_module_id.get(&hir_index).copied()
     }
 
-    /// Get the first ModuleId for a module name.
+    /// Get the first `ModuleId` for a module name.
     /// Convenience method for tests and simple cases where only one module has the name.
     #[allow(dead_code)]
     pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
@@ -77,7 +77,7 @@ impl ResolverContext {
         self.model.intern(s)
     }
 
-    /// Look up a node by symbol name in a specific module's scope (by ModuleId).
+    /// Look up a node by symbol name in a specific module's scope (by `ModuleId`).
     /// Order: 1) module-local definitions, 2) imports (iteratively following import chain).
     /// Cycle-safe: returns None if a cyclic import chain is detected.
     ///
@@ -117,7 +117,7 @@ impl ResolverContext {
     }
 
     /// Look up a node by symbol name string in a specific module's scope.
-    /// This is a convenience wrapper that finds the StrId for the name.
+    /// This is a convenience wrapper that finds the `StrId` for the name.
     pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
         // Find the StrId for this name (if it exists in the interner)
         let name_id = self.model.strings().find(name)?;
@@ -145,13 +145,20 @@ impl ResolverContext {
     }
 
     /// Register an import declaration for later dynamic lookup.
-    pub fn register_import(&mut self, importing_module: ModuleId, symbol: StrId, source_module: ModuleId) {
-        self.module_imports.insert((importing_module, symbol), source_module);
+    pub fn register_import(
+        &mut self,
+        importing_module: ModuleId,
+        symbol: StrId,
+        source_module: ModuleId,
+    ) {
+        self.module_imports
+            .insert((importing_module, symbol), source_module);
     }
 
-    /// Get the HIR module for a ModuleId.
+    /// Get the HIR module for a `ModuleId`.
     pub fn get_hir_module(&self, module_id: ModuleId) -> Option<&HirModule> {
-        self.module_id_to_hir_index.get(&module_id)
+        self.module_id_to_hir_index
+            .get(&module_id)
             .and_then(|&idx| self.hir_modules.get(idx))
     }
 
@@ -169,8 +176,14 @@ impl ResolverContext {
     }
 
     /// Register a module-scoped symbol -> node mapping.
-    pub fn register_module_node_symbol(&mut self, module_id: ModuleId, symbol_name: StrId, node_id: NodeId) {
-        self.module_symbol_to_node.insert((module_id, symbol_name), node_id);
+    pub fn register_module_node_symbol(
+        &mut self,
+        module_id: ModuleId,
+        symbol_name: StrId,
+        node_id: NodeId,
+    ) {
+        self.module_symbol_to_node
+            .insert((module_id, symbol_name), node_id);
     }
 
     /// Register a symbol -> type mapping.
@@ -239,7 +252,7 @@ impl ResolverContext {
     /// preventing HIR and Model from coexisting at full size.
     ///
     /// The associated index maps are also cleared since they reference
-    /// indices into the now-empty hir_modules vector.
+    /// indices into the now-empty `hir_modules` vector.
     pub fn drop_hir(&mut self) {
         // Replace with empty vec to deallocate
         self.hir_modules = alloc::vec::Vec::new();
@@ -265,10 +278,7 @@ mod tests {
         // Create a context with modules that have cyclic imports:
         // Module A imports "foo" from Module B
         // Module B imports "foo" from Module A
-        let hir_modules = vec![
-            make_test_module("ModuleA"),
-            make_test_module("ModuleB"),
-        ];
+        let hir_modules = vec![make_test_module("ModuleA"), make_test_module("ModuleB")];
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)
@@ -284,16 +294,16 @@ mod tests {
 
         // This should return None (cycle detected) instead of infinite recursion
         let result = ctx.lookup_node_for_module(module_a, "foo");
-        assert!(result.is_none(), "Should return None on cyclic import, not infinite loop");
+        assert!(
+            result.is_none(),
+            "Should return None on cyclic import, not infinite loop"
+        );
     }
 
     #[test]
     fn test_lookup_node_for_module_follows_valid_chain() {
         // Create a context where A imports "foo" from B, and B defines "foo"
-        let hir_modules = vec![
-            make_test_module("ModuleA"),
-            make_test_module("ModuleB"),
-        ];
+        let hir_modules = vec![make_test_module("ModuleA"), make_test_module("ModuleB")];
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)
@@ -320,10 +330,7 @@ mod tests {
     fn test_lookup_node_for_module_local_takes_precedence() {
         // Create a context where A has local "foo" and also imports "foo" from B
         // Local should take precedence
-        let hir_modules = vec![
-            make_test_module("ModuleA"),
-            make_test_module("ModuleB"),
-        ];
+        let hir_modules = vec![make_test_module("ModuleA"), make_test_module("ModuleB")];
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)

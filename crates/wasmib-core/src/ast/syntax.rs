@@ -180,11 +180,11 @@ pub struct AccessClause {
 /// Access keyword type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccessKeyword {
-    /// SMIv1: `ACCESS`
+    /// `SMIv1`: `ACCESS`
     Access,
-    /// SMIv2: `MAX-ACCESS`
+    /// `SMIv2`: `MAX-ACCESS`
     MaxAccess,
-    /// SMIv2: `MIN-ACCESS` (in MODULE-COMPLIANCE)
+    /// `SMIv2`: `MIN-ACCESS` (in MODULE-COMPLIANCE)
     MinAccess,
     /// SPPI: `PIB-ACCESS`
     PibAccess,
@@ -236,9 +236,9 @@ pub enum StatusValue {
     Deprecated,
     /// `obsolete`
     Obsolete,
-    /// `mandatory` (SMIv1)
+    /// `mandatory` (`SMIv1`)
     Mandatory,
-    /// `optional` (SMIv1)
+    /// `optional` (`SMIv1`)
     Optional,
 }
 

@@ -1,7 +1,7 @@
 //! Normalization tables for imports and types.
 //!
 //! Based on libsmi's `convertImportv2` table and BUILTINS.md specifications.
-//! These normalizations allow SMIv1 and SMIv2 MIBs to be processed uniformly.
+//! These normalizations allow `SMIv1` and `SMIv2` MIBs to be processed uniformly.
 
 use super::types::Symbol;
 
@@ -14,7 +14,7 @@ pub struct NormalizedImport {
     pub symbol: Symbol,
 }
 
-/// Normalize an import from an SMIv1 module to its SMIv2 equivalent.
+/// Normalize an import from an `SMIv1` module to its `SMIv2` equivalent.
 ///
 /// This implements libsmi's `convertImportv2` table plus additional mappings
 /// from BUILTINS.md.
@@ -94,7 +94,7 @@ fn lookup_import_mapping(module: &str, symbol: &str) -> Option<NormalizedImport>
     None
 }
 
-/// Normalize a type name from SMIv1 to SMIv2.
+/// Normalize a type name from `SMIv1` to `SMIv2`.
 ///
 /// This handles type aliases used in SYNTAX clauses:
 /// - `Counter` → `Counter32`
@@ -118,9 +118,9 @@ pub fn normalize_type_name(type_name: &str) -> &str {
     }
 }
 
-/// Check if a module name is an SMIv2 base module.
+/// Check if a module name is an `SMIv2` base module.
 ///
-/// These modules indicate the MIB is using SMIv2 syntax.
+/// These modules indicate the MIB is using `SMIv2` syntax.
 #[must_use]
 pub fn is_smiv2_base_module(module: &str) -> bool {
     matches!(
@@ -128,7 +128,6 @@ pub fn is_smiv2_base_module(module: &str) -> bool {
         "SNMPv2-SMI" | "SNMPv2-TC" | "SNMPv2-CONF" | "SNMPv2-MIB"
     )
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -203,5 +202,4 @@ mod tests {
         assert!(!is_smiv2_base_module("RFC1155-SMI"));
         assert!(!is_smiv2_base_module("IF-MIB"));
     }
-
 }

@@ -17,7 +17,7 @@ pub struct InternerMemoryUsage {
     pub data_bytes: usize,
     /// Offsets vector capacity in bytes.
     pub offsets_bytes: usize,
-    /// Dedup map memory (keys + value vecs + BTreeMap overhead).
+    /// Dedup map memory (keys + value vecs + `BTreeMap` overhead).
     pub dedup_bytes: usize,
     /// Number of entries in dedup map.
     pub dedup_entry_count: usize,
@@ -40,7 +40,7 @@ fn hash_str(s: &str) -> u64 {
     const K: u64 = 0x517cc1b727220a95;
     let mut hash = 0u64;
     for byte in s.bytes() {
-        hash = hash.rotate_left(5) ^ (byte as u64);
+        hash = hash.rotate_left(5) ^ u64::from(byte);
         hash = hash.wrapping_mul(K);
     }
     hash
@@ -56,7 +56,7 @@ fn hash_str(s: &str) -> u64 {
 ///
 /// Uses a hash+verify approach for memory efficiency:
 /// - Hash the string to get a u64 key
-/// - Store candidate StrIds in a Vec (almost always size 1)
+/// - Store candidate `StrIds` in a Vec (almost always size 1)
 /// - On lookup, verify candidates against actual string content
 ///
 /// This avoids storing duplicate string keys while handling hash collisions
@@ -70,7 +70,7 @@ pub struct StringInterner {
     offsets: Vec<u32>,
     /// Hash-based lookup table for deduplicating short strings.
     ///
-    /// Maps hash(string) -> list of candidate StrIds. On collision (rare),
+    /// Maps hash(string) -> list of candidate `StrIds`. On collision (rare),
     /// multiple candidates are stored and verified against actual content.
     dedup: BTreeMap<u64, Vec<StrId>>,
 }
@@ -129,7 +129,7 @@ impl StringInterner {
     /// Returns the interned string, or an empty string if the ID is invalid.
     /// Invalid IDs should not occur in normal operation since all `StrId`s are
     /// created by `intern()`. However, bounds checking is performed to prevent
-    /// panics in WASM/no_std environments where panics are unrecoverable.
+    /// panics in `WASM/no_std` environments where panics are unrecoverable.
     ///
     /// # Safety Guarantee
     ///
@@ -180,7 +180,7 @@ impl StringInterner {
     /// Returns a breakdown of memory consumption:
     /// - `data`: String buffer capacity
     /// - `offsets`: Vec capacity × 4 bytes
-    /// - `dedup`: Hash keys (8 bytes) + Vec overhead + BTreeMap nodes
+    /// - `dedup`: Hash keys (8 bytes) + Vec overhead + `BTreeMap` nodes
     #[must_use]
     pub fn memory_usage(&self) -> InternerMemoryUsage {
         let data_bytes = self.data.capacity();
@@ -226,10 +226,10 @@ impl StringInterner {
 
         // Long strings require O(n) scan
         for idx in 0..self.len() {
-            if let Some(id) = StrId::from_index(idx) {
-                if self.get(id) == s {
-                    return Some(id);
-                }
+            if let Some(id) = StrId::from_index(idx)
+                && self.get(id) == s
+            {
+                return Some(id);
             }
         }
         None
@@ -266,7 +266,7 @@ impl StringInterner {
             "offsets must be non-empty (should contain at least initial 0)"
         );
         debug_assert!(
-            offsets.first().map_or(true, |&v| v == 0),
+            offsets.first().is_none_or(|&v| v == 0),
             "first offset must be 0, got {:?}",
             offsets.first()
         );
@@ -275,7 +275,7 @@ impl StringInterner {
             "offsets must be monotonically non-decreasing"
         );
         debug_assert!(
-            offsets.last().map_or(true, |&v| (v as usize) <= data.len()),
+            offsets.last().is_none_or(|&v| (v as usize) <= data.len()),
             "last offset {} exceeds data length {}",
             offsets.last().unwrap_or(&0),
             data.len()

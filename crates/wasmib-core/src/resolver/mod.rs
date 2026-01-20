@@ -20,7 +20,7 @@
 //! modules containing the built-in definitions:
 //!
 //! - **Types**: Integer32, Counter32, etc.
-//! - **Textual Conventions**: DisplayString, TruthValue, etc.
+//! - **Textual Conventions**: `DisplayString`, `TruthValue`, etc.
 //! - **OID Roots**: iso, internet, enterprises, etc.
 //!
 //! These resolve automatically without requiring user-provided base module files.
@@ -56,7 +56,10 @@ use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
 use alloc::vec::Vec;
 use context::ResolverContext;
-use phases::{analyze_semantics, deduplicate_definitions, register_modules, resolve_imports, resolve_oids, resolve_types};
+use phases::{
+    analyze_semantics, deduplicate_definitions, register_modules, resolve_imports, resolve_oids,
+    resolve_types,
+};
 #[cfg(feature = "tracing")]
 use phases::{resolve_imports_traced, resolve_oids_traced};
 
@@ -167,29 +170,85 @@ impl Resolver {
         let mut ctx = ResolverContext::new(modules);
 
         // Phase 1: Register all modules and their definitions
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Registration });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart {
+                phase: Phase::Registration
+            }
+        );
         register_modules(&mut ctx);
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Registration });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd {
+                phase: Phase::Registration
+            }
+        );
 
         // Phase 2: Resolve imports
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Imports });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart {
+                phase: Phase::Imports
+            }
+        );
         resolve_imports_traced(&mut ctx, tracer);
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Imports });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd {
+                phase: Phase::Imports
+            }
+        );
 
         // Phase 3: Resolve types
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Types });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart {
+                phase: Phase::Types
+            }
+        );
         resolve_types(&mut ctx);
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Types });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd {
+                phase: Phase::Types
+            }
+        );
 
         // Phase 4: Resolve OIDs
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Oids });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart { phase: Phase::Oids }
+        );
         resolve_oids_traced(&mut ctx, tracer);
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Oids });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd { phase: Phase::Oids }
+        );
 
         // Phase 5: Semantic analysis
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Semantics });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseStart {
+                phase: Phase::Semantics
+            }
+        );
         analyze_semantics(&mut ctx);
-        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Semantics });
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Info,
+            TraceEvent::PhaseEnd {
+                phase: Phase::Semantics
+            }
+        );
 
         // Drop HIR modules to free memory - no longer needed after semantics
         ctx.drop_hir();
@@ -223,25 +282,37 @@ impl Resolver {
         for imp in &unresolved.imports {
             let from_module = ctx.model.get_str(imp.from_module);
             let symbol = ctx.model.get_str(imp.symbol);
-            push_error(imp.span, alloc::format!("Unresolved import: {}::{}", from_module, symbol));
+            push_error(
+                imp.span,
+                alloc::format!("Unresolved import: {from_module}::{symbol}"),
+            );
         }
 
         for typ in &unresolved.types {
             let referrer = ctx.model.get_str(typ.referrer);
             let referenced = ctx.model.get_str(typ.referenced);
-            push_error(typ.span, alloc::format!("Unresolved type reference in {}: {}", referrer, referenced));
+            push_error(
+                typ.span,
+                alloc::format!("Unresolved type reference in {referrer}: {referenced}"),
+            );
         }
 
         for oid in &unresolved.oids {
             let definition = ctx.model.get_str(oid.definition);
             let component = ctx.model.get_str(oid.component);
-            push_error(oid.span, alloc::format!("Unresolved OID component in {}: {}", definition, component));
+            push_error(
+                oid.span,
+                alloc::format!("Unresolved OID component in {definition}: {component}"),
+            );
         }
 
         for idx in &unresolved.indexes {
             let row = ctx.model.get_str(idx.row);
             let index_obj = ctx.model.get_str(idx.index_object);
-            push_error(idx.span, alloc::format!("Unresolved INDEX object in {}: {}", row, index_obj));
+            push_error(
+                idx.span,
+                alloc::format!("Unresolved INDEX object in {row}: {index_obj}"),
+            );
         }
 
         diagnostics
@@ -258,8 +329,8 @@ pub fn is_base_module(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::hir::{
-        HirAccess, HirDefinition, HirImport, HirModule, HirObjectType, HirOidAssignment, HirOidComponent,
-        HirStatus, HirTypeSyntax, Symbol,
+        HirAccess, HirDefinition, HirImport, HirModule, HirObjectType, HirOidAssignment,
+        HirOidComponent, HirStatus, HirTypeSyntax, Symbol,
     };
     use crate::lexer::Span;
     use alloc::vec;
@@ -271,14 +342,24 @@ mod tests {
     }
 
     /// Create a test module with imports.
-    /// imports is a list of (symbol, from_module) pairs.
-    fn make_test_module_with_imports(name: &str, defs: Vec<HirDefinition>, imports: Vec<(&str, &str)>) -> HirModule {
+    /// imports is a list of (symbol, `from_module`) pairs.
+    fn make_test_module_with_imports(
+        name: &str,
+        defs: Vec<HirDefinition>,
+        imports: Vec<(&str, &str)>,
+    ) -> HirModule {
         let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
         module.definitions = defs;
         // HirImport::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
-            .map(|(sym, from)| HirImport::new(Symbol::from_str(from), Symbol::from_str(sym), Span::new(0, 0)))
+            .map(|(sym, from)| {
+                HirImport::new(
+                    Symbol::from_str(from),
+                    Symbol::from_str(sym),
+                    Span::new(0, 0),
+                )
+            })
             .collect();
         module
     }
