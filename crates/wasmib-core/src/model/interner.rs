@@ -5,6 +5,7 @@
 use super::ids::StrId;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 /// Threshold for string deduplication. Strings shorter than this are deduplicated.
@@ -232,6 +233,15 @@ impl StringInterner {
     #[must_use]
     pub fn into_parts(self) -> (String, Vec<u32>) {
         (self.data, self.offsets)
+    }
+
+    /// Export a copy of the raw parts for serialization (non-consuming).
+    ///
+    /// Returns `(data, offsets)` where `data` is the concatenated string buffer
+    /// and `offsets[i]` is the start of string `i`.
+    #[must_use]
+    pub fn export_parts(&self) -> (String, Vec<u32>) {
+        (self.data.clone(), self.offsets.clone())
     }
 
     /// Reconstruct an interner from raw parts.

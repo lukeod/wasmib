@@ -33,6 +33,31 @@ impl fmt::Display for SmiLanguage {
     }
 }
 
+impl SmiLanguage {
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::Unknown => 0,
+            Self::Smiv1 => 1,
+            Self::Smiv2 => 2,
+            Self::Sppi => 3,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Unknown),
+            1 => Some(Self::Smiv1),
+            2 => Some(Self::Smiv2),
+            3 => Some(Self::Sppi),
+            _ => None,
+        }
+    }
+}
+
 /// Symbol identifier.
 ///
 /// Wraps a string name. Later can be replaced with interned strings for efficiency.
@@ -138,6 +163,35 @@ impl fmt::Display for HirAccess {
     }
 }
 
+impl HirAccess {
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::NotAccessible => 0,
+            Self::AccessibleForNotify => 1,
+            Self::ReadOnly => 2,
+            Self::ReadWrite => 3,
+            Self::ReadCreate => 4,
+            Self::WriteOnly => 5,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::NotAccessible),
+            1 => Some(Self::AccessibleForNotify),
+            2 => Some(Self::ReadOnly),
+            3 => Some(Self::ReadWrite),
+            4 => Some(Self::ReadCreate),
+            5 => Some(Self::WriteOnly),
+            _ => None,
+        }
+    }
+}
+
 /// Normalized status value.
 ///
 /// `SMIv1` status values are mapped to `SMIv2` equivalents:
@@ -160,6 +214,29 @@ impl fmt::Display for HirStatus {
             Self::Current => write!(f, "current"),
             Self::Deprecated => write!(f, "deprecated"),
             Self::Obsolete => write!(f, "obsolete"),
+        }
+    }
+}
+
+impl HirStatus {
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::Current => 0,
+            Self::Deprecated => 1,
+            Self::Obsolete => 2,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Current),
+            1 => Some(Self::Deprecated),
+            2 => Some(Self::Obsolete),
+            _ => None,
         }
     }
 }

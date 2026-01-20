@@ -42,6 +42,41 @@ impl NodeKind {
     pub fn is_conformance(&self) -> bool {
         matches!(self, Self::Group | Self::Compliance | Self::Capabilities)
     }
+
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::Internal => 0,
+            Self::Node => 1,
+            Self::Scalar => 2,
+            Self::Table => 3,
+            Self::Row => 4,
+            Self::Column => 5,
+            Self::Notification => 6,
+            Self::Group => 7,
+            Self::Compliance => 8,
+            Self::Capabilities => 9,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Internal),
+            1 => Some(Self::Node),
+            2 => Some(Self::Scalar),
+            3 => Some(Self::Table),
+            4 => Some(Self::Row),
+            5 => Some(Self::Column),
+            6 => Some(Self::Notification),
+            7 => Some(Self::Group),
+            8 => Some(Self::Compliance),
+            9 => Some(Self::Capabilities),
+            _ => None,
+        }
+    }
 }
 
 /// A node in the OID tree.
@@ -199,5 +234,31 @@ mod tests {
         node.add_child(child);
         assert_eq!(node.children.len(), 1);
         assert_eq!(node.children[0], child);
+    }
+
+    #[test]
+    fn test_node_kind_as_u8_round_trip() {
+        // Test all valid values round-trip correctly
+        for i in 0..10u8 {
+            let kind = NodeKind::from_u8(i).unwrap();
+            assert_eq!(kind.as_u8(), i, "Round-trip failed for value {}", i);
+        }
+        // Test invalid value returns None
+        assert!(NodeKind::from_u8(10).is_none());
+        assert!(NodeKind::from_u8(255).is_none());
+    }
+
+    #[test]
+    fn test_node_kind_as_u8_values() {
+        assert_eq!(NodeKind::Internal.as_u8(), 0);
+        assert_eq!(NodeKind::Node.as_u8(), 1);
+        assert_eq!(NodeKind::Scalar.as_u8(), 2);
+        assert_eq!(NodeKind::Table.as_u8(), 3);
+        assert_eq!(NodeKind::Row.as_u8(), 4);
+        assert_eq!(NodeKind::Column.as_u8(), 5);
+        assert_eq!(NodeKind::Notification.as_u8(), 6);
+        assert_eq!(NodeKind::Group.as_u8(), 7);
+        assert_eq!(NodeKind::Compliance.as_u8(), 8);
+        assert_eq!(NodeKind::Capabilities.as_u8(), 9);
     }
 }

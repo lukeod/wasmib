@@ -11,7 +11,8 @@ use crate::lexer::Span;
 use crate::model::{ModuleId, UnresolvedImportReason};
 use crate::resolver::context::ResolverContext;
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::String;
+use alloc::format;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 #[cfg(feature = "tracing")]

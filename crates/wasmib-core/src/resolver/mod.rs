@@ -54,6 +54,7 @@ pub mod tracing;
 use crate::hir::HirModule;
 use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
+use alloc::string::String;
 use alloc::vec::Vec;
 use context::ResolverContext;
 use phases::{

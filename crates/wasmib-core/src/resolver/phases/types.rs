@@ -8,6 +8,7 @@ use crate::model::{
     ValueConstraint,
 };
 use crate::resolver::context::ResolverContext;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Resolve all types across all modules.

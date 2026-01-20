@@ -1,6 +1,7 @@
 //! Type system types for the resolved model.
 
 use super::ids::{ModuleId, StrId, TypeId};
+use alloc::vec;
 use alloc::vec::Vec;
 
 /// SMI base type.
@@ -50,6 +51,45 @@ impl BaseType {
             Self::ObjectIdentifier => "OBJID",
             Self::Bits => "BITS",
             Self::Sequence => "SEQUENCE",
+        }
+    }
+
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::Integer32 => 0,
+            Self::Unsigned32 => 1,
+            Self::Counter32 => 2,
+            Self::Counter64 => 3,
+            Self::Gauge32 => 4,
+            Self::TimeTicks => 5,
+            Self::IpAddress => 6,
+            Self::OctetString => 7,
+            Self::ObjectIdentifier => 8,
+            Self::Opaque => 9,
+            Self::Bits => 10,
+            Self::Sequence => 11,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Integer32),
+            1 => Some(Self::Unsigned32),
+            2 => Some(Self::Counter32),
+            3 => Some(Self::Counter64),
+            4 => Some(Self::Gauge32),
+            5 => Some(Self::TimeTicks),
+            6 => Some(Self::IpAddress),
+            7 => Some(Self::OctetString),
+            8 => Some(Self::ObjectIdentifier),
+            9 => Some(Self::Opaque),
+            10 => Some(Self::Bits),
+            11 => Some(Self::Sequence),
+            _ => None,
         }
     }
 }
@@ -200,6 +240,27 @@ impl Status {
             Self::Obsolete => "obsolete",
         }
     }
+
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::Current => 0,
+            Self::Deprecated => 1,
+            Self::Obsolete => 2,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Current),
+            1 => Some(Self::Deprecated),
+            2 => Some(Self::Obsolete),
+            _ => None,
+        }
+    }
 }
 
 /// Access level of an object.
@@ -238,6 +299,33 @@ impl Access {
     #[must_use]
     pub fn is_readable(&self) -> bool {
         matches!(self, Self::ReadOnly | Self::ReadWrite | Self::ReadCreate)
+    }
+
+    /// Convert to u8 for compact serialization.
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::NotAccessible => 0,
+            Self::AccessibleForNotify => 1,
+            Self::ReadOnly => 2,
+            Self::ReadWrite => 3,
+            Self::ReadCreate => 4,
+            Self::WriteOnly => 5,
+        }
+    }
+
+    /// Convert from u8.
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::NotAccessible),
+            1 => Some(Self::AccessibleForNotify),
+            2 => Some(Self::ReadOnly),
+            3 => Some(Self::ReadWrite),
+            4 => Some(Self::ReadCreate),
+            5 => Some(Self::WriteOnly),
+            _ => None,
+        }
     }
 }
 
@@ -337,5 +425,35 @@ mod tests {
 
         let range = SizeConstraint::range(0, 255);
         assert_eq!(range.ranges, vec![(0, 255)]);
+    }
+
+    #[test]
+    fn test_base_type_as_u8_round_trip() {
+        for i in 0..12u8 {
+            let base = BaseType::from_u8(i).unwrap();
+            assert_eq!(base.as_u8(), i, "Round-trip failed for value {}", i);
+        }
+        assert!(BaseType::from_u8(12).is_none());
+        assert!(BaseType::from_u8(255).is_none());
+    }
+
+    #[test]
+    fn test_status_as_u8_round_trip() {
+        for i in 0..3u8 {
+            let status = Status::from_u8(i).unwrap();
+            assert_eq!(status.as_u8(), i, "Round-trip failed for value {}", i);
+        }
+        assert!(Status::from_u8(3).is_none());
+        assert!(Status::from_u8(255).is_none());
+    }
+
+    #[test]
+    fn test_access_as_u8_round_trip() {
+        for i in 0..6u8 {
+            let access = Access::from_u8(i).unwrap();
+            assert_eq!(access.as_u8(), i, "Round-trip failed for value {}", i);
+        }
+        assert!(Access::from_u8(6).is_none());
+        assert!(Access::from_u8(255).is_none());
     }
 }

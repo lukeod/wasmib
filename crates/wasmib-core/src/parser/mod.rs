@@ -43,7 +43,8 @@ use crate::ast::{
     TypeAssignmentDef, TypeSyntax, ValueAssignmentDef, Variation,
 };
 use crate::lexer::{Diagnostic, Lexer, Severity, Span, Token, TokenKind};
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 
 /// MIB parser.

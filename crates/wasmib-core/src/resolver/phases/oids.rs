@@ -5,6 +5,7 @@
 use crate::hir::{HirDefinition, HirOidAssignment, HirOidComponent};
 use crate::model::{ModuleId, NodeDefinition, NodeId, NodeKind, Oid, OidNode};
 use crate::resolver::context::ResolverContext;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 #[cfg(feature = "tracing")]
