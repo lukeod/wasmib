@@ -13,8 +13,8 @@
 //! Definitions that share module name and label but differ semantically
 //! are kept as separate definitions (e.g., vendor extension adds enum value).
 
-use crate::model::{Model, NodeDefinition, NodeId, ResolvedObject, StrId};
-use alloc::collections::BTreeMap;
+use crate::model::{Model, NodeDefinition, NodeId, ResolvedObject, StrId, TypeId};
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 /// Deduplicate definitions across all nodes in the model.
@@ -217,7 +217,25 @@ fn objects_are_equivalent(model: &Model, a: &ResolvedObject, b: &ResolvedObject)
 }
 
 /// Check if two types are structurally equivalent.
-fn types_are_equivalent(model: &Model, type_a: crate::model::TypeId, type_b: crate::model::TypeId) -> bool {
+/// Uses a visited set to prevent infinite recursion if the type graph has cycles.
+fn types_are_equivalent(model: &Model, type_a: TypeId, type_b: TypeId) -> bool {
+    let mut visited = BTreeSet::new();
+    types_are_equivalent_inner(model, type_a, type_b, &mut visited)
+}
+
+/// Inner recursive helper for types_are_equivalent with cycle detection.
+fn types_are_equivalent_inner(
+    model: &Model,
+    type_a: TypeId,
+    type_b: TypeId,
+    visited: &mut BTreeSet<(TypeId, TypeId)>,
+) -> bool {
+    // Cycle detection: if we've already compared this pair, assume equivalent
+    // (if they weren't, we would have returned false earlier in the comparison)
+    if !visited.insert((type_a, type_b)) {
+        return true;
+    }
+
     let a = model.get_type(type_a);
     let b = model.get_type(type_b);
 
@@ -255,7 +273,7 @@ fn types_are_equivalent(model: &Model, type_a: crate::model::TypeId, type_b: cra
 
             // Recursively compare parent types
             match (a.parent_type, b.parent_type) {
-                (Some(pa), Some(pb)) => types_are_equivalent(model, pa, pb),
+                (Some(pa), Some(pb)) => types_are_equivalent_inner(model, pa, pb, visited),
                 (None, None) => true,
                 _ => false,
             }
