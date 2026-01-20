@@ -84,6 +84,8 @@ impl fmt::Display for CacheError {
 /// # Returns
 ///
 /// Serialized bytes suitable for writing to a cache file.
+#[must_use]
+#[allow(clippy::missing_panics_doc)] // Panic only on serialization failure (shouldn't happen)
 pub fn serialize_model(model: Model, fingerprint: Option<[u8; 32]>) -> Vec<u8> {
     let parts = model.into_parts();
 

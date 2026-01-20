@@ -1,11 +1,34 @@
 //! wasmib-wasm: WASM FFI boundary
 //!
 //! This crate provides the WebAssembly interface for wasmib,
-//! including memory management and serialization.
+//! including memory management, serialization, and FFI exports.
+//!
+//! # FFI Exports
+//!
+//! The following functions are exported for host languages:
+//!
+//! - `wasmib_alloc(size) -> *mut u8` - Allocate memory
+//! - `wasmib_dealloc(ptr, size)` - Free memory
+//! - `wasmib_load_module(ptr, len) -> u32` - Parse and stage a MIB
+//! - `wasmib_resolve() -> u32` - Resolve staged modules
+//! - `wasmib_get_model() -> *const u8` - Get serialized model
+//! - `wasmib_get_diagnostics() -> *const u8` - Get diagnostics JSON
+//! - `wasmib_get_error() -> *const u8` - Get last error message
+//! - `wasmib_reset()` - Clear all state
 
-#![no_std]
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
 
 extern crate alloc;
+
+pub mod cache;
+pub mod ffi;
+pub mod serialize;
+
+// Re-export FFI functions at crate root for WASM exports
+pub use ffi::{
+    wasmib_alloc, wasmib_dealloc, wasmib_get_diagnostics, wasmib_get_error, wasmib_get_model,
+    wasmib_load_module, wasmib_reset, wasmib_resolve,
+};
 
 // SAFETY: The runtime environment must be single-threaded WASM.
 #[cfg(target_arch = "wasm32")]
@@ -13,7 +36,7 @@ extern crate alloc;
 #[allow(unsafe_code)]
 static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}

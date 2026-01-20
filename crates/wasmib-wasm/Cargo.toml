@@ -10,11 +10,21 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+std = ["wasmib-core/std"]
+
 [dependencies]
-wasmib-core = { path = "../wasmib-core", default-features = false }
+wasmib-core = { path = "../wasmib-core", default-features = false, features = ["serde"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 talc = { version = "4", default-features = false, features = ["lock_api"] }
+
+[dev-dependencies]
+# Enable std for tests
+wasmib-core = { path = "../wasmib-core", features = ["std", "serde"] }
 
 [lints]
 workspace = true
