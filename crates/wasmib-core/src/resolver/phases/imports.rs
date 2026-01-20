@@ -1,43 +1,347 @@
 //! Phase 2: Import resolution.
 //!
-//! Verify all imports can be satisfied and build import resolution table.
+//! Verify all imports can be satisfied and record import declarations
+//! for dynamic lookup during OID resolution.
+//!
+//! Key design: imports from a given source module name are resolved ATOMICALLY.
+//! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
-use crate::resolver::context::ResolverContext;
+use crate::hir::HirDefinition;
+use crate::model::ModuleId;
+use crate::resolver::context::{DefinitionRef, ResolverContext};
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+#[cfg(feature = "tracing")]
+use crate::resolver::tracing::{TraceEvent, TraceLevel, Tracer};
 
 /// Resolve all imports across all modules.
 pub fn resolve_imports(ctx: &mut ResolverContext) {
-    // Collect module info first to avoid borrow issues
-    let module_info: alloc::vec::Vec<_> = ctx
-        .hir_modules
+    // Collect all (ModuleId, hir_idx) pairs
+    let module_ids: Vec<_> = ctx
+        .module_id_to_hir_index
         .iter()
-        .enumerate()
-        .map(|(idx, m)| (idx, m.name.name.clone()))
+        .map(|(&module_id, &hir_idx)| (module_id, hir_idx))
         .collect();
 
-    for (hir_idx, module_name) in module_info {
-        let module_id = match ctx.module_index.get(&module_name) {
-            Some(&id) => id,
-            None => continue,
-        };
+    for (module_id, hir_idx) in module_ids {
+        // Group imports by source module name
+        let mut imports_by_source: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for imp in &ctx.hir_modules[hir_idx].imports {
+            imports_by_source
+                .entry(imp.module.name.clone())
+                .or_default()
+                .push(imp.symbol.name.clone());
+        }
 
-        // Get imports for this module
-        let imports: alloc::vec::Vec<_> = ctx.hir_modules[hir_idx]
-            .imports
-            .iter()
-            .map(|imp| (imp.module.name.clone(), imp.symbol.name.clone()))
-            .collect();
+        // Resolve each source module atomically
+        for (from_module_name, symbols) in imports_by_source {
+            resolve_imports_from_module(ctx, module_id, &from_module_name, &symbols);
+        }
+    }
+}
 
-        for (from_module, symbol) in imports {
-            // Try to resolve the import
-            let resolved = ctx.lookup_definition(&from_module, &symbol);
+/// Resolve all imports across all modules with tracing support.
+#[cfg(feature = "tracing")]
+pub fn resolve_imports_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T) {
+    // Collect all (ModuleId, hir_idx) pairs
+    let module_ids: Vec<_> = ctx
+        .module_id_to_hir_index
+        .iter()
+        .map(|(&module_id, &hir_idx)| (module_id, hir_idx))
+        .collect();
 
-            if resolved.is_none() {
-                // Check if it's a MACRO import (these are acknowledged but don't resolve)
-                if !is_macro_symbol(&symbol) {
-                    ctx.record_unresolved_import(module_id, &from_module, &symbol);
-                }
+    for (module_id, hir_idx) in module_ids {
+        // Group imports by source module name
+        let mut imports_by_source: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for imp in &ctx.hir_modules[hir_idx].imports {
+            imports_by_source
+                .entry(imp.module.name.clone())
+                .or_default()
+                .push(imp.symbol.name.clone());
+        }
+
+        // Resolve each source module atomically
+        for (from_module_name, symbols) in imports_by_source {
+            resolve_imports_from_module_traced(ctx, module_id, &from_module_name, &symbols, tracer);
+        }
+    }
+}
+
+/// Extract LAST-UPDATED timestamp from a module's MODULE-IDENTITY.
+/// Returns None if not found. Normalizes to YYYYMMDDHHMMZ format for comparison.
+fn extract_last_updated(ctx: &ResolverContext, module_id: ModuleId) -> Option<String> {
+    let hir_idx = ctx.module_id_to_hir_index.get(&module_id)?;
+    let hir_module = ctx.hir_modules.get(*hir_idx)?;
+
+    for def in &hir_module.definitions {
+        if let HirDefinition::ModuleIdentity(mi) = def {
+            if !mi.last_updated.is_empty() {
+                return Some(normalize_timestamp(&mi.last_updated));
             }
         }
+    }
+    None
+}
+
+/// Normalize LAST-UPDATED timestamp to YYYYMMDDHHMMZ format.
+/// Handles both 4-digit years (200604040000Z) and 2-digit years (9907231200Z).
+fn normalize_timestamp(ts: &str) -> String {
+    // Strip any trailing 'Z' for length check
+    let ts_trimmed = ts.trim_end_matches('Z');
+
+    // 4-digit year format: YYYYMMDDHHMMZ (12 chars without Z)
+    // 2-digit year format: YYMMDDHHMMZ (10 chars without Z)
+    if ts_trimmed.len() == 10 {
+        // 2-digit year - need to expand to 4-digit
+        if let Ok(yy) = ts_trimmed[0..2].parse::<u32>() {
+            // Assume: 70-99 -> 1970-1999, 00-69 -> 2000-2069
+            let century = if yy >= 70 { "19" } else { "20" };
+            return format!("{}{}Z", century, ts_trimmed);
+        }
+    }
+
+    // Already 4-digit year or unknown format - return as-is
+    ts.to_string()
+}
+
+/// Resolve all imports from a single source module name atomically.
+/// All symbols must come from the same candidate, or all are marked unresolved.
+fn resolve_imports_from_module(
+    ctx: &mut ResolverContext,
+    importing_module: ModuleId,
+    from_module_name: &str,
+    symbols: &[String],
+) {
+    // Separate built-in OID nodes from user-defined symbols
+    // Note: builtin types (Integer32, DisplayString, etc.) are handled by the type system,
+    // we only need to register builtin OID nodes (enterprises, internet, etc.)
+    let mut builtin_oid_symbols = Vec::new();
+    let mut user_symbols = Vec::new();
+
+    for symbol in symbols {
+        if is_macro_symbol(symbol) {
+            // MACROs don't need resolution
+            continue;
+        }
+        // Check if this is a builtin OID node (not a type or TC)
+        if ctx.builtin_symbol_to_node.contains_key(symbol) {
+            builtin_oid_symbols.push(symbol.clone());
+        } else if let Some(DefinitionRef::Builtin(_)) = ctx.lookup_definition(from_module_name, symbol) {
+            // It's a builtin type/TC - these are handled by the type system, no action needed
+            continue;
+        } else {
+            user_symbols.push(symbol.clone());
+        }
+    }
+
+    // Register builtin OID imports - map the symbol directly to the builtin node
+    // for the importing module so it can resolve them
+    for symbol in &builtin_oid_symbols {
+        if let Some(node_id) = ctx.builtin_symbol_to_node.get(symbol).copied() {
+            ctx.register_module_node_symbol(importing_module, symbol.clone(), node_id);
+        }
+    }
+
+    // If no user symbols, we're done
+    if user_symbols.is_empty() {
+        return;
+    }
+
+    // Get candidate modules for this source name
+    let candidates: Vec<ModuleId> = ctx
+        .module_index
+        .get(from_module_name)
+        .cloned()
+        .unwrap_or_default();
+
+    if candidates.is_empty() {
+        // No candidates at all - mark all as unresolved
+        for symbol in &user_symbols {
+            ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+        }
+        return;
+    }
+
+    // Score candidates by:
+    // 1. How many of the required symbols they have
+    // 2. LAST-UPDATED timestamp (prefer more recent - handles draft vs RFC)
+    let mut scored_candidates: Vec<(ModuleId, usize, Option<String>)> = Vec::new();
+
+    for &candidate_id in &candidates {
+        if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
+            // Count how many symbols this candidate has
+            let symbol_count = user_symbols
+                .iter()
+                .filter(|sym| {
+                    hir_module
+                        .definitions
+                        .iter()
+                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.as_str()))
+                })
+                .count();
+
+            // Get LAST-UPDATED for tiebreaking (prefer newer modules)
+            let last_updated = extract_last_updated(ctx, candidate_id);
+
+            scored_candidates.push((candidate_id, symbol_count, last_updated));
+        }
+    }
+
+    // Sort by: 1) symbol count (desc), 2) last_updated (desc)
+    scored_candidates.sort_by(|a, b| {
+        b.1.cmp(&a.1) // More symbols first
+            .then_with(|| b.2.cmp(&a.2)) // More recent LAST-UPDATED first
+    });
+
+    // Try candidates in order until we find one with ALL symbols
+    for (candidate_id, symbol_count, _last_updated) in &scored_candidates {
+        if *symbol_count == user_symbols.len() {
+            // This candidate has all the symbols - use it for everything
+            for symbol in &user_symbols {
+                ctx.register_import(importing_module, symbol.clone(), *candidate_id);
+            }
+            return;
+        }
+    }
+
+    // No single candidate has all symbols.
+    // Mark all as unresolved to maintain atomicity.
+    for symbol in &user_symbols {
+        ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+    }
+}
+
+/// Resolve all imports from a single source module name atomically (with tracing).
+#[cfg(feature = "tracing")]
+fn resolve_imports_from_module_traced<T: Tracer>(
+    ctx: &mut ResolverContext,
+    importing_module: ModuleId,
+    from_module_name: &str,
+    symbols: &[String],
+    tracer: &mut T,
+) {
+    // Separate built-in OID nodes from user-defined symbols
+    let mut builtin_oid_symbols = Vec::new();
+    let mut user_symbols = Vec::new();
+
+    for symbol in symbols {
+        if is_macro_symbol(symbol) {
+            continue;
+        }
+        if ctx.builtin_symbol_to_node.contains_key(symbol) {
+            builtin_oid_symbols.push(symbol.clone());
+        } else if let Some(DefinitionRef::Builtin(_)) = ctx.lookup_definition(from_module_name, symbol) {
+            continue;
+        } else {
+            user_symbols.push(symbol.clone());
+        }
+    }
+
+    // Register builtin OID imports
+    for symbol in &builtin_oid_symbols {
+        if let Some(node_id) = ctx.builtin_symbol_to_node.get(symbol).copied() {
+            ctx.register_module_node_symbol(importing_module, symbol.clone(), node_id);
+        }
+    }
+
+    if user_symbols.is_empty() {
+        return;
+    }
+
+    // Get candidate modules for this source name
+    let candidates: Vec<ModuleId> = ctx
+        .module_index
+        .get(from_module_name)
+        .cloned()
+        .unwrap_or_default();
+
+    if candidates.is_empty() {
+        for symbol in &user_symbols {
+            crate::trace_event!(
+                tracer,
+                TraceLevel::Debug,
+                TraceEvent::ImportUnresolved {
+                    importing_module,
+                    from_module: from_module_name,
+                    symbol,
+                }
+            );
+            ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+        }
+        return;
+    }
+
+    // Score candidates
+    let mut scored_candidates: Vec<(ModuleId, usize, Option<String>)> = Vec::new();
+    let total_symbols = user_symbols.len();
+
+    for &candidate_id in &candidates {
+        if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
+            let symbol_count = user_symbols
+                .iter()
+                .filter(|sym| {
+                    hir_module
+                        .definitions
+                        .iter()
+                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.as_str()))
+                })
+                .count();
+
+            let last_updated = extract_last_updated(ctx, candidate_id);
+
+            crate::trace_event!(
+                tracer,
+                TraceLevel::Debug,
+                TraceEvent::ImportCandidateScored {
+                    from_module: from_module_name,
+                    candidate_id,
+                    symbols_found: symbol_count,
+                    total: total_symbols,
+                }
+            );
+
+            scored_candidates.push((candidate_id, symbol_count, last_updated));
+        }
+    }
+
+    // Sort by: 1) symbol count (desc), 2) last_updated (desc)
+    scored_candidates.sort_by(|a, b| {
+        b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2))
+    });
+
+    // Try candidates in order until we find one with ALL symbols
+    for (candidate_id, symbol_count, _last_updated) in &scored_candidates {
+        if *symbol_count == user_symbols.len() {
+            crate::trace_event!(
+                tracer,
+                TraceLevel::Debug,
+                TraceEvent::ImportCandidateChosen {
+                    from_module: from_module_name,
+                    chosen_id: *candidate_id,
+                }
+            );
+
+            for symbol in &user_symbols {
+                ctx.register_import(importing_module, symbol.clone(), *candidate_id);
+            }
+            return;
+        }
+    }
+
+    // No single candidate has all symbols - mark all as unresolved
+    for symbol in &user_symbols {
+        crate::trace_event!(
+            tracer,
+            TraceLevel::Debug,
+            TraceEvent::ImportUnresolved {
+                importing_module,
+                from_module: from_module_name,
+                symbol,
+            }
+        );
+        ctx.record_unresolved_import(importing_module, from_module_name, symbol);
     }
 }
 

@@ -93,6 +93,28 @@ impl StringInterner {
     pub fn data_size(&self) -> usize {
         self.data.len()
     }
+
+    /// Decompose the interner into its raw parts for serialization.
+    ///
+    /// Returns `(data, offsets)` where `data` is the concatenated string buffer
+    /// and `offsets[i]` is the start of string `i`.
+    #[must_use]
+    pub fn into_parts(self) -> (String, Vec<u32>) {
+        (self.data, self.offsets)
+    }
+
+    /// Reconstruct an interner from raw parts.
+    ///
+    /// Note: The deduplication table is not rebuilt. This interner can be used
+    /// for lookups but will not deduplicate new strings efficiently.
+    #[must_use]
+    pub fn from_parts(data: String, offsets: Vec<u32>) -> Self {
+        Self {
+            data,
+            offsets,
+            dedup: BTreeMap::new(),
+        }
+    }
 }
 
 #[cfg(test)]

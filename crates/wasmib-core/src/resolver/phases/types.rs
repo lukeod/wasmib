@@ -115,7 +115,9 @@ fn create_user_types(ctx: &mut ResolverContext) {
 
     for (module_idx, _def_idx, td) in type_defs {
         let hir_module = &ctx.hir_modules[module_idx];
-        let module_id = *ctx.module_index.get(&hir_module.name.name).unwrap();
+        let module_id = *ctx.module_index.get(&hir_module.name.name)
+            .and_then(|v| v.first())
+            .unwrap();
 
         let name = ctx.intern(&td.name.name);
 
@@ -209,7 +211,9 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
 
     for (module_idx, type_name, base_name) in type_refs {
         let hir_module = &ctx.hir_modules[module_idx];
-        let module_id = *ctx.module_index.get(&hir_module.name.name).unwrap();
+        let module_id = *ctx.module_index.get(&hir_module.name.name)
+            .and_then(|v| v.first())
+            .unwrap();
 
         // Look up the type and its base
         if let (Some(type_id), Some(parent_id)) = (

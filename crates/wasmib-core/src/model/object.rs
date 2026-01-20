@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 /// An item in an INDEX clause.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexItem {
     /// The index object node.
     pub object: NodeId,
@@ -23,6 +24,7 @@ impl IndexItem {
 
 /// Index specification for a row object.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexSpec {
     /// Index items.
     pub items: Vec<IndexItem>,
@@ -44,6 +46,7 @@ impl IndexSpec {
 
 /// A resolved OBJECT-TYPE definition.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResolvedObject {
     /// Object identifier.
     pub id: ObjectId,
@@ -119,6 +122,7 @@ impl ResolvedObject {
 
 /// A resolved NOTIFICATION-TYPE or TRAP-TYPE definition.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResolvedNotification {
     /// Notification identifier.
     pub id: super::ids::NotificationId,

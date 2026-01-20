@@ -55,10 +55,12 @@ pub use types::{
 };
 
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Unresolved reference tracking.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnresolvedReferences {
     /// Unresolved imports.
     pub imports: Vec<UnresolvedImport>,
@@ -89,6 +91,7 @@ impl UnresolvedReferences {
 
 /// An unresolved import.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnresolvedImport {
     /// Module requesting the import.
     pub importing_module: ModuleId,
@@ -100,6 +103,7 @@ pub struct UnresolvedImport {
 
 /// An unresolved type reference.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnresolvedType {
     /// Module containing the reference.
     pub module: ModuleId,
@@ -111,6 +115,7 @@ pub struct UnresolvedType {
 
 /// An unresolved OID component.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnresolvedOid {
     /// Module containing the definition.
     pub module: ModuleId,
@@ -122,6 +127,7 @@ pub struct UnresolvedOid {
 
 /// An unresolved index object.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnresolvedIndex {
     /// Module containing the row.
     pub module: ModuleId,
@@ -129,6 +135,37 @@ pub struct UnresolvedIndex {
     pub row: StrId,
     /// Unresolved index object name.
     pub index_object: StrId,
+}
+
+/// Decomposed model for serialization.
+///
+/// This struct contains all data needed to reconstruct a Model.
+/// It exposes internal storage directly for efficient serialization.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ModelParts {
+    /// String interner data (concatenated strings).
+    pub strings_data: String,
+    /// String interner offsets.
+    pub strings_offsets: Vec<u32>,
+    /// All resolved modules.
+    pub modules: Vec<ResolvedModule>,
+    /// All OID tree nodes.
+    pub nodes: Vec<OidNode>,
+    /// All resolved types.
+    pub types: Vec<ResolvedType>,
+    /// All resolved objects.
+    pub objects: Vec<ResolvedObject>,
+    /// All resolved notifications.
+    pub notifications: Vec<ResolvedNotification>,
+    /// OID to node ID mapping (as Vec for serialization).
+    pub oid_to_node: Vec<(Oid, NodeId)>,
+    /// Module name to module ID mapping (as Vec for serialization).
+    pub module_name_to_id: Vec<(StrId, ModuleId)>,
+    /// Root node IDs.
+    pub roots: Vec<NodeId>,
+    /// Unresolved references.
+    pub unresolved: UnresolvedReferences,
 }
 
 /// The resolved MIB model.
@@ -489,6 +526,44 @@ impl Model {
     /// Get mutable unresolved references.
     pub fn unresolved_mut(&mut self) -> &mut UnresolvedReferences {
         &mut self.unresolved
+    }
+
+    // === Serialization ===
+
+    /// Decompose the model into parts for serialization.
+    #[must_use]
+    pub fn into_parts(self) -> ModelParts {
+        let (strings_data, strings_offsets) = self.strings.into_parts();
+        ModelParts {
+            strings_data,
+            strings_offsets,
+            modules: self.modules,
+            nodes: self.nodes,
+            types: self.types,
+            objects: self.objects,
+            notifications: self.notifications,
+            oid_to_node: self.oid_to_node.into_iter().collect(),
+            module_name_to_id: self.module_name_to_id.into_iter().collect(),
+            roots: self.roots,
+            unresolved: self.unresolved,
+        }
+    }
+
+    /// Reconstruct a model from serialized parts.
+    #[must_use]
+    pub fn from_parts(parts: ModelParts) -> Self {
+        Self {
+            strings: StringInterner::from_parts(parts.strings_data, parts.strings_offsets),
+            modules: parts.modules,
+            nodes: parts.nodes,
+            types: parts.types,
+            objects: parts.objects,
+            notifications: parts.notifications,
+            oid_to_node: parts.oid_to_node.into_iter().collect(),
+            module_name_to_id: parts.module_name_to_id.into_iter().collect(),
+            roots: parts.roots,
+            unresolved: parts.unresolved,
+        }
     }
 }
 

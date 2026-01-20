@@ -23,18 +23,18 @@ pub fn analyze_semantics(ctx: &mut ResolverContext) {
 
 /// Infer node kinds from SYNTAX and context.
 fn infer_node_kinds(ctx: &mut ResolverContext) {
-    // Collect OBJECT-TYPE definitions with their syntax
+    // Collect OBJECT-TYPE definitions with their syntax and module name
     let object_types: Vec<_> = ctx
         .hir_modules
         .iter()
-        .enumerate()
-        .flat_map(|(module_idx, module)| {
+        .flat_map(|module| {
+            let module_name = module.name.name.clone();
             module
                 .definitions
                 .iter()
                 .filter_map(move |def| {
                     if let HirDefinition::ObjectType(obj) = def {
-                        Some((module_idx, obj.clone()))
+                        Some((module_name.clone(), obj.clone()))
                     } else {
                         None
                     }
@@ -43,8 +43,8 @@ fn infer_node_kinds(ctx: &mut ResolverContext) {
         .collect();
 
     // First pass: identify TABLEs and ROWs
-    for (_module_idx, obj) in &object_types {
-        if let Some(node_id) = ctx.lookup_node(&obj.name.name) {
+    for (module_name, obj) in &object_types {
+        if let Some(node_id) = ctx.lookup_node_in_module(module_name, &obj.name.name) {
             let kind = if obj.syntax.is_sequence_of() {
                 NodeKind::Table
             } else if obj.index.is_some() || obj.augments.is_some() {
@@ -100,41 +100,43 @@ fn collect_row_children(ctx: &ResolverContext, node_id: NodeId) -> Vec<NodeId> {
 /// Resolve table semantics (INDEX and AUGMENTS).
 fn resolve_table_semantics(ctx: &mut ResolverContext) {
     // Collect OBJECT-TYPEs with INDEX or AUGMENTS
+    // Iterate over all registered ModuleIds to get the correct ModuleId for each HirModule
     let table_defs: Vec<_> = ctx
-        .hir_modules
+        .module_id_to_hir_index
         .iter()
-        .enumerate()
-        .flat_map(|(module_idx, module)| {
-            module
-                .definitions
-                .iter()
-                .filter_map(move |def| {
-                    if let HirDefinition::ObjectType(obj) = def {
-                        if obj.index.is_some() || obj.augments.is_some() {
-                            return Some((
-                                module_idx,
-                                obj.name.name.clone(),
-                                obj.index.clone(),
-                                obj.augments.clone(),
-                            ));
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module.definitions.iter().filter_map(move |def| {
+                        if let HirDefinition::ObjectType(obj) = def {
+                            if obj.index.is_some() || obj.augments.is_some() {
+                                return Some((
+                                    module_id,
+                                    obj.name.name.clone(),
+                                    obj.index.clone(),
+                                    obj.augments.clone(),
+                                ));
+                            }
                         }
-                    }
-                    None
+                        None
+                    })
                 })
         })
         .collect();
 
-    for (module_idx, name, index_opt, augments_opt) in table_defs {
-        let module_name = &ctx.hir_modules[module_idx].name.name;
-        let module_id = match ctx.module_index.get(module_name) {
-            Some(&id) => id,
+    for (module_id, name, index_opt, augments_opt) in table_defs {
+        let module_name = match ctx.model.get_module(module_id) {
+            Some(m) => ctx.model.get_str(m.name).to_string(),
             None => continue,
         };
 
         // Resolve INDEX objects
         if let Some(ref index_items) = index_opt {
             for item in index_items {
-                if ctx.lookup_node(&item.object.name).is_none() {
+                // INDEX objects can be local or imported (lookup_node_in_module handles all cases)
+                if ctx.lookup_node_in_module(&module_name, &item.object.name).is_none() {
                     let row_str = ctx.intern(&name);
                     let index_str = ctx.intern(&item.object.name);
                     ctx.model
@@ -151,7 +153,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
 
         // Resolve AUGMENTS target
         if let Some(ref augments_sym) = augments_opt {
-            if ctx.lookup_node(&augments_sym.name).is_none() {
+            if ctx.lookup_node_in_module(&module_name, &augments_sym.name).is_none() {
                 ctx.record_unresolved_oid(module_id, &name, &augments_sym.name);
             }
         }
@@ -160,33 +162,34 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
 
 /// Create ResolvedObject entries for all OBJECT-TYPEs.
 fn create_resolved_objects(ctx: &mut ResolverContext) {
-    // Collect OBJECT-TYPE definitions
+    // Collect all (ModuleId, HirObjectType) pairs
+    // We iterate over all registered ModuleIds to get the correct ModuleId for each HirModule
     let object_types: Vec<_> = ctx
-        .hir_modules
+        .module_id_to_hir_index
         .iter()
-        .enumerate()
-        .flat_map(|(module_idx, module)| {
-            module
-                .definitions
-                .iter()
-                .filter_map(move |def| {
-                    if let HirDefinition::ObjectType(obj) = def {
-                        Some((module_idx, obj.clone()))
-                    } else {
-                        None
-                    }
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module.definitions.iter().filter_map(move |def| {
+                        if let HirDefinition::ObjectType(obj) = def {
+                            Some((module_id, obj.clone()))
+                        } else {
+                            None
+                        }
+                    })
                 })
         })
         .collect();
 
-    for (module_idx, obj) in object_types {
-        let module_name = &ctx.hir_modules[module_idx].name.name;
-        let module_id = match ctx.module_index.get(module_name) {
-            Some(&id) => id,
+    for (module_id, obj) in object_types {
+        let module_name = match ctx.model.get_module(module_id) {
+            Some(m) => ctx.model.get_str(m.name).to_string(),
             None => continue,
         };
 
-        let node_id = match ctx.lookup_node(&obj.name.name) {
+        let node_id = match ctx.lookup_node_in_module(&module_name, &obj.name.name) {
             Some(id) => id,
             None => continue,
         };
@@ -226,7 +229,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             let items: Vec<_> = index_items
                 .iter()
                 .filter_map(|item| {
-                    ctx.lookup_node(&item.object.name)
+                    ctx.lookup_node_in_module(&module_name, &item.object.name)
                         .map(|node_id| IndexItem::new(node_id, item.implied))
                 })
                 .collect();
@@ -237,7 +240,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
 
         // Handle AUGMENTS
         if let Some(ref augments_sym) = obj.augments {
-            resolved.augments = ctx.lookup_node(&augments_sym.name);
+            resolved.augments = ctx.lookup_node_in_module(&module_name, &augments_sym.name);
         }
 
         // Handle inline enums
@@ -260,9 +263,9 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
 
         let obj_id = ctx.model.add_object(resolved);
 
-        // Update node with object reference
+        // Update node with object reference (match by module AND label)
         if let Some(node) = ctx.model.get_node_mut(node_id) {
-            if let Some(def) = node.definitions.iter_mut().find(|d| d.label == name) {
+            if let Some(def) = node.definitions.iter_mut().find(|d| d.label == name && d.module == module_id) {
                 def.object = Some(obj_id);
             }
         }
@@ -316,11 +319,11 @@ fn hir_status_to_status(status: crate::hir::HirStatus) -> Status {
 mod tests {
     use super::*;
     use crate::hir::{
-        HirIndexItem, HirModule, HirObjectType, HirOidAssignment, HirOidComponent, HirTypeSyntax,
+        HirImport, HirIndexItem, HirModule, HirObjectType, HirOidAssignment, HirOidComponent, HirTypeSyntax,
         HirAccess, HirDefinition, HirStatus, Symbol,
     };
     use crate::lexer::Span;
-    use crate::resolver::phases::{registration::register_modules, oids::resolve_oids, types::resolve_types};
+    use crate::resolver::phases::{imports::resolve_imports, registration::register_modules, oids::resolve_oids, types::resolve_types};
     use alloc::vec;
 
     fn make_object_type(
@@ -344,9 +347,16 @@ mod tests {
         })
     }
 
-    fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
+    /// Create a test module with imports.
+    /// imports is a list of (symbol, from_module) pairs.
+    fn make_test_module_with_imports(name: &str, defs: Vec<HirDefinition>, imports: Vec<(&str, &str)>) -> HirModule {
         let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
         module.definitions = defs;
+        // HirImport::new takes (module, symbol, span)
+        module.imports = imports
+            .into_iter()
+            .map(|(sym, from)| HirImport::new(Symbol::from_str(from), Symbol::from_str(sym), Span::new(0, 0)))
+            .collect();
         module
     }
 
@@ -362,16 +372,21 @@ mod tests {
             None,
         );
 
-        let modules = vec![make_test_module("TEST-MIB", vec![table])];
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![table],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
         resolve_oids(&mut ctx);
         analyze_semantics(&mut ctx);
 
         // Check table node kind
-        if let Some(node_id) = ctx.lookup_node("testTable") {
+        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testTable") {
             if let Some(node) = ctx.model.get_node(node_id) {
                 assert_eq!(node.kind, NodeKind::Table);
             }
@@ -390,16 +405,21 @@ mod tests {
             Some(vec![HirIndexItem::new(Symbol::from_str("testIndex"), false)]),
         );
 
-        let modules = vec![make_test_module("TEST-MIB", vec![row])];
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![row],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
         resolve_oids(&mut ctx);
         analyze_semantics(&mut ctx);
 
         // Check row node kind
-        if let Some(node_id) = ctx.lookup_node("testEntry") {
+        if let Some(node_id) = ctx.lookup_node_in_module("TEST-MIB", "testEntry") {
             if let Some(node) = ctx.model.get_node(node_id) {
                 assert_eq!(node.kind, NodeKind::Row);
             }
@@ -418,10 +438,15 @@ mod tests {
             None,
         );
 
-        let modules = vec![make_test_module("TEST-MIB", vec![obj])];
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
         resolve_oids(&mut ctx);
         analyze_semantics(&mut ctx);

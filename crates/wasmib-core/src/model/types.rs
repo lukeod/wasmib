@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 /// SMI base type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BaseType {
     /// Signed 32-bit integer.
     Integer32,
@@ -52,6 +53,7 @@ impl BaseType {
 
 /// Size constraint for OCTET STRING types.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SizeConstraint {
     /// (min, max) pairs for allowed sizes.
     pub ranges: Vec<(u32, u32)>,
@@ -77,6 +79,7 @@ impl SizeConstraint {
 
 /// Value range constraint for INTEGER types.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueConstraint {
     /// (min, max) pairs for allowed values.
     pub ranges: Vec<(i64, i64)>,
@@ -94,6 +97,7 @@ impl ValueConstraint {
 
 /// Named enumeration values for INTEGER types.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumValues {
     /// (value, label) pairs.
     pub values: Vec<(i64, StrId)>,
@@ -127,6 +131,7 @@ impl EnumValues {
 
 /// Named bit definitions for BITS types.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitDefinitions {
     /// (bit position, label) pairs.
     pub bits: Vec<(u32, StrId)>,
@@ -142,6 +147,7 @@ impl BitDefinitions {
 
 /// Status of a definition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Status {
     /// Currently in use.
     #[default]
@@ -166,6 +172,7 @@ impl Status {
 
 /// Access level of an object.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Access {
     /// Can only be read.
     ReadOnly,
@@ -204,6 +211,7 @@ impl Access {
 
 /// A resolved type definition.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResolvedType {
     /// Type identifier.
     pub id: TypeId,

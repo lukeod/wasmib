@@ -49,6 +49,9 @@ pub mod builtins;
 mod context;
 mod phases;
 
+#[cfg(feature = "tracing")]
+pub mod tracing;
+
 pub use builtins::{
     resolve_builtin_symbol, BaseModule, BuiltinBaseType, BuiltinMacro,
     BuiltinOidNode, BuiltinSymbol, BuiltinTextualConvention, TcBaseSyntax, TcConstraint,
@@ -60,9 +63,9 @@ use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
 use alloc::vec::Vec;
 use context::ResolverContext;
-use phases::{
-    analyze_semantics, register_modules, resolve_imports, resolve_oids, resolve_types,
-};
+use phases::{analyze_semantics, deduplicate_definitions, register_modules, resolve_imports, resolve_oids, resolve_types};
+#[cfg(feature = "tracing")]
+use phases::{resolve_imports_traced, resolve_oids_traced};
 
 /// Resolver configuration.
 #[derive(Clone, Debug, Default)]
@@ -128,12 +131,13 @@ impl Resolver {
 
     /// Resolve HIR modules into a Model.
     ///
-    /// Resolution proceeds in five phases:
+    /// Resolution proceeds in six phases:
     /// 1. Module registration
     /// 2. Import resolution
     /// 3. Type resolution
     /// 4. OID resolution
     /// 5. Semantic analysis
+    /// 6. Deduplication (remove identical definitions from duplicate module files)
     ///
     /// Unresolved references are tracked but don't fail resolution
     /// (unless `allow_partial` is false in config).
@@ -155,6 +159,77 @@ impl Resolver {
 
         // Phase 5: Semantic analysis
         analyze_semantics(&mut ctx);
+
+        // Phase 6: Deduplicate identical definitions from duplicate module files
+        deduplicate_definitions(&mut ctx.model);
+
+        // Collect diagnostics
+        let diagnostics = self.collect_diagnostics(&ctx);
+
+        ResolveResult {
+            model: ctx.model,
+            diagnostics,
+        }
+    }
+
+    /// Resolve HIR modules into a Model with tracing support.
+    ///
+    /// The tracer receives structured events during resolution, enabling
+    /// debugging of OID resolution issues and import conflicts.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use wasmib_core::resolver::{Resolver, tracing::{Tracer, TraceLevel, TraceEvent}};
+    ///
+    /// struct StderrTracer;
+    /// impl Tracer for StderrTracer {
+    ///     fn trace(&mut self, level: TraceLevel, event: TraceEvent<'_>) {
+    ///         eprintln!("[{:?}] {:?}", level, event);
+    ///     }
+    /// }
+    ///
+    /// let resolver = Resolver::new();
+    /// let result = resolver.resolve_with_tracer(modules, &mut StderrTracer);
+    /// ```
+    #[must_use]
+    #[cfg(feature = "tracing")]
+    pub fn resolve_with_tracer<T: tracing::Tracer>(
+        &self,
+        modules: Vec<HirModule>,
+        tracer: &mut T,
+    ) -> ResolveResult {
+        use tracing::{Phase, TraceEvent, TraceLevel};
+
+        let mut ctx = ResolverContext::new(modules);
+
+        // Phase 1: Register all modules and their definitions
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Registration });
+        register_modules(&mut ctx);
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Registration });
+
+        // Phase 2: Resolve imports
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Imports });
+        resolve_imports_traced(&mut ctx, tracer);
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Imports });
+
+        // Phase 3: Resolve types
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Types });
+        resolve_types(&mut ctx);
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Types });
+
+        // Phase 4: Resolve OIDs
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Oids });
+        resolve_oids_traced(&mut ctx, tracer);
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Oids });
+
+        // Phase 5: Semantic analysis
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseStart { phase: Phase::Semantics });
+        analyze_semantics(&mut ctx);
+        crate::trace_event!(tracer, TraceLevel::Info, TraceEvent::PhaseEnd { phase: Phase::Semantics });
+
+        // Phase 6: Deduplicate identical definitions from duplicate module files
+        deduplicate_definitions(&mut ctx.model);
 
         // Collect diagnostics
         let diagnostics = self.collect_diagnostics(&ctx);
@@ -226,7 +301,7 @@ pub fn is_base_module(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::hir::{
-        HirAccess, HirDefinition, HirModule, HirObjectType, HirOidAssignment, HirOidComponent,
+        HirAccess, HirDefinition, HirImport, HirModule, HirObjectType, HirOidAssignment, HirOidComponent,
         HirStatus, HirTypeSyntax, Symbol,
     };
     use crate::lexer::Span;
@@ -235,6 +310,19 @@ mod tests {
     fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
         let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
         module.definitions = defs;
+        module
+    }
+
+    /// Create a test module with imports.
+    /// imports is a list of (symbol, from_module) pairs.
+    fn make_test_module_with_imports(name: &str, defs: Vec<HirDefinition>, imports: Vec<(&str, &str)>) -> HirModule {
+        let mut module = HirModule::new(Symbol::from_str(name), Span::new(0, 0));
+        module.definitions = defs;
+        // HirImport::new takes (module, symbol, span)
+        module.imports = imports
+            .into_iter()
+            .map(|(sym, from)| HirImport::new(Symbol::from_str(from), Symbol::from_str(sym), Span::new(0, 0)))
+            .collect();
         module
     }
 
@@ -273,7 +361,12 @@ mod tests {
             ],
         );
 
-        let modules = vec![make_test_module("TEST-MIB", vec![obj])];
+        // Module must import "enterprises" from SNMPv2-SMI
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
         let resolver = Resolver::new();
         let result = resolver.resolve(modules);
 

@@ -46,12 +46,22 @@ pub struct ResolverContext {
     pub model: Model,
     /// HIR modules being resolved.
     pub hir_modules: Vec<HirModule>,
-    /// Module name -> ModuleId mapping.
-    pub module_index: BTreeMap<String, ModuleId>,
+    /// Module name -> list of ModuleIds (handles duplicate module names).
+    /// Multiple files may declare the same MODULE-IDENTITY name.
+    pub module_index: BTreeMap<String, Vec<ModuleId>>,
+    /// ModuleId -> index in hir_modules for reverse lookup.
+    pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
     /// (module_name, symbol_name) -> DefinitionRef mapping.
     pub definition_index: BTreeMap<(String, String), DefinitionRef>,
-    /// Symbol name -> NodeId mapping for OID resolution.
-    pub symbol_to_node: BTreeMap<String, NodeId>,
+    /// Symbol name -> NodeId mapping for OID resolution (built-ins only).
+    pub builtin_symbol_to_node: BTreeMap<String, NodeId>,
+    /// Per-module symbol -> NodeId mapping for module-local definitions.
+    /// Key: (ModuleId, symbol_name) -> NodeId (uses ModuleId for uniqueness)
+    pub module_symbol_to_node: BTreeMap<(ModuleId, String), NodeId>,
+    /// Import declarations: (ModuleId, symbol) -> source ModuleId
+    /// Used for dynamic lookup during OID resolution.
+    /// Tracks which specific module was chosen for each import.
+    pub module_imports: BTreeMap<(ModuleId, String), ModuleId>,
     /// Symbol name -> TypeId mapping for type resolution.
     pub symbol_to_type: BTreeMap<String, TypeId>,
     /// Built-in OID node index -> NodeId mapping.
@@ -65,8 +75,11 @@ impl ResolverContext {
             model: Model::new(),
             hir_modules,
             module_index: BTreeMap::new(),
+            module_id_to_hir_index: BTreeMap::new(),
             definition_index: BTreeMap::new(),
-            symbol_to_node: BTreeMap::new(),
+            builtin_symbol_to_node: BTreeMap::new(),
+            module_symbol_to_node: BTreeMap::new(),
+            module_imports: BTreeMap::new(),
             symbol_to_type: BTreeMap::new(),
             builtin_oid_to_node: BTreeMap::new(),
         }
@@ -114,9 +127,63 @@ impl ResolverContext {
         None
     }
 
-    /// Look up a node by symbol name.
+    /// Look up a node by symbol name in a specific module's scope (by ModuleId).
+    /// Order: 1) module-local definitions, 2) imports (recursive), 3) built-ins.
+    pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
+        // Check module-local definitions
+        if let Some(node_id) = self.module_symbol_to_node
+            .get(&(module_id, name.to_string()))
+            .copied()
+        {
+            return Some(node_id);
+        }
+
+        // Check imports - look up in the source module
+        if let Some(&source_module_id) = self.module_imports
+            .get(&(module_id, name.to_string()))
+        {
+            // Recursively look up in the source module
+            return self.lookup_node_for_module(source_module_id, name);
+        }
+
+        // No fallback to builtins - they must be explicitly imported
+        None
+    }
+
+    /// Look up a node by symbol name in a module identified by name.
+    /// If multiple modules have the same name, tries all candidates.
+    /// Order: 1) module-local definitions, 2) imports (recursive).
+    /// Built-ins must be explicitly imported.
+    pub fn lookup_node_in_module(&self, module_name: &str, name: &str) -> Option<NodeId> {
+        // Get all modules with this name
+        if let Some(candidates) = self.module_index.get(module_name) {
+            // Try each candidate
+            for &module_id in candidates {
+                if let Some(node_id) = self.lookup_node_for_module(module_id, name) {
+                    return Some(node_id);
+                }
+            }
+        }
+
+        // No fallback to builtins - they must be explicitly imported
+        None
+    }
+
+    /// Register an import declaration for later dynamic lookup.
+    pub fn register_import(&mut self, importing_module: ModuleId, symbol: String, source_module: ModuleId) {
+        self.module_imports.insert((importing_module, symbol), source_module);
+    }
+
+    /// Get the HIR module for a ModuleId.
+    pub fn get_hir_module(&self, module_id: ModuleId) -> Option<&HirModule> {
+        self.module_id_to_hir_index.get(&module_id)
+            .and_then(|&idx| self.hir_modules.get(idx))
+    }
+
+    /// Look up a built-in node by symbol name (used in tests).
+    #[cfg(test)]
     pub fn lookup_node(&self, name: &str) -> Option<NodeId> {
-        self.symbol_to_node.get(name).copied()
+        self.builtin_symbol_to_node.get(name).copied()
     }
 
     /// Look up a type by symbol name.
@@ -124,9 +191,9 @@ impl ResolverContext {
         self.symbol_to_type.get(name).copied()
     }
 
-    /// Register a symbol -> node mapping.
-    pub fn register_node_symbol(&mut self, name: String, node_id: NodeId) {
-        self.symbol_to_node.insert(name, node_id);
+    /// Register a module-scoped symbol -> node mapping.
+    pub fn register_module_node_symbol(&mut self, module_id: ModuleId, symbol_name: String, node_id: NodeId) {
+        self.module_symbol_to_node.insert((module_id, symbol_name), node_id);
     }
 
     /// Register a symbol -> type mapping.
@@ -167,8 +234,8 @@ impl ResolverContext {
                 self.model.add_root(node_id);
             }
 
-            // Register symbol -> node mapping
-            self.symbol_to_node.insert(builtin.name.into(), node_id);
+            // Register symbol -> node mapping (built-ins are globally visible)
+            self.builtin_symbol_to_node.insert(builtin.name.into(), node_id);
             self.builtin_oid_to_node.insert(idx, node_id);
 
             // Register OID -> node mapping

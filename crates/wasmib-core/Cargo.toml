@@ -11,8 +11,10 @@ repository.workspace = true
 default = ["std"]
 std = []
 tracing = []
+serde = ["dep:serde"]
 
 [dependencies]
+serde = { version = "1", default-features = false, features = ["alloc", "derive"], optional = true }
 
 [lints]
 workspace = true

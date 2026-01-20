@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 /// Node kind inferred from definition context.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NodeKind {
     /// Internal node (no definition, just OID path).
     #[default]
@@ -45,6 +46,7 @@ impl NodeKind {
 
 /// A node in the OID tree.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OidNode {
     /// The arc (subidentifier) at this position.
     pub subid: u32,
@@ -108,6 +110,7 @@ impl OidNode {
 
 /// A single definition at an OID.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeDefinition {
     /// Module where this definition appears.
     pub module: ModuleId,

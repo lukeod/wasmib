@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 /// A revision entry in a module.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Revision {
     /// Revision date string.
     pub date: StrId,
@@ -22,6 +23,7 @@ impl Revision {
 
 /// A resolved MIB module.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResolvedModule {
     /// Module identifier.
     pub id: ModuleId,

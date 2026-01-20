@@ -30,7 +30,7 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         .collect();
 
     // Register each HIR module
-    for (_hir_idx, module_name, def_names) in module_info {
+    for (hir_idx, module_name, def_names) in module_info {
         // Intern module name
         let name_str = ctx.intern(&module_name);
 
@@ -43,10 +43,16 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         // Add to model
         let module_id = ctx.model.add_module(module);
 
-        // Index by name
-        ctx.module_index.insert(module_name.clone(), module_id);
+        // Track ModuleId -> hir_modules index mapping
+        ctx.module_id_to_hir_index.insert(module_id, hir_idx);
 
-        // Index each definition
+        // Append to candidates list (handles duplicate module names)
+        ctx.module_index
+            .entry(module_name.clone())
+            .or_default()
+            .push(module_id);
+
+        // Index each definition (keyed by module name for lookup_definition)
         for (def_idx, def_name) in def_names {
             ctx.definition_index.insert(
                 (module_name.clone(), def_name),

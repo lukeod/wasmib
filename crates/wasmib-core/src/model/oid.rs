@@ -6,6 +6,7 @@ use core::fmt;
 
 /// A fully-resolved numeric OID.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Oid {
     arcs: Vec<u32>,
 }
