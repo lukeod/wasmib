@@ -420,11 +420,12 @@ impl<'src> Lexer<'src> {
                 let start = self.pos;
                 self.pos += 3;
                 // Verify delimiter follows per libsmi: ([^a-zA-Z0-9-])|--
-                // A delimiter is: non-alphanumeric AND non-hyphen, OR double-hyphen (comment)
-                let next = self.peek().unwrap_or(0);
-                let is_delimiter = self.is_eof()
-                    || (!next.is_ascii_alphanumeric() && next != b'-')
-                    || (next == b'-' && self.peek_at(1) == Some(b'-'));
+                // A delimiter is: EOF, non-alphanumeric AND non-hyphen, OR double-hyphen (comment)
+                let is_delimiter = match self.peek() {
+                    None => true, // EOF is a valid delimiter
+                    Some(b'-') => self.peek_at(1) == Some(b'-'), // -- is a valid delimiter
+                    Some(b) => !b.is_ascii_alphanumeric(), // Non-alphanumeric is a delimiter
+                };
                 if is_delimiter {
                     self.state = LexerState::Normal;
                     return self.token(TokenKind::KwEnd, start);
