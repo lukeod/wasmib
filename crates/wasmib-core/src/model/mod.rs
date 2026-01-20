@@ -55,7 +55,7 @@ pub use types::{
 };
 
 use crate::lexer::Span;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -658,6 +658,9 @@ impl Model {
 
     /// Rebuild all lookup indices from raw data.
     /// Called after deserialization.
+    ///
+    /// Uses BFS traversal from roots to compute OIDs efficiently in O(n) time
+    /// instead of O(n × depth) by processing parents before children.
     fn rebuild_indices(&mut self) {
         self.oid_to_node.clear();
         self.module_name_to_id.clear();
@@ -670,8 +673,16 @@ impl Model {
             }
         }
 
-        // Name-to-nodes index and OID-to-node index
-        for idx in 0..self.nodes.len() {
+        // Find root nodes and initialize BFS queue with their OIDs
+        let mut queue: VecDeque<(usize, Oid)> = VecDeque::new();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if node.parent.is_none() {
+                queue.push_back((idx, Oid::new(alloc::vec![node.subid])));
+            }
+        }
+
+        // BFS: process parents before children, extending parent OIDs
+        while let Some((idx, oid)) = queue.pop_front() {
             let Some(node_id) = NodeId::from_index(idx) else {
                 continue;
             };
@@ -687,28 +698,17 @@ impl Model {
                     .push(node_id);
             }
 
-            // Compute and register OID
-            let oid = self.compute_oid_for_index(idx);
-            self.oid_to_node.insert(oid, node_id);
-        }
-    }
+            // Register OID
+            self.oid_to_node.insert(oid.clone(), node_id);
 
-    /// Compute OID for a node by index (avoids borrow issues during rebuild).
-    fn compute_oid_for_index(&self, idx: usize) -> Oid {
-        let mut arcs = Vec::new();
-        let mut current_idx = Some(idx);
-
-        while let Some(i) = current_idx {
-            if let Some(node) = self.nodes.get(i) {
-                arcs.push(node.subid);
-                current_idx = node.parent.map(|id| id.to_index());
-            } else {
-                break;
+            // Queue children with their OIDs (parent OID + child subid)
+            for &child_id in &node.children {
+                let child_idx = child_id.to_index();
+                if let Some(child_node) = self.nodes.get(child_idx) {
+                    queue.push_back((child_idx, oid.child(child_node.subid)));
+                }
             }
         }
-
-        arcs.reverse();
-        Oid::new(arcs)
     }
 }
 
