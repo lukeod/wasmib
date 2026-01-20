@@ -82,32 +82,43 @@ impl ResolverContext {
     }
 
     /// Look up a node by symbol name in a specific module's scope (by ModuleId).
-    /// Order: 1) module-local definitions, 2) imports (recursive), 3) built-ins.
+    /// Order: 1) module-local definitions, 2) imports (iteratively following import chain).
+    /// Cycle-safe: returns None if a cyclic import chain is detected.
     pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
-        // Check module-local definitions
-        if let Some(node_id) = self.module_symbol_to_node
-            .get(&(module_id, name.to_string()))
-            .copied()
-        {
-            return Some(node_id);
-        }
+        let mut visited = BTreeSet::new();
+        let mut current = module_id;
 
-        // Check imports - look up in the source module
-        if let Some(&source_module_id) = self.module_imports
-            .get(&(module_id, name.to_string()))
-        {
-            // Recursively look up in the source module
-            return self.lookup_node_for_module(source_module_id, name);
-        }
+        loop {
+            // Cycle detection: if we've seen this module before, stop
+            if !visited.insert(current) {
+                return None;
+            }
 
-        // No fallback to builtins - they must be explicitly imported
-        None
+            // Check module-local definitions
+            if let Some(node_id) = self.module_symbol_to_node
+                .get(&(current, name.to_string()))
+                .copied()
+            {
+                return Some(node_id);
+            }
+
+            // Check imports - continue to source module
+            if let Some(&source_module_id) = self.module_imports
+                .get(&(current, name.to_string()))
+            {
+                current = source_module_id;
+                continue;
+            }
+
+            // No more imports to follow
+            return None;
+        }
     }
 
     /// Look up a node by symbol name in a module identified by name.
     /// If multiple modules have the same name, tries all candidates.
-    /// Order: 1) module-local definitions, 2) imports (recursive).
-    /// Built-ins must be explicitly imported.
+    /// Order: 1) module-local definitions, 2) imports (following import chain).
+    /// Cycle-safe: cyclic imports are detected and handled gracefully.
     pub fn lookup_node_in_module(&self, module_name: &str, name: &str) -> Option<NodeId> {
         // Get all modules with this name
         if let Some(candidates) = self.module_index.get(module_name) {
@@ -209,5 +220,140 @@ impl ResolverContext {
             definition: def_str,
             component: comp_str,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hir::{HirModule, Symbol};
+    use crate::lexer::Span;
+    use crate::model::{OidNode, ResolvedModule};
+
+    fn make_test_module(name: &str) -> HirModule {
+        HirModule::new(Symbol::from_str(name), Span::SYNTHETIC)
+    }
+
+    #[test]
+    fn test_lookup_node_for_module_detects_cycle() {
+        // Create a context with modules that have cyclic imports:
+        // Module A imports "foo" from Module B
+        // Module B imports "foo" from Module A
+        let hir_modules = vec![
+            make_test_module("ModuleA"),
+            make_test_module("ModuleB"),
+        ];
+        let mut ctx = ResolverContext::new(hir_modules);
+
+        // Register modules - ResolvedModule::new takes (ModuleId, StrId)
+        // Use placeholder IDs that will be replaced by add_module
+        let name_a = ctx.intern("ModuleA");
+        let name_b = ctx.intern("ModuleB");
+        let placeholder_id = ModuleId::from_raw(1).unwrap();
+        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+
+        // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
+        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_b, "foo".into(), module_a);
+
+        // This should return None (cycle detected) instead of infinite recursion
+        let result = ctx.lookup_node_for_module(module_a, "foo");
+        assert!(result.is_none(), "Should return None on cyclic import, not infinite loop");
+    }
+
+    #[test]
+    fn test_lookup_node_for_module_follows_valid_chain() {
+        // Create a context where A imports "foo" from B, and B defines "foo"
+        let hir_modules = vec![
+            make_test_module("ModuleA"),
+            make_test_module("ModuleB"),
+        ];
+        let mut ctx = ResolverContext::new(hir_modules);
+
+        // Register modules
+        let name_a = ctx.intern("ModuleA");
+        let name_b = ctx.intern("ModuleB");
+        let placeholder_id = ModuleId::from_raw(1).unwrap();
+        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+
+        // Create a node in module B - OidNode::new takes (subid, parent)
+        let node = OidNode::new(1, None);
+        let node_id = ctx.model.add_node(node);
+        ctx.register_module_node_symbol(module_b, "foo".into(), node_id);
+
+        // A imports "foo" from B
+        ctx.register_import(module_a, "foo".into(), module_b);
+
+        // Looking up "foo" in module A should find it via the import chain
+        let result = ctx.lookup_node_for_module(module_a, "foo");
+        assert_eq!(result, Some(node_id));
+    }
+
+    #[test]
+    fn test_lookup_node_for_module_local_takes_precedence() {
+        // Create a context where A has local "foo" and also imports "foo" from B
+        // Local should take precedence
+        let hir_modules = vec![
+            make_test_module("ModuleA"),
+            make_test_module("ModuleB"),
+        ];
+        let mut ctx = ResolverContext::new(hir_modules);
+
+        // Register modules
+        let name_a = ctx.intern("ModuleA");
+        let name_b = ctx.intern("ModuleB");
+        let placeholder_id = ModuleId::from_raw(1).unwrap();
+        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+
+        // Create nodes in both modules
+        let node_a = OidNode::new(1, None);
+        let node_a_id = ctx.model.add_node(node_a);
+        ctx.register_module_node_symbol(module_a, "foo".into(), node_a_id);
+
+        let node_b = OidNode::new(2, None);
+        let node_b_id = ctx.model.add_node(node_b);
+        ctx.register_module_node_symbol(module_b, "foo".into(), node_b_id);
+
+        // A also imports "foo" from B (should be ignored since local exists)
+        ctx.register_import(module_a, "foo".into(), module_b);
+
+        // Looking up "foo" in module A should find the local one
+        let result = ctx.lookup_node_for_module(module_a, "foo");
+        assert_eq!(result, Some(node_a_id));
+    }
+
+    #[test]
+    fn test_lookup_node_for_module_longer_chain() {
+        // A imports from B, B imports from C, C defines "foo"
+        let hir_modules = vec![
+            make_test_module("ModuleA"),
+            make_test_module("ModuleB"),
+            make_test_module("ModuleC"),
+        ];
+        let mut ctx = ResolverContext::new(hir_modules);
+
+        let name_a = ctx.intern("ModuleA");
+        let name_b = ctx.intern("ModuleB");
+        let name_c = ctx.intern("ModuleC");
+        let placeholder_id = ModuleId::from_raw(1).unwrap();
+        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+        let module_c = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_c));
+
+        // Create node in C
+        let node = OidNode::new(1, None);
+        let node_id = ctx.model.add_node(node);
+        ctx.register_module_node_symbol(module_c, "foo".into(), node_id);
+
+        // A -> B -> C import chain
+        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_b, "foo".into(), module_c);
+
+        // Looking up "foo" in A should follow the chain to C
+        let result = ctx.lookup_node_for_module(module_a, "foo");
+        assert_eq!(result, Some(node_id));
     }
 }
