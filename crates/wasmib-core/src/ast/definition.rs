@@ -316,11 +316,64 @@ pub struct ModuleComplianceDef {
     pub description: QuotedString,
     /// REFERENCE clause.
     pub reference: Option<QuotedString>,
+    /// MODULE clauses.
+    pub modules: Vec<ComplianceModule>,
     /// OID assignment.
     pub oid_assignment: OidAssignment,
     /// Source location.
     pub span: Span,
-    // TODO: MODULE clauses with MANDATORY-GROUPS, GROUP, OBJECT
+}
+
+/// A MODULE clause in MODULE-COMPLIANCE.
+#[derive(Clone, Debug)]
+pub struct ComplianceModule {
+    /// Module name (None = current module).
+    pub module_name: Option<Ident>,
+    /// Module OID (optional, rare).
+    pub module_oid: Option<OidAssignment>,
+    /// MANDATORY-GROUPS list.
+    pub mandatory_groups: Vec<Ident>,
+    /// GROUP and OBJECT refinements.
+    pub compliances: Vec<Compliance>,
+    /// Source location.
+    pub span: Span,
+}
+
+/// A compliance item (GROUP or OBJECT refinement).
+#[derive(Clone, Debug)]
+pub enum Compliance {
+    /// GROUP clause - conditionally required group.
+    Group(ComplianceGroup),
+    /// OBJECT clause - object refinement.
+    Object(ComplianceObject),
+}
+
+/// GROUP clause in MODULE-COMPLIANCE.
+#[derive(Clone, Debug)]
+pub struct ComplianceGroup {
+    /// Group reference.
+    pub group: Ident,
+    /// DESCRIPTION.
+    pub description: QuotedString,
+    /// Source location.
+    pub span: Span,
+}
+
+/// OBJECT refinement in MODULE-COMPLIANCE.
+#[derive(Clone, Debug)]
+pub struct ComplianceObject {
+    /// Object reference.
+    pub object: Ident,
+    /// SYNTAX restriction (optional).
+    pub syntax: Option<SyntaxClause>,
+    /// WRITE-SYNTAX restriction (optional).
+    pub write_syntax: Option<SyntaxClause>,
+    /// MIN-ACCESS restriction (optional).
+    pub min_access: Option<AccessClause>,
+    /// DESCRIPTION (required per RFC 2580).
+    pub description: QuotedString,
+    /// Source location.
+    pub span: Span,
 }
 
 /// AGENT-CAPABILITIES definition.

@@ -3,11 +3,12 @@
 //! Parses SMIv1/SMIv2 MIB source text into an AST.
 
 use crate::ast::{
-    AccessClause, AccessKeyword, AccessValue, AugmentsClause, Constraint, DefValClause,
-    DefValContent, Definition, DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem,
-    Module, NamedNumber, ObjectTypeDef, OidAssignment, OidComponent, QuotedString, Range,
-    RangeValue, SequenceField, StatusClause, StatusValue, SyntaxClause, TextualConventionDef,
-    TypeAssignmentDef, TypeSyntax, ValueAssignmentDef,
+    AccessClause, AccessKeyword, AccessValue, AugmentsClause, Compliance, ComplianceGroup,
+    ComplianceModule, ComplianceObject, Constraint, DefValClause, DefValContent, Definition,
+    DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem, Module, NamedNumber,
+    ObjectTypeDef, OidAssignment, OidComponent, QuotedString, Range, RangeValue, SequenceField,
+    StatusClause, StatusValue, SyntaxClause, TextualConventionDef, TypeAssignmentDef, TypeSyntax,
+    ValueAssignmentDef,
 };
 use crate::lexer::{Diagnostic, Lexer, Severity, Span, Token, TokenKind};
 use alloc::string::String;
@@ -1786,9 +1787,10 @@ impl<'src> Parser<'src> {
             None
         };
 
-        // Skip MODULE clauses for now
+        // Parse MODULE clauses
+        let mut modules = Vec::new();
         while self.check(TokenKind::KwModule) {
-            self.skip_module_clause();
+            modules.push(self.parse_compliance_module()?);
         }
 
         // ::= { oid }
@@ -1803,22 +1805,135 @@ impl<'src> Parser<'src> {
                 status,
                 description,
                 reference,
+                modules,
                 oid_assignment: oid,
                 span,
             },
         ))
     }
 
-    /// Skip MODULE clause in MODULE-COMPLIANCE (simplified).
-    fn skip_module_clause(&mut self) {
-        self.advance(); // MODULE
-        // Skip until we see ::= or another MODULE
-        while !self.is_eof()
-            && !self.check(TokenKind::ColonColonEqual)
-            && !self.check(TokenKind::KwModule)
-        {
-            self.advance();
+    /// Parse MODULE clause in MODULE-COMPLIANCE.
+    fn parse_compliance_module(&mut self) -> Result<ComplianceModule, Diagnostic> {
+        let start = self.current_span().start;
+        self.expect(TokenKind::KwModule)?;
+
+        // Optional module name (uppercase identifier)
+        let module_name = if self.check(TokenKind::UppercaseIdent) {
+            let name_token = self.advance();
+            Some(Ident::new(
+                self.text(name_token.span).into(),
+                name_token.span,
+            ))
+        } else {
+            None
+        };
+
+        // Optional module OID (rare)
+        let module_oid = if self.check(TokenKind::LBrace) {
+            Some(self.parse_oid_assignment()?)
+        } else {
+            None
+        };
+
+        // MANDATORY-GROUPS (optional)
+        let mandatory_groups = if self.check(TokenKind::KwMandatoryGroups) {
+            self.parse_mandatory_groups()?
+        } else {
+            Vec::new()
+        };
+
+        // GROUP and OBJECT refinements
+        let mut compliances = Vec::new();
+        while self.check(TokenKind::KwGroup) || self.check(TokenKind::KwObject) {
+            if self.check(TokenKind::KwGroup) {
+                compliances.push(Compliance::Group(self.parse_compliance_group()?));
+            } else {
+                compliances.push(Compliance::Object(self.parse_compliance_object()?));
+            }
         }
+
+        let end = self.current_span().start;
+        Ok(ComplianceModule {
+            module_name,
+            module_oid,
+            mandatory_groups,
+            compliances,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse MANDATORY-GROUPS clause.
+    fn parse_mandatory_groups(&mut self) -> Result<Vec<Ident>, Diagnostic> {
+        self.expect(TokenKind::KwMandatoryGroups)?;
+        self.expect(TokenKind::LBrace)?;
+        let groups = self.parse_identifier_list()?;
+        self.expect(TokenKind::RBrace)?;
+        Ok(groups)
+    }
+
+    /// Parse GROUP clause in MODULE-COMPLIANCE.
+    fn parse_compliance_group(&mut self) -> Result<ComplianceGroup, Diagnostic> {
+        let start = self.current_span().start;
+        self.expect(TokenKind::KwGroup)?;
+        let group = self.parse_identifier_as_ident()?;
+        self.expect(TokenKind::KwDescription)?;
+        let description = self.parse_quoted_string()?;
+        let end = description.span.end;
+        Ok(ComplianceGroup {
+            group,
+            description,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse OBJECT clause in MODULE-COMPLIANCE.
+    fn parse_compliance_object(&mut self) -> Result<ComplianceObject, Diagnostic> {
+        let start = self.current_span().start;
+        self.expect(TokenKind::KwObject)?;
+        let object = self.parse_identifier_as_ident()?;
+
+        // Optional SYNTAX
+        let syntax = if self.check(TokenKind::KwSyntax) {
+            self.advance();
+            Some(self.parse_syntax_clause()?)
+        } else {
+            None
+        };
+
+        // Optional WRITE-SYNTAX
+        let write_syntax = if self.check(TokenKind::KwWriteSyntax) {
+            self.advance();
+            Some(self.parse_syntax_clause()?)
+        } else {
+            None
+        };
+
+        // Optional MIN-ACCESS
+        let min_access = if self.check(TokenKind::KwMinAccess) {
+            Some(self.parse_access_clause()?)
+        } else {
+            None
+        };
+
+        // Required DESCRIPTION
+        self.expect(TokenKind::KwDescription)?;
+        let description = self.parse_quoted_string()?;
+
+        let end = description.span.end;
+        Ok(ComplianceObject {
+            object,
+            syntax,
+            write_syntax,
+            min_access,
+            description,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse an identifier and return it as an Ident.
+    fn parse_identifier_as_ident(&mut self) -> Result<Ident, Diagnostic> {
+        let token = self.expect_identifier()?;
+        Ok(Ident::new(self.text(token.span).into(), token.span))
     }
 
     /// Parse AGENT-CAPABILITIES definition.
@@ -2210,6 +2325,303 @@ mod tests {
             assert!(matches!(defval.value, DefValContent::Integer(-100)));
         } else {
             panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_mandatory_groups() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    MANDATORY-GROUPS { testGroup1, testGroup2 }
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert_eq!(module.body.len(), 1);
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            assert_eq!(def.name.name, "testCompliance");
+            assert_eq!(def.modules.len(), 1);
+            let cm = &def.modules[0];
+            assert!(cm.module_name.is_none()); // Current module
+            assert_eq!(cm.mandatory_groups.len(), 2);
+            assert_eq!(cm.mandatory_groups[0].name, "testGroup1");
+            assert_eq!(cm.mandatory_groups[1].name, "testGroup2");
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_with_module_name() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE OTHER-MIB
+                    MANDATORY-GROUPS { otherGroup }
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            assert_eq!(def.modules.len(), 1);
+            let cm = &def.modules[0];
+            assert_eq!(cm.module_name.as_ref().unwrap().name, "OTHER-MIB");
+            assert_eq!(cm.mandatory_groups.len(), 1);
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_group_refinement() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    MANDATORY-GROUPS { testGroup }
+                    GROUP optionalGroup
+                        DESCRIPTION "Optional group for advanced features"
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            let cm = &def.modules[0];
+            assert_eq!(cm.mandatory_groups.len(), 1);
+            assert_eq!(cm.compliances.len(), 1);
+            if let crate::ast::Compliance::Group(g) = &cm.compliances[0] {
+                assert_eq!(g.group.name, "optionalGroup");
+                assert!(g.description.value.contains("Optional group"));
+            } else {
+                panic!("expected Group compliance");
+            }
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_object_refinement() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    MANDATORY-GROUPS { testGroup }
+                    OBJECT testObject
+                        SYNTAX Integer32 (0..100)
+                        MIN-ACCESS read-only
+                        DESCRIPTION "Restricted object"
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            let cm = &def.modules[0];
+            assert_eq!(cm.compliances.len(), 1);
+            if let crate::ast::Compliance::Object(o) = &cm.compliances[0] {
+                assert_eq!(o.object.name, "testObject");
+                assert!(o.syntax.is_some());
+                assert!(o.min_access.is_some());
+                assert_eq!(
+                    o.min_access.as_ref().unwrap().value,
+                    AccessValue::ReadOnly
+                );
+                assert!(o.description.value.contains("Restricted"));
+            } else {
+                panic!("expected Object compliance");
+            }
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_object_write_syntax() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    MANDATORY-GROUPS { testGroup }
+                    OBJECT testString
+                        SYNTAX DisplayString (SIZE (0..64))
+                        WRITE-SYNTAX DisplayString (SIZE (1..32))
+                        DESCRIPTION "String with different read/write sizes"
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            let cm = &def.modules[0];
+            if let crate::ast::Compliance::Object(o) = &cm.compliances[0] {
+                assert!(o.syntax.is_some());
+                assert!(o.write_syntax.is_some());
+                assert!(o.min_access.is_none());
+            } else {
+                panic!("expected Object compliance");
+            }
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_multiple_modules() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    MANDATORY-GROUPS { localGroup }
+                MODULE OTHER-MIB
+                    MANDATORY-GROUPS { otherGroup }
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            assert_eq!(def.modules.len(), 2);
+            assert!(def.modules[0].module_name.is_none());
+            assert_eq!(
+                def.modules[1].module_name.as_ref().unwrap().name,
+                "OTHER-MIB"
+            );
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_empty_module() {
+        // MODULE without MANDATORY-GROUPS is valid (all groups optional)
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "Test compliance"
+                MODULE
+                    GROUP optionalGroup
+                        DESCRIPTION "Everything is optional"
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            let cm = &def.modules[0];
+            assert!(cm.mandatory_groups.is_empty());
+            assert_eq!(cm.compliances.len(), 1);
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_if_mib_style() {
+        // Test based on real IF-MIB ifCompliance structure
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            ifCompliance MODULE-COMPLIANCE
+                STATUS deprecated
+                DESCRIPTION "A compliance statement for SNMP entities"
+
+                MODULE
+                    MANDATORY-GROUPS { ifGeneralGroup, ifStackGroup }
+
+                    GROUP ifFixedLengthGroup
+                    DESCRIPTION "Mandatory for character-oriented interfaces"
+
+                    GROUP ifHCFixedLengthGroup
+                    DESCRIPTION "Mandatory for high-speed fixed-length interfaces"
+
+                    GROUP ifPacketGroup
+                    DESCRIPTION "Mandatory for packet-oriented interfaces"
+
+                    OBJECT ifLinkUpDownTrapEnable
+                        MIN-ACCESS read-only
+                        DESCRIPTION "Write access is not required."
+
+                    OBJECT ifPromiscuousMode
+                        MIN-ACCESS read-only
+                        DESCRIPTION "Write access is not required."
+
+                ::= { ifConformance 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert!(module.diagnostics.is_empty(), "Parse errors: {:?}", module.diagnostics);
+        assert_eq!(module.body.len(), 1);
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            assert_eq!(def.name.name, "ifCompliance");
+            assert_eq!(def.status.value, StatusValue::Deprecated);
+            assert_eq!(def.modules.len(), 1);
+
+            let cm = &def.modules[0];
+            assert!(cm.module_name.is_none()); // "this module"
+            assert_eq!(cm.mandatory_groups.len(), 2);
+            assert_eq!(cm.mandatory_groups[0].name, "ifGeneralGroup");
+            assert_eq!(cm.mandatory_groups[1].name, "ifStackGroup");
+
+            // Count GROUP and OBJECT compliances
+            let groups: Vec<_> = cm
+                .compliances
+                .iter()
+                .filter(|c| matches!(c, crate::ast::Compliance::Group(_)))
+                .collect();
+            let objects: Vec<_> = cm
+                .compliances
+                .iter()
+                .filter(|c| matches!(c, crate::ast::Compliance::Object(_)))
+                .collect();
+
+            assert_eq!(groups.len(), 3);
+            assert_eq!(objects.len(), 2);
+
+            // Verify object refinements
+            if let crate::ast::Compliance::Object(o) = &cm.compliances[3] {
+                assert_eq!(o.object.name, "ifLinkUpDownTrapEnable");
+                assert!(o.min_access.is_some());
+                assert_eq!(
+                    o.min_access.as_ref().unwrap().value,
+                    AccessValue::ReadOnly
+                );
+            } else {
+                panic!("expected Object compliance");
+            }
+        } else {
+            panic!("expected ModuleCompliance");
+        }
+    }
+
+    #[test]
+    fn test_parse_module_compliance_no_modules() {
+        // Edge case: MODULE-COMPLIANCE without any MODULE clauses
+        // This is technically invalid per RFC 2580, but we should handle it gracefully
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            emptyCompliance MODULE-COMPLIANCE
+                STATUS current
+                DESCRIPTION "No module clauses"
+                ::= { testCompliances 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ModuleCompliance(def) = &module.body[0] {
+            assert!(def.modules.is_empty());
+        } else {
+            panic!("expected ModuleCompliance");
         }
     }
 }

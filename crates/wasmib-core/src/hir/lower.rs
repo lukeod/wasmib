@@ -9,9 +9,10 @@
 //! - Unification of SMIv1/SMIv2 forms
 
 use super::definition::{
-    HirAgentCapabilities, HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity,
-    HirNotification, HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType,
-    HirRevision, HirTrapInfo, HirTypeDef, HirValueAssignment,
+    HirAgentCapabilities, HirComplianceGroup, HirComplianceModule, HirComplianceObject,
+    HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity, HirNotification,
+    HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType, HirRevision,
+    HirTrapInfo, HirTypeDef, HirValueAssignment,
 };
 use super::module::{HirImport, HirModule};
 use super::normalize::{is_smiv2_base_module, normalize_import, normalize_type_name};
@@ -353,8 +354,59 @@ fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleComplianc
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
+        modules: def.modules.iter().map(lower_compliance_module).collect(),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
+    }
+}
+
+/// Lower a compliance MODULE clause to HIR.
+fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
+    HirComplianceModule {
+        module_name: m.module_name.as_ref().map(|n| Symbol::new(n.name.clone())),
+        mandatory_groups: m
+            .mandatory_groups
+            .iter()
+            .map(|g| Symbol::new(g.name.clone()))
+            .collect(),
+        groups: m
+            .compliances
+            .iter()
+            .filter_map(|c| match c {
+                ast::Compliance::Group(g) => Some(lower_compliance_group(g)),
+                _ => None,
+            })
+            .collect(),
+        objects: m
+            .compliances
+            .iter()
+            .filter_map(|c| match c {
+                ast::Compliance::Object(o) => Some(lower_compliance_object(o)),
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
+/// Lower a compliance GROUP clause to HIR.
+fn lower_compliance_group(g: &ast::ComplianceGroup) -> HirComplianceGroup {
+    HirComplianceGroup {
+        group: Symbol::new(g.group.name.clone()),
+        description: g.description.value.clone(),
+    }
+}
+
+/// Lower a compliance OBJECT clause to HIR.
+fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
+    HirComplianceObject {
+        object: Symbol::new(o.object.name.clone()),
+        syntax: o.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
+        write_syntax: o
+            .write_syntax
+            .as_ref()
+            .map(|s| lower_type_syntax(&s.syntax)),
+        min_access: o.min_access.as_ref().map(|a| lower_access(&a.value)),
+        description: o.description.value.clone(),
     }
 }
 

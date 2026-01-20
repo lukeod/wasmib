@@ -297,11 +297,49 @@ pub struct HirModuleCompliance {
     pub description: String,
     /// REFERENCE.
     pub reference: Option<String>,
+    /// MODULE clauses.
+    pub modules: Vec<HirComplianceModule>,
     /// OID assignment.
     pub oid: HirOidAssignment,
     /// Source span.
     pub span: Span,
-    // TODO: MODULE clauses with MANDATORY-GROUPS, GROUP, OBJECT
+}
+
+/// Normalized MODULE clause in MODULE-COMPLIANCE.
+#[derive(Clone, Debug)]
+pub struct HirComplianceModule {
+    /// Module name (None = current module).
+    pub module_name: Option<Symbol>,
+    /// MANDATORY-GROUPS.
+    pub mandatory_groups: Vec<Symbol>,
+    /// GROUP refinements.
+    pub groups: Vec<HirComplianceGroup>,
+    /// OBJECT refinements.
+    pub objects: Vec<HirComplianceObject>,
+}
+
+/// Normalized GROUP clause.
+#[derive(Clone, Debug)]
+pub struct HirComplianceGroup {
+    /// Group reference.
+    pub group: Symbol,
+    /// Description.
+    pub description: String,
+}
+
+/// Normalized OBJECT refinement.
+#[derive(Clone, Debug)]
+pub struct HirComplianceObject {
+    /// Object reference.
+    pub object: Symbol,
+    /// SYNTAX restriction.
+    pub syntax: Option<HirTypeSyntax>,
+    /// WRITE-SYNTAX restriction.
+    pub write_syntax: Option<HirTypeSyntax>,
+    /// MIN-ACCESS restriction.
+    pub min_access: Option<HirAccess>,
+    /// Description.
+    pub description: String,
 }
 
 /// AGENT-CAPABILITIES definition.

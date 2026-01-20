@@ -12,10 +12,10 @@ mod syntax;
 
 pub use common::{Ident, NamedNumber, QuotedString};
 pub use definition::{
-    AgentCapabilitiesDef, Definition, ErrorDef, MacroDefinitionDef, ModuleComplianceDef,
-    ModuleIdentityDef, NotificationGroupDef, NotificationTypeDef, ObjectGroupDef,
-    ObjectIdentityDef, ObjectTypeDef, TextualConventionDef, TrapTypeDef, TypeAssignmentDef,
-    ValueAssignmentDef,
+    AgentCapabilitiesDef, Compliance, ComplianceGroup, ComplianceModule, ComplianceObject,
+    Definition, ErrorDef, MacroDefinitionDef, ModuleComplianceDef, ModuleIdentityDef,
+    NotificationGroupDef, NotificationTypeDef, ObjectGroupDef, ObjectIdentityDef, ObjectTypeDef,
+    TextualConventionDef, TrapTypeDef, TypeAssignmentDef, ValueAssignmentDef,
 };
 pub use module::{DefinitionsKind, ExportsClause, ImportClause, Module};
 pub use oid::{OidAssignment, OidComponent};
