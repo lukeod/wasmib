@@ -11,6 +11,97 @@ use alloc::vec::Vec;
 #[cfg(feature = "tracing")]
 use crate::resolver::tracing::{TraceEvent, TraceLevel, Tracer};
 
+// ============================================================================
+// OidTracer trait - abstracts over tracing to eliminate code duplication
+// ============================================================================
+
+/// Trait for optional OID resolution tracing.
+///
+/// Methods default to no-ops, enabling zero-cost abstraction when tracing is disabled.
+/// This allows a single implementation of OID resolution logic to serve both
+/// traced and non-traced code paths.
+trait OidTracer {
+    /// Called at the start of each resolution pass.
+    fn trace_pass_start(&mut self, _pass: usize, _pending: usize) {}
+
+    /// Called at the end of each resolution pass.
+    fn trace_pass_end(&mut self, _pass: usize, _resolved: usize, _remaining: usize) {}
+
+    /// Called when looking up a symbol during OID resolution.
+    fn trace_lookup(&mut self, _module_id: ModuleId, _def_name: &str, _component: &str, _found: bool) {}
+
+    /// Called when an OID is successfully resolved.
+    fn trace_resolved(&mut self, _def_name: &str, _oid: &str, _node_id: NodeId) {}
+
+    /// Called when an OID component cannot be resolved.
+    fn trace_unresolved(&mut self, _def_name: &str, _component: &str) {}
+}
+
+/// No-op tracer for non-traced resolution.
+struct NoopOidTracer;
+
+impl OidTracer for NoopOidTracer {}
+
+/// Wrapper that adapts a `Tracer` to the `OidTracer` trait.
+#[cfg(feature = "tracing")]
+struct TracingWrapper<'a, T: Tracer>(&'a mut T);
+
+#[cfg(feature = "tracing")]
+impl<T: Tracer> OidTracer for TracingWrapper<'_, T> {
+    fn trace_pass_start(&mut self, pass: usize, pending: usize) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Info,
+            TraceEvent::OidPassStart { pass, pending }
+        );
+    }
+
+    fn trace_pass_end(&mut self, pass: usize, resolved: usize, remaining: usize) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Info,
+            TraceEvent::OidPassEnd {
+                pass,
+                resolved,
+                remaining,
+            }
+        );
+    }
+
+    fn trace_lookup(&mut self, module_id: ModuleId, def_name: &str, component: &str, found: bool) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Trace,
+            TraceEvent::OidLookup {
+                module_id,
+                def_name,
+                component,
+                found,
+            }
+        );
+    }
+
+    fn trace_resolved(&mut self, def_name: &str, oid: &str, node_id: NodeId) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Trace,
+            TraceEvent::OidResolved {
+                def_name,
+                oid,
+                node_id,
+            }
+        );
+    }
+
+    fn trace_unresolved(&mut self, def_name: &str, component: &str) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Debug,
+            TraceEvent::OidUnresolved { def_name, component }
+        );
+    }
+}
+
 /// Look up a node by symbol name in module scope (by ModuleId).
 fn lookup_node_scoped(ctx: &ResolverContext, module_id: ModuleId, symbol: &str) -> Option<NodeId> {
     ctx.lookup_node_for_module(module_id, symbol)
@@ -18,6 +109,17 @@ fn lookup_node_scoped(ctx: &ResolverContext, module_id: ModuleId, symbol: &str) 
 
 /// Resolve all OIDs across all modules.
 pub fn resolve_oids(ctx: &mut ResolverContext) {
+    resolve_oids_inner(ctx, &mut NoopOidTracer);
+}
+
+/// Resolve all OIDs across all modules with tracing support.
+#[cfg(feature = "tracing")]
+pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T) {
+    resolve_oids_inner(ctx, &mut TracingWrapper(tracer));
+}
+
+/// Core OID resolution logic, parameterized over tracing.
+fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR) {
     // Multi-pass resolution to handle forward references.
     // Keep iterating until no more definitions can be resolved.
     // Final: Derive OIDs for TRAP-TYPE definitions from enterprise + trap_number
@@ -29,19 +131,24 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
     let mut pending = oid_defs;
     let max_iterations = 20; // Safety limit to prevent infinite loops
 
-    for _iteration in 0..max_iterations {
+    for iteration in 0..max_iterations {
         if pending.is_empty() {
             break;
         }
 
+        tracer.trace_pass_start(iteration, pending.len());
+
         let initial_count = pending.len();
         let mut still_pending = Vec::new();
+        let mut pass_resolved = 0;
 
         for def in pending {
             // Try to resolve - check if the first component is now resolvable
             let first_resolvable = match &def.oid.components.first() {
                 Some(HirOidComponent::Name(sym)) => {
-                    lookup_node_scoped(ctx, def.module_id, &sym.name).is_some()
+                    let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
+                    tracer.trace_lookup(def.module_id, &def.def_name, &sym.name, found);
+                    found
                 }
                 Some(HirOidComponent::NamedNumber { .. })
                 | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true, // Named numbers create nodes
@@ -54,11 +161,15 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
             };
 
             if first_resolvable {
-                resolve_oid_definition(ctx, &def);
+                if resolve_oid_definition_inner(ctx, &def, tracer) {
+                    pass_resolved += 1;
+                }
             } else {
                 still_pending.push(def);
             }
         }
+
+        tracer.trace_pass_end(iteration, pass_resolved, still_pending.len());
 
         // No progress made - remaining definitions have unresolvable references
         if still_pending.len() == initial_count {
@@ -66,6 +177,7 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
             for def in still_pending {
                 match def.oid.components.first() {
                     Some(HirOidComponent::Name(sym)) => {
+                        tracer.trace_unresolved(&def.def_name, &sym.name);
                         ctx.record_unresolved_oid(
                             def.module_id,
                             &def.def_name,
@@ -75,6 +187,7 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
                     }
                     Some(HirOidComponent::QualifiedName { module, name }) => {
                         let qualified_name = alloc::format!("{}.{}", module.name, name.name);
+                        tracer.trace_unresolved(&def.def_name, &qualified_name);
                         ctx.record_unresolved_oid(
                             def.module_id,
                             &def.def_name,
@@ -170,129 +283,6 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
             module.add_node(trap_node_id);
         }
     }
-}
-
-/// Resolve all OIDs across all modules with tracing support.
-#[cfg(feature = "tracing")]
-pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T) {
-    // First pass: collect all definitions with OIDs
-    let CollectedDefinitions { oid_defs, trap_defs } = collect_oid_definitions(ctx);
-
-    // Process all definitions with multiple passes to handle forward references
-    let mut pending = oid_defs;
-    let max_iterations = 20;
-
-    for iteration in 0..max_iterations {
-        if pending.is_empty() {
-            break;
-        }
-
-        crate::trace_event!(
-            tracer,
-            TraceLevel::Info,
-            TraceEvent::OidPassStart {
-                pass: iteration,
-                pending: pending.len(),
-            }
-        );
-
-        let initial_count = pending.len();
-        let mut still_pending = Vec::new();
-        let mut pass_resolved = 0;
-
-        for def in pending {
-            let first_resolvable = match &def.oid.components.first() {
-                Some(HirOidComponent::Name(sym)) => {
-                    let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
-                    crate::trace_event!(
-                        tracer,
-                        TraceLevel::Trace,
-                        TraceEvent::OidLookup {
-                            module_id: def.module_id,
-                            def_name: &def.def_name,
-                            component: &sym.name,
-                            found,
-                        }
-                    );
-                    found
-                }
-                Some(HirOidComponent::NamedNumber { .. })
-                | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true,
-                Some(HirOidComponent::Number(_)) => true,
-                Some(HirOidComponent::QualifiedName { module, name }) => {
-                    ctx.lookup_node_in_module(&module.name, &name.name).is_some()
-                }
-                None => false,
-            };
-
-            if first_resolvable {
-                if resolve_oid_definition_traced(ctx, &def, tracer) {
-                    pass_resolved += 1;
-                }
-            } else {
-                still_pending.push(def);
-            }
-        }
-
-        crate::trace_event!(
-            tracer,
-            TraceLevel::Info,
-            TraceEvent::OidPassEnd {
-                pass: iteration,
-                resolved: pass_resolved,
-                remaining: still_pending.len(),
-            }
-        );
-
-        // No progress made - remaining definitions have unresolvable references
-        if still_pending.len() == initial_count {
-            for def in still_pending {
-                match def.oid.components.first() {
-                    Some(HirOidComponent::Name(sym)) => {
-                        crate::trace_event!(
-                            tracer,
-                            TraceLevel::Debug,
-                            TraceEvent::OidUnresolved {
-                                def_name: &def.def_name,
-                                component: &sym.name,
-                            }
-                        );
-                        ctx.record_unresolved_oid(
-                            def.module_id,
-                            &def.def_name,
-                            &sym.name,
-                            def.oid.span,
-                        );
-                    }
-                    Some(HirOidComponent::QualifiedName { module, name }) => {
-                        let qualified_name = alloc::format!("{}.{}", module.name, name.name);
-                        crate::trace_event!(
-                            tracer,
-                            TraceLevel::Debug,
-                            TraceEvent::OidUnresolved {
-                                def_name: &def.def_name,
-                                component: &qualified_name,
-                            }
-                        );
-                        ctx.record_unresolved_oid(
-                            def.module_id,
-                            &def.def_name,
-                            &qualified_name,
-                            def.oid.span,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            break;
-        }
-
-        pending = still_pending;
-    }
-
-    // Final pass: Derive OIDs for TRAP-TYPE definitions.
-    // OID = enterprise_oid.0.trap_number (per RFC 1215)
-    resolve_trap_type_definitions(ctx, trap_defs);
 }
 
 /// An OID definition pending resolution.
@@ -400,8 +390,12 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
     CollectedDefinitions { oid_defs, trap_defs }
 }
 
-/// Resolve a single OID definition.
-fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
+/// Resolve a single OID definition. Returns true if resolved successfully.
+fn resolve_oid_definition_inner<TR: OidTracer>(
+    ctx: &mut ResolverContext,
+    def: &OidDefinition,
+    tracer: &mut TR,
+) -> bool {
     let module_id = def.module_id;
 
     // Walk the OID components and build the path
@@ -414,15 +408,19 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
         match component {
             HirOidComponent::Name(sym) => {
                 // Look up by name using module-scoped lookup
-                if let Some(node_id) = lookup_node_scoped(ctx, module_id, &sym.name) {
+                let found = lookup_node_scoped(ctx, module_id, &sym.name);
+                tracer.trace_lookup(module_id, &def.def_name, &sym.name, found.is_some());
+
+                if let Some(node_id) = found {
                     current_node = Some(node_id);
                     if let Some(node) = ctx.model.get_node(node_id) {
                         current_oid = ctx.model.get_oid(node);
                     }
                 } else {
                     // Unresolved name reference
+                    tracer.trace_unresolved(&def.def_name, &sym.name);
                     ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name, def.oid.span);
-                    return;
+                    return false;
                 }
             }
             HirOidComponent::Number(arc) => {
@@ -500,10 +498,10 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                     }
                 } else {
                     // Unresolved qualified reference
-                    let qualified_name =
-                        alloc::format!("{}.{}", qual_module.name, name.name);
+                    let qualified_name = alloc::format!("{}.{}", qual_module.name, name.name);
+                    tracer.trace_unresolved(&def.def_name, &qualified_name);
                     ctx.record_unresolved_oid(module_id, &def.def_name, &qualified_name, def.oid.span);
-                    return;
+                    return false;
                 }
             }
             HirOidComponent::QualifiedNamedNumber {
@@ -584,226 +582,10 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                 if let Some(module) = ctx.model.get_module_mut(module_id) {
                     module.add_node(node_id);
                 }
-            }
-        }
-    }
-}
-
-/// Resolve a single OID definition with tracing. Returns true if resolved successfully.
-#[cfg(feature = "tracing")]
-fn resolve_oid_definition_traced<T: Tracer>(
-    ctx: &mut ResolverContext,
-    def: &OidDefinition,
-    tracer: &mut T,
-) -> bool {
-    let module_id = def.module_id;
-
-    // Walk the OID components and build the path
-    let mut current_node: Option<NodeId> = None;
-    let mut current_oid = Oid::new(Vec::new());
-
-    for (comp_idx, component) in def.oid.components.iter().enumerate() {
-        let is_last = comp_idx == def.oid.components.len() - 1;
-
-        match component {
-            HirOidComponent::Name(sym) => {
-                let found = lookup_node_scoped(ctx, module_id, &sym.name);
-
-                crate::trace_event!(
-                    tracer,
-                    TraceLevel::Trace,
-                    TraceEvent::OidLookup {
-                        module_id,
-                        def_name: &def.def_name,
-                        component: &sym.name,
-                        found: found.is_some(),
-                    }
-                );
-
-                if let Some(node_id) = found {
-                    current_node = Some(node_id);
-                    if let Some(node) = ctx.model.get_node(node_id) {
-                        current_oid = ctx.model.get_oid(node);
-                    }
-                } else {
-                    crate::trace_event!(
-                        tracer,
-                        TraceLevel::Debug,
-                        TraceEvent::OidUnresolved {
-                            def_name: &def.def_name,
-                            component: &sym.name,
-                        }
-                    );
-                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name, def.oid.span);
-                    return false;
-                }
-            }
-            HirOidComponent::Number(arc) => {
-                current_oid = current_oid.child(*arc);
-
-                if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
-                    current_node = Some(existing);
-                } else {
-                    let new_node = OidNode::new(*arc, current_node);
-                    let new_id = ctx.model.add_node(new_node).unwrap();
-
-                    if let Some(parent_id) = current_node {
-                        if let Some(parent) = ctx.model.get_node_mut(parent_id) {
-                            parent.add_child(new_id);
-                        }
-                    } else {
-                        ctx.model.add_root(new_id);
-                    }
-
-                    ctx.model.register_oid(current_oid.clone(), new_id);
-                    current_node = Some(new_id);
-                }
-            }
-            HirOidComponent::NamedNumber { name, number } => {
-                if let Some(node_id) = lookup_node_scoped(ctx, module_id, &name.name) {
-                    current_node = Some(node_id);
-                    if let Some(node) = ctx.model.get_node(node_id) {
-                        current_oid = ctx.model.get_oid(node);
-                    }
-                } else {
-                    current_oid = current_oid.child(*number);
-
-                    if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
-                        current_node = Some(existing);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
-                    } else {
-                        let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node).unwrap();
-
-                        if let Some(parent_id) = current_node {
-                            if let Some(parent) = ctx.model.get_node_mut(parent_id) {
-                                parent.add_child(new_id);
-                            }
-                        } else {
-                            ctx.model.add_root(new_id);
-                        }
-
-                        ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
-                        current_node = Some(new_id);
-                    }
-                }
-
-                if let Some(node_id) = current_node {
-                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
-                }
-            }
-            HirOidComponent::QualifiedName {
-                module: qual_module,
-                name,
-            } => {
-                // Look up in the specified module using cross-module lookup
-                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
-                    current_node = Some(node_id);
-                    if let Some(node) = ctx.model.get_node(node_id) {
-                        current_oid = ctx.model.get_oid(node);
-                    }
-                } else {
-                    // Unresolved qualified reference
-                    let qualified_name = alloc::format!("{}.{}", qual_module.name, name.name);
-                    crate::trace_event!(
-                        tracer,
-                        TraceLevel::Debug,
-                        TraceEvent::OidUnresolved {
-                            def_name: &def.def_name,
-                            component: &qualified_name,
-                        }
-                    );
-                    ctx.record_unresolved_oid(
-                        module_id,
-                        &def.def_name,
-                        &qualified_name,
-                        def.oid.span,
-                    );
-                    return false;
-                }
-            }
-            HirOidComponent::QualifiedNamedNumber {
-                module: qual_module,
-                name,
-                number,
-            } => {
-                // First try to look up in the specified module
-                if let Some(node_id) = ctx.lookup_node_in_module(&qual_module.name, &name.name) {
-                    current_node = Some(node_id);
-                    if let Some(node) = ctx.model.get_node(node_id) {
-                        current_oid = ctx.model.get_oid(node);
-                    }
-                } else {
-                    // Create node at the given number (like NamedNumber behavior)
-                    current_oid = current_oid.child(*number);
-
-                    if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
-                        current_node = Some(existing);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), existing);
-                    } else {
-                        let new_node = OidNode::new(*number, current_node);
-                        let new_id = ctx.model.add_node(new_node).unwrap();
-
-                        if let Some(parent_id) = current_node {
-                            if let Some(parent) = ctx.model.get_node_mut(parent_id) {
-                                parent.add_child(new_id);
-                            }
-                        } else {
-                            ctx.model.add_root(new_id);
-                        }
-
-                        ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name.name.clone(), new_id);
-                        current_node = Some(new_id);
-                    }
-                }
-
-                if let Some(node_id) = current_node {
-                    ctx.register_module_node_symbol(module_id, name.name.clone(), node_id);
-                }
-            }
-        }
-
-        // If this is the last component, add the definition
-        if is_last {
-            if let Some(node_id) = current_node {
-                let label = ctx.intern(&def.def_name);
-                let node_def = NodeDefinition::new(module_id, label);
-
-                if let Some(node) = ctx.model.get_node_mut(node_id) {
-                    node.add_definition(node_def);
-
-                    let kind = match def.def_kind {
-                        DefinitionKind::ObjectType => NodeKind::Scalar,
-                        DefinitionKind::ModuleIdentity
-                        | DefinitionKind::ObjectIdentity
-                        | DefinitionKind::ValueAssignment => NodeKind::Node,
-                        DefinitionKind::Notification => NodeKind::Notification,
-                        DefinitionKind::ObjectGroup | DefinitionKind::NotificationGroup => NodeKind::Group,
-                        DefinitionKind::ModuleCompliance => NodeKind::Compliance,
-                        DefinitionKind::AgentCapabilities => NodeKind::Capabilities,
-                    };
-                    node.kind = kind;
-                }
-
-                ctx.register_module_node_symbol(module_id, def.def_name.clone(), node_id);
-
-                if let Some(module) = ctx.model.get_module_mut(module_id) {
-                    module.add_node(node_id);
-                }
 
                 // Trace successful resolution
                 let oid_str = current_oid.to_dotted();
-                crate::trace_event!(
-                    tracer,
-                    TraceLevel::Trace,
-                    TraceEvent::OidResolved {
-                        def_name: &def.def_name,
-                        oid: &oid_str,
-                        node_id,
-                    }
-                );
+                tracer.trace_resolved(&def.def_name, &oid_str, node_id);
             }
         }
     }
