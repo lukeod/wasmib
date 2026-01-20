@@ -7,16 +7,22 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+tracing = ["wasmib-core/tracing"]
+dhat-heap = ["dep:dhat"]
+
 [dependencies]
-wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std"] }
+dhat = { version = "0.3", optional = true }
+wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std", "serde"] }
+rayon = "1.10"
+postcard = { version = "1", features = ["alloc"] }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
 
-[[bin]]
-name = "tokenize"
-path = "src/bin/tokenize.rs"
-
-[[bin]]
-name = "lexer_cmp"
-path = "src/bin/lexer_cmp.rs"
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true
