@@ -1172,12 +1172,12 @@ impl<'src> Parser<'src> {
                 let token = self.advance();
                 let text = self.text(token.span);
                 // Strip the quotes and H suffix: 'FF00'H -> FF00
-                let content = text
-                    .trim_start_matches('\'')
-                    .trim_end_matches('H')
-                    .trim_end_matches('h')
-                    .trim_end_matches('\'')
-                    .to_string();
+                // Format is always 'content'H or 'content'h, so slice directly
+                let content = if text.len() >= 4 {
+                    text[1..text.len() - 2].to_string()
+                } else {
+                    String::new()
+                };
                 Ok(DefValContent::HexString {
                     content,
                     span: token.span,
@@ -1189,12 +1189,12 @@ impl<'src> Parser<'src> {
                 let token = self.advance();
                 let text = self.text(token.span);
                 // Strip the quotes and B suffix: '1010'B -> 1010
-                let content = text
-                    .trim_start_matches('\'')
-                    .trim_end_matches('B')
-                    .trim_end_matches('b')
-                    .trim_end_matches('\'')
-                    .to_string();
+                // Format is always 'content'B or 'content'b, so slice directly
+                let content = if text.len() >= 4 {
+                    text[1..text.len() - 2].to_string()
+                } else {
+                    String::new()
+                };
                 Ok(DefValContent::BinaryString {
                     content,
                     span: token.span,
