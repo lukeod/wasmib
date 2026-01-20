@@ -68,12 +68,36 @@ impl StringInterner {
     }
 
     /// Get a string by its identifier.
+    ///
+    /// Returns the interned string, or an empty string if the ID is invalid.
+    /// Invalid IDs should not occur in normal operation since all `StrId`s are
+    /// created by `intern()`. However, bounds checking is performed to prevent
+    /// panics in WASM/no_std environments where panics are unrecoverable.
+    ///
+    /// # Safety Guarantee
+    ///
+    /// This method will never panic, even with an invalid `StrId`. In debug
+    /// builds, an assertion will fire for invalid IDs to help catch bugs.
     #[must_use]
     pub fn get(&self, id: StrId) -> &str {
         let idx = id.to_index();
-        let start = self.offsets[idx] as usize;
-        let end = self.offsets[idx + 1] as usize;
-        &self.data[start..end]
+
+        // SAFETY: Bounds checking prevents panics in WASM/no_std environments.
+        // In normal operation, all StrIds are created by intern() and are valid.
+        // Debug assertion helps catch bugs during development.
+        debug_assert!(
+            idx + 1 < self.offsets.len(),
+            "invalid StrId: index {} out of bounds (offsets len: {})",
+            idx,
+            self.offsets.len()
+        );
+
+        // Use checked indexing with fallback to prevent panics
+        let start = self.offsets.get(idx).map_or(0, |&v| v as usize);
+        let end = self.offsets.get(idx + 1).map_or(start, |&v| v as usize);
+
+        // Return the slice, or empty string if bounds are invalid
+        self.data.get(start..end).unwrap_or("")
     }
 
     /// Get the total number of interned strings.
@@ -129,8 +153,39 @@ impl StringInterner {
     ///
     /// Note: The deduplication table is not rebuilt. This interner can be used
     /// for lookups but will not deduplicate new strings efficiently.
+    ///
+    /// # Validation
+    ///
+    /// In debug builds, this function validates that:
+    /// - `offsets` is non-empty (contains at least the initial 0)
+    /// - `offsets` are monotonically non-decreasing
+    /// - All offsets are within bounds of `data.len()`
+    ///
+    /// Invalid data will trigger a debug assertion. In release builds, invalid
+    /// data may cause `get()` to return empty strings for affected indices.
     #[must_use]
     pub fn from_parts(data: String, offsets: Vec<u32>) -> Self {
+        // Validate structure in debug builds
+        debug_assert!(
+            !offsets.is_empty(),
+            "offsets must be non-empty (should contain at least initial 0)"
+        );
+        debug_assert!(
+            offsets.first().map_or(true, |&v| v == 0),
+            "first offset must be 0, got {:?}",
+            offsets.first()
+        );
+        debug_assert!(
+            offsets.windows(2).all(|w| w[0] <= w[1]),
+            "offsets must be monotonically non-decreasing"
+        );
+        debug_assert!(
+            offsets.last().map_or(true, |&v| (v as usize) <= data.len()),
+            "last offset {} exceeds data length {}",
+            offsets.last().unwrap_or(&0),
+            data.len()
+        );
+
         Self {
             data,
             offsets,
@@ -221,5 +276,50 @@ mod tests {
         // Long strings require O(n) scan
         assert_eq!(interner.find(&long), Some(id));
         assert_eq!(interner.find(&"y".repeat(100)), None);
+    }
+
+    #[test]
+    fn test_into_parts_and_from_parts() {
+        let mut interner = StringInterner::new();
+        let id1 = interner.intern("hello");
+        let id2 = interner.intern("world");
+
+        let (data, offsets) = interner.into_parts();
+        let restored = StringInterner::from_parts(data, offsets);
+
+        // IDs should still work after round-trip
+        assert_eq!(restored.get(id1), "hello");
+        assert_eq!(restored.get(id2), "world");
+    }
+
+    // Test that get() returns empty string for invalid IDs instead of panicking.
+    // This test only runs in release mode since debug builds will trigger assertions.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn test_get_invalid_id_returns_empty() {
+        let interner = StringInterner::new();
+
+        // Create an invalid StrId (index 999 doesn't exist in empty interner)
+        // This tests the bounds checking behavior
+        if let Some(invalid_id) = StrId::from_index(999) {
+            // Should not panic, should return empty string
+            assert_eq!(interner.get(invalid_id), "");
+        }
+    }
+
+    // Test that get() works correctly at boundaries
+    #[test]
+    fn test_get_at_boundaries() {
+        let mut interner = StringInterner::new();
+
+        // Intern several strings
+        let id0 = interner.intern("first");
+        let id1 = interner.intern("second");
+        let id2 = interner.intern("third");
+
+        // All should be retrievable
+        assert_eq!(interner.get(id0), "first");
+        assert_eq!(interner.get(id1), "second");
+        assert_eq!(interner.get(id2), "third");
     }
 }
