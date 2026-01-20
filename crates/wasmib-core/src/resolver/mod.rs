@@ -52,7 +52,7 @@ mod phases;
 pub mod tracing;
 
 use crate::hir::HirModule;
-use crate::lexer::{Diagnostic, Severity};
+use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
 use alloc::vec::Vec;
 use context::ResolverContext;
@@ -203,48 +203,39 @@ impl Resolver {
     /// Collect resolution diagnostics.
     fn collect_diagnostics(&self, ctx: &ResolverContext) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-
-        // Add diagnostics for unresolved references
         let unresolved = ctx.model.unresolved();
+
+        // Helper to push error diagnostic
+        let mut push_error = |span: Span, message: String| {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                span,
+                message,
+            });
+        };
 
         for imp in &unresolved.imports {
             let from_module = ctx.model.get_str(imp.from_module);
             let symbol = ctx.model.get_str(imp.symbol);
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                span: imp.span,
-                message: alloc::format!("Unresolved import: {}::{}", from_module, symbol),
-            });
+            push_error(imp.span, alloc::format!("Unresolved import: {}::{}", from_module, symbol));
         }
 
         for typ in &unresolved.types {
             let referrer = ctx.model.get_str(typ.referrer);
             let referenced = ctx.model.get_str(typ.referenced);
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                span: typ.span,
-                message: alloc::format!("Unresolved type reference in {}: {}", referrer, referenced),
-            });
+            push_error(typ.span, alloc::format!("Unresolved type reference in {}: {}", referrer, referenced));
         }
 
         for oid in &unresolved.oids {
             let definition = ctx.model.get_str(oid.definition);
             let component = ctx.model.get_str(oid.component);
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                span: oid.span,
-                message: alloc::format!("Unresolved OID component in {}: {}", definition, component),
-            });
+            push_error(oid.span, alloc::format!("Unresolved OID component in {}: {}", definition, component));
         }
 
         for idx in &unresolved.indexes {
             let row = ctx.model.get_str(idx.row);
             let index_obj = ctx.model.get_str(idx.index_object);
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                span: idx.span,
-                message: alloc::format!("Unresolved INDEX object in {}: {}", row, index_obj),
-            });
+            push_error(idx.span, alloc::format!("Unresolved INDEX object in {}: {}", row, index_obj));
         }
 
         diagnostics
