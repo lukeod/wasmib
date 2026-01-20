@@ -5,8 +5,8 @@
 use crate::hir::{HirDefVal, HirDefinition, HirTypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
-    Access, DefVal, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedNotification, ResolvedObject,
-    Status, UnresolvedIndex,
+    Access, DefVal, IndexItem, IndexSpec, ModuleId, NodeId, NodeKind, ResolvedNotification,
+    ResolvedObject, Status, UnresolvedIndex,
 };
 use crate::resolver::context::ResolverContext;
 use alloc::vec::Vec;
@@ -28,28 +28,29 @@ pub fn analyze_semantics(ctx: &mut ResolverContext) {
 
 /// Infer node kinds from SYNTAX and context.
 fn infer_node_kinds(ctx: &mut ResolverContext) {
-    // Collect OBJECT-TYPE definitions with their syntax and module name
+    // Collect OBJECT-TYPE definitions with their ModuleId (avoids string cloning)
     let object_types: Vec<_> = ctx
-        .hir_modules
+        .module_id_to_hir_index
         .iter()
-        .flat_map(|module| {
-            let module_name = module.name.name.clone();
-            module
-                .definitions
-                .iter()
-                .filter_map(move |def| {
-                    if let HirDefinition::ObjectType(obj) = def {
-                        Some((module_name.clone(), obj.clone()))
-                    } else {
-                        None
-                    }
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module.definitions.iter().filter_map(move |def| {
+                        if let HirDefinition::ObjectType(obj) = def {
+                            Some((module_id, obj.clone()))
+                        } else {
+                            None
+                        }
+                    })
                 })
         })
         .collect();
 
     // First pass: identify TABLEs and ROWs
-    for (module_name, obj) in &object_types {
-        if let Some(node_id) = ctx.lookup_node_in_module(module_name, &obj.name.name) {
+    for (module_id, obj) in &object_types {
+        if let Some(node_id) = ctx.lookup_node_for_module(*module_id, &obj.name.name) {
             let kind = if obj.syntax.is_sequence_of() {
                 NodeKind::Table
             } else if obj.index.is_some() || obj.augments.is_some() {
@@ -133,16 +134,11 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_id, name, index_opt, augments_opt, span) in table_defs {
-        let module_name = match ctx.model.get_module(module_id) {
-            Some(m) => ctx.model.get_str(m.name).to_string(),
-            None => continue,
-        };
-
         // Resolve INDEX objects
         if let Some(ref index_items) = index_opt {
             for item in index_items {
-                // INDEX objects can be local or imported (lookup_node_in_module handles all cases)
-                if ctx.lookup_node_in_module(&module_name, &item.object.name).is_none() {
+                // INDEX objects can be local or imported (lookup_node_for_module handles all cases)
+                if ctx.lookup_node_for_module(module_id, &item.object.name).is_none() {
                     let row_str = ctx.intern(&name);
                     let index_str = ctx.intern(&item.object.name);
                     ctx.model
@@ -160,7 +156,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
 
         // Resolve AUGMENTS target
         if let Some(ref augments_sym) = augments_opt {
-            if ctx.lookup_node_in_module(&module_name, &augments_sym.name).is_none() {
+            if ctx.lookup_node_for_module(module_id, &augments_sym.name).is_none() {
                 ctx.record_unresolved_oid(module_id, &name, &augments_sym.name, span);
             }
         }
@@ -191,12 +187,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_id, obj) in object_types {
-        let module_name = match ctx.model.get_module(module_id) {
-            Some(m) => ctx.model.get_str(m.name).to_string(),
-            None => continue,
-        };
-
-        let node_id = match ctx.lookup_node_in_module(&module_name, &obj.name.name) {
+        let node_id = match ctx.lookup_node_for_module(module_id, &obj.name.name) {
             Some(id) => id,
             None => continue,
         };
@@ -229,7 +220,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             let items: Vec<_> = index_items
                 .iter()
                 .filter_map(|item| {
-                    ctx.lookup_node_in_module(&module_name, &item.object.name)
+                    ctx.lookup_node_for_module(module_id, &item.object.name)
                         .map(|node_id| IndexItem::new(node_id, item.implied))
                 })
                 .collect();
@@ -240,12 +231,12 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
 
         // Handle AUGMENTS
         if let Some(ref augments_sym) = obj.augments {
-            resolved.augments = ctx.lookup_node_in_module(&module_name, &augments_sym.name);
+            resolved.augments = ctx.lookup_node_for_module(module_id, &augments_sym.name);
         }
 
         // Handle DEFVAL
         if let Some(ref defval) = obj.defval {
-            resolved.defval = Some(convert_defval(ctx, defval, &module_name));
+            resolved.defval = Some(convert_defval(ctx, defval, module_id));
         }
 
         // Handle inline enums
@@ -305,12 +296,7 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_id, notif) in notifications {
-        let module_name = match ctx.model.get_module(module_id) {
-            Some(m) => ctx.model.get_str(m.name).to_string(),
-            None => continue,
-        };
-
-        let node_id = match ctx.lookup_node_in_module(&module_name, &notif.name.name) {
+        let node_id = match ctx.lookup_node_for_module(module_id, &notif.name.name) {
             Some(id) => id,
             None => continue,
         };
@@ -331,7 +317,7 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
 
         // Resolve OBJECTS/VARIABLES references to NodeIds
         for obj_sym in &notif.objects {
-            if let Some(obj_node_id) = ctx.lookup_node_in_module(&module_name, &obj_sym.name) {
+            if let Some(obj_node_id) = ctx.lookup_node_for_module(module_id, &obj_sym.name) {
                 resolved.objects.push(obj_node_id);
             }
             // Note: We silently skip unresolved object references rather than recording
@@ -408,7 +394,7 @@ fn resolve_type_syntax(
 }
 
 /// Convert HirDefVal to resolved DefVal.
-fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_name: &str) -> DefVal {
+fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: ModuleId) -> DefVal {
     match defval {
         HirDefVal::Integer(n) => DefVal::Integer(*n),
         HirDefVal::Unsigned(n) => DefVal::Unsigned(*n),
@@ -421,7 +407,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_name: &s
         }
         HirDefVal::OidRef(sym) => {
             // Try to resolve the OID reference
-            let resolved_node = ctx.lookup_node_in_module(module_name, &sym.name);
+            let resolved_node = ctx.lookup_node_for_module(module_id, &sym.name);
             DefVal::OidRef {
                 node: resolved_node,
                 symbol: if resolved_node.is_none() {
@@ -436,7 +422,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_name: &s
             // This is a best-effort resolution
             if let Some(first) = components.first() {
                 if let Some(name) = first.name() {
-                    if let Some(node) = ctx.lookup_node_in_module(module_name, &name.name) {
+                    if let Some(node) = ctx.lookup_node_for_module(module_id, &name.name) {
                         return DefVal::OidRef {
                             node: Some(node),
                             symbol: None,
