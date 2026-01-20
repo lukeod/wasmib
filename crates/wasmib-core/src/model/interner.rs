@@ -94,10 +94,18 @@ impl StringInterner {
         self.data.len()
     }
 
-    /// Find a string's ID if it exists. O(n) scan.
-    /// For frequent lookups, consider maintaining a reverse index.
+    /// Find a string's ID if it exists.
+    ///
+    /// For short strings (<64 bytes), uses the dedup table for O(log n) lookup.
+    /// For long strings, falls back to O(n) scan.
     #[must_use]
     pub fn find(&self, s: &str) -> Option<StrId> {
+        // Short strings are in the dedup table - O(log n) lookup
+        if s.len() < DEDUP_THRESHOLD {
+            return self.dedup.get(s).copied();
+        }
+
+        // Long strings require O(n) scan
         for idx in 0..self.len() {
             if let Some(id) = StrId::from_index(idx) {
                 if self.get(id) == s {
@@ -192,5 +200,26 @@ mod tests {
         interner.intern("a"); // deduplicated
 
         assert_eq!(interner.len(), 2);
+    }
+
+    #[test]
+    fn test_find_short_string() {
+        let mut interner = StringInterner::new();
+        let id = interner.intern("hello");
+
+        // Short strings use dedup table for O(log n) lookup
+        assert_eq!(interner.find("hello"), Some(id));
+        assert_eq!(interner.find("world"), None);
+    }
+
+    #[test]
+    fn test_find_long_string() {
+        let mut interner = StringInterner::new();
+        let long = "x".repeat(100);
+        let id = interner.intern(&long);
+
+        // Long strings require O(n) scan
+        assert_eq!(interner.find(&long), Some(id));
+        assert_eq!(interner.find(&"y".repeat(100)), None);
     }
 }

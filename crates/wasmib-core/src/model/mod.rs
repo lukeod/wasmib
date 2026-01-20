@@ -264,14 +264,13 @@ impl Model {
     }
 
     /// Get a module by name.
+    ///
+    /// Uses the module name index for O(log n) lookup.
     #[must_use]
     pub fn get_module_by_name(&self, name: &str) -> Option<&ResolvedModule> {
-        for module in &self.modules {
-            if self.strings.get(module.name) == name {
-                return Some(module);
-            }
-        }
-        None
+        let str_id = self.strings.find(name)?;
+        let module_id = self.module_name_to_id.get(&str_id)?;
+        self.get_module(*module_id)
     }
 
     /// Iterate over all modules.
