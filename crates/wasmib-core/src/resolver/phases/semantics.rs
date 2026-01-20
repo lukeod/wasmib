@@ -5,7 +5,8 @@
 use crate::hir::{HirDefVal, HirDefinition, HirTypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
-    Access, DefVal, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedObject, Status, UnresolvedIndex,
+    Access, DefVal, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedNotification, ResolvedObject,
+    Status, UnresolvedIndex,
 };
 use crate::resolver::context::ResolverContext;
 use alloc::vec::Vec;
@@ -20,6 +21,9 @@ pub fn analyze_semantics(ctx: &mut ResolverContext) {
 
     // Create resolved objects
     create_resolved_objects(ctx);
+
+    // Create resolved notifications
+    create_resolved_notifications(ctx);
 }
 
 /// Infer node kinds from SYNTAX and context.
@@ -278,6 +282,83 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
     }
 }
 
+/// Create ResolvedNotification entries for all NOTIFICATION-TYPE and TRAP-TYPE definitions.
+fn create_resolved_notifications(ctx: &mut ResolverContext) {
+    // Collect all (ModuleId, HirNotification) pairs
+    let notifications: Vec<_> = ctx
+        .module_id_to_hir_index
+        .iter()
+        .flat_map(|(&module_id, &hir_idx)| {
+            ctx.hir_modules
+                .get(hir_idx)
+                .into_iter()
+                .flat_map(move |module| {
+                    module.definitions.iter().filter_map(move |def| {
+                        if let HirDefinition::Notification(notif) = def {
+                            Some((module_id, notif.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+        .collect();
+
+    for (module_id, notif) in notifications {
+        let module_name = match ctx.model.get_module(module_id) {
+            Some(m) => ctx.model.get_str(m.name).to_string(),
+            None => continue,
+        };
+
+        let node_id = match ctx.lookup_node_in_module(&module_name, &notif.name.name) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let name = ctx.intern(&notif.name.name);
+        let status = hir_status_to_status(notif.status);
+
+        let mut resolved = ResolvedNotification::new(node_id, module_id, name);
+        resolved.status = status;
+
+        if let Some(ref desc) = notif.description {
+            resolved.description = Some(ctx.intern(desc));
+        }
+
+        if let Some(ref reference) = notif.reference {
+            resolved.reference = Some(ctx.intern(reference));
+        }
+
+        // Resolve OBJECTS/VARIABLES references to NodeIds
+        for obj_sym in &notif.objects {
+            if let Some(obj_node_id) = ctx.lookup_node_in_module(&module_name, &obj_sym.name) {
+                resolved.objects.push(obj_node_id);
+            }
+            // Note: We silently skip unresolved object references rather than recording
+            // them as unresolved. This matches the lenient philosophy - notifications
+            // that reference objects from modules we don't have loaded shouldn't fail.
+        }
+
+        let notif_id = ctx.model.add_notification(resolved);
+
+        // Update node with notification reference (match by module AND label)
+        if let Some(node) = ctx.model.get_node_mut(node_id) {
+            if let Some(def) = node
+                .definitions
+                .iter_mut()
+                .find(|d| d.label == name && d.module == module_id)
+            {
+                def.notification = Some(notif_id);
+            }
+        }
+
+        // Add to module
+        if let Some(module) = ctx.model.get_module_mut(module_id) {
+            module.add_notification(notif_id);
+        }
+    }
+}
+
 /// Resolve a type syntax to a TypeId.
 ///
 /// Returns `None` if the type reference couldn't be resolved, and records
@@ -404,8 +485,8 @@ fn hir_status_to_status(status: crate::hir::HirStatus) -> Status {
 mod tests {
     use super::*;
     use crate::hir::{
-        HirImport, HirIndexItem, HirModule, HirObjectType, HirOidAssignment, HirOidComponent, HirTypeSyntax,
-        HirAccess, HirDefinition, HirStatus, Symbol,
+        HirImport, HirIndexItem, HirModule, HirNotification, HirObjectType, HirOidAssignment,
+        HirOidComponent, HirTypeSyntax, HirAccess, HirDefinition, HirStatus, Symbol,
     };
     use crate::lexer::Span;
     use crate::resolver::phases::{imports::resolve_imports, registration::register_modules, oids::resolve_oids, types::resolve_types};
@@ -713,5 +794,168 @@ mod tests {
 
         // Check that inline_bits was populated
         assert!(obj.inline_bits.is_some(), "inline_bits should be populated");
+    }
+
+    fn make_notification(
+        name: &str,
+        objects: Vec<&str>,
+        oid_components: Vec<HirOidComponent>,
+    ) -> HirDefinition {
+        HirDefinition::Notification(HirNotification {
+            name: Symbol::from_str(name),
+            objects: objects.into_iter().map(Symbol::from_str).collect(),
+            status: HirStatus::Current,
+            description: Some("Test notification".into()),
+            reference: Some("RFC-TEST".into()),
+            trap_info: None,
+            oid: Some(HirOidAssignment::new(oid_components, Span::new(0, 0))),
+            span: Span::new(0, 0),
+        })
+    }
+
+    #[test]
+    fn test_resolved_notification_creation() {
+        let notif = make_notification(
+            "testNotification",
+            vec![],
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check notification count
+        assert_eq!(ctx.model.notification_count(), 1);
+
+        // Get the notification and verify fields
+        let notif = ctx.model.get_notification(crate::model::NotificationId::from_raw(1).unwrap());
+        assert!(notif.is_some());
+        let notif = notif.unwrap();
+        assert_eq!(ctx.model.get_str(notif.name), "testNotification");
+        assert_eq!(notif.status, Status::Current);
+        assert!(notif.description.is_some());
+        assert!(notif.reference.is_some());
+    }
+
+    #[test]
+    fn test_notification_objects_resolved() {
+        // Create an object that the notification references
+        let obj = make_object_type(
+            "testObject",
+            HirTypeSyntax::TypeRef(Symbol::from_str("Integer32")),
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+            None,
+        );
+
+        // Create a notification that references the object
+        let notif = make_notification(
+            "testNotification",
+            vec!["testObject"],
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(2),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![obj, notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Check notification has one object resolved
+        let notif = ctx.model.get_notification(crate::model::NotificationId::from_raw(1).unwrap());
+        assert!(notif.is_some());
+        let notif = notif.unwrap();
+        assert_eq!(notif.objects.len(), 1);
+
+        // Verify the object reference points to testObject
+        let obj_node = ctx.model.get_node(notif.objects[0]).unwrap();
+        let def = obj_node.definitions.first().unwrap();
+        assert_eq!(ctx.model.get_str(def.label), "testObject");
+    }
+
+    #[test]
+    fn test_notification_registered_with_module() {
+        let notif = make_notification(
+            "testNotification",
+            vec![],
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Find TEST-MIB module and check it has the notification
+        let module_id = ctx.model.get_module_by_name("TEST-MIB").unwrap().id;
+        let module = ctx.model.get_module(module_id).unwrap();
+        assert_eq!(module.notifications.len(), 1);
+    }
+
+    #[test]
+    fn test_notification_node_has_notification_id() {
+        let notif = make_notification(
+            "testNotification",
+            vec![],
+            vec![
+                HirOidComponent::Name(Symbol::from_str("enterprises")),
+                HirOidComponent::Number(1),
+            ],
+        );
+
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![notif],
+            vec![("enterprises", "SNMPv2-SMI")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Get the node and verify it has the notification reference
+        let node_id = ctx.lookup_node_in_module("TEST-MIB", "testNotification").unwrap();
+        let node = ctx.model.get_node(node_id).unwrap();
+        let def = node.definitions.first().unwrap();
+        assert!(def.notification.is_some(), "node definition should have notification id");
     }
 }
