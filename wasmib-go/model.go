@@ -1,0 +1,478 @@
+package wasmib
+
+import (
+	"strconv"
+	"strings"
+)
+
+// Model is the deserialized MIB model. Safe for concurrent read access.
+//
+// The Model is read-only after construction. All queries can be performed
+// concurrently from multiple goroutines without locks.
+type Model struct {
+	version uint32
+
+	// String table (1-indexed: StrId N maps to strings[N-1])
+	strings []string
+
+	// Data arrays (1-indexed: NodeId N maps to nodes[N-1])
+	modules       []Module
+	nodes         []Node
+	types         []Type
+	objects       []Object
+	notifications []Notification
+
+	// Root node IDs (typically iso=1)
+	roots []uint32
+
+	// Unresolved reference counts (for diagnostics)
+	unresolvedImports             uint32
+	unresolvedTypes               uint32
+	unresolvedOids                uint32
+	unresolvedIndexes             uint32
+	unresolvedNotificationObjects uint32
+
+	// Lookup indices (built on deserialize)
+	oidIndex    map[string]uint32   // "1.3.6.1.2.1.1.1" -> NodeId
+	nameIndex   map[string][]uint32 // "sysDescr" -> []NodeId
+	qualIndex   map[string]uint32   // "SNMPv2-MIB::sysDescr" -> NodeId
+	moduleIndex map[string]uint32   // "SNMPv2-MIB" -> ModuleId
+}
+
+// Module represents a resolved MIB module.
+type Module struct {
+	Name         uint32 // StrId
+	LastUpdated  uint32 // StrId, 0 = none
+	ContactInfo  uint32 // StrId, 0 = none
+	Organization uint32 // StrId, 0 = none
+	Description  uint32 // StrId, 0 = none
+	Revisions    []Revision
+}
+
+// Revision represents a module revision entry.
+type Revision struct {
+	Date        uint32 // StrId
+	Description uint32 // StrId
+}
+
+// Node represents a position in the OID tree.
+type Node struct {
+	Subid       uint32    // Arc value at this position
+	Parent      uint32    // NodeId, 0 = root
+	Children    []uint32  // []NodeId
+	Kind        NodeKind  // Semantic type
+	Definitions []NodeDef // Definitions at this OID
+}
+
+// NodeDef links a node to its definition(s).
+type NodeDef struct {
+	Module       uint32 // ModuleId
+	Label        uint32 // StrId
+	Object       uint32 // ObjectId, 0 = none
+	Notification uint32 // NotificationId, 0 = none
+}
+
+// Object represents an OBJECT-TYPE definition.
+type Object struct {
+	Node        uint32      // NodeId
+	Module      uint32      // ModuleId
+	Name        uint32      // StrId
+	TypeID      uint32      // TypeId, 0 = unresolved
+	Access      Access      // Access level
+	Status      Status      // Definition status
+	Description uint32      // StrId, 0 = none
+	Units       uint32      // StrId, 0 = none
+	Reference   uint32      // StrId, 0 = none
+	Index       *IndexSpec  // INDEX clause, nil if not a row
+	Augments    uint32      // NodeId, 0 = none
+	DefVal      *DefVal     // DEFVAL clause, nil if none
+	InlineEnum  []EnumValue // Inline enumeration (not from type)
+	InlineBits  []BitDef    // Inline BITS (not from type)
+}
+
+// IndexSpec represents an INDEX clause.
+type IndexSpec struct {
+	Items []IndexItem
+}
+
+// IndexItem is a single index in an INDEX clause.
+type IndexItem struct {
+	Object  uint32 // NodeId of index object
+	Implied bool   // Whether this index is IMPLIED
+}
+
+// DefVal represents a DEFVAL clause value.
+type DefVal struct {
+	Kind     DefValKind // Type of default value
+	IntVal   int64      // For Integer kind
+	UintVal  uint64     // For Unsigned kind
+	StrID    uint32     // StrId for String/Enum kinds
+	RawStr   string     // For HexString/BinaryString kinds
+	NodeID   uint32     // NodeId for resolved OID ref
+	BitsVals []uint32   // StrIds for Bits kind
+}
+
+// Type represents a type definition.
+type Type struct {
+	Module      uint32       // ModuleId
+	Name        uint32       // StrId
+	Base        BaseType     // Base type
+	Parent      uint32       // TypeId for TC inheritance, 0 = none
+	Status      Status       // Definition status
+	IsTC        bool         // Is textual convention
+	Hint        uint32       // StrId, 0 = none
+	Description uint32       // StrId, 0 = none
+	Size        *Constraint  // Size constraint
+	Range       *Constraint  // Value range constraint
+	EnumValues  []EnumValue  // Enumeration values
+	BitDefs     []BitDef     // Bit definitions
+}
+
+// Constraint represents size or value constraints.
+type Constraint struct {
+	Ranges [][2]int64 // (min, max) pairs
+}
+
+// EnumValue is a named integer value.
+type EnumValue struct {
+	Value int64  // Integer value
+	Name  uint32 // StrId
+}
+
+// BitDef is a named bit position.
+type BitDef struct {
+	Position uint32 // Bit position
+	Name     uint32 // StrId
+}
+
+// Notification represents a NOTIFICATION-TYPE.
+type Notification struct {
+	Node        uint32   // NodeId
+	Module      uint32   // ModuleId
+	Name        uint32   // StrId
+	Status      Status   // Definition status
+	Description uint32   // StrId, 0 = none
+	Reference   uint32   // StrId, 0 = none
+	Objects     []uint32 // []NodeId - OBJECTS clause
+}
+
+// === Query Methods ===
+
+// GetStr returns the interned string for an ID.
+// Returns empty string if ID is 0 or invalid.
+func (m *Model) GetStr(id uint32) string {
+	if id == 0 || int(id) > len(m.strings) {
+		return ""
+	}
+	return m.strings[id-1]
+}
+
+// GetNodeByOID looks up a node by dotted OID string (e.g., "1.3.6.1.2.1.1.1").
+// Returns nil if not found.
+func (m *Model) GetNodeByOID(oid string) *Node {
+	if id, ok := m.oidIndex[oid]; ok {
+		return &m.nodes[id-1]
+	}
+	return nil
+}
+
+// GetNodesByName returns all nodes with the given name.
+// Multiple nodes may share the same name (defined in different modules).
+func (m *Model) GetNodesByName(name string) []*Node {
+	ids, ok := m.nameIndex[name]
+	if !ok {
+		return nil
+	}
+	nodes := make([]*Node, len(ids))
+	for i, id := range ids {
+		nodes[i] = &m.nodes[id-1]
+	}
+	return nodes
+}
+
+// GetNodeByQualifiedName looks up "MODULE::name" (e.g., "SNMPv2-MIB::sysDescr").
+func (m *Model) GetNodeByQualifiedName(module, name string) *Node {
+	key := module + "::" + name
+	if id, ok := m.qualIndex[key]; ok {
+		return &m.nodes[id-1]
+	}
+	return nil
+}
+
+// GetModuleByName returns a module by name.
+func (m *Model) GetModuleByName(name string) *Module {
+	if id, ok := m.moduleIndex[name]; ok {
+		return &m.modules[id-1]
+	}
+	return nil
+}
+
+// GetNode returns a node by ID.
+func (m *Model) GetNode(id uint32) *Node {
+	if id == 0 || int(id) > len(m.nodes) {
+		return nil
+	}
+	return &m.nodes[id-1]
+}
+
+// GetModule returns a module by ID.
+func (m *Model) GetModule(id uint32) *Module {
+	if id == 0 || int(id) > len(m.modules) {
+		return nil
+	}
+	return &m.modules[id-1]
+}
+
+// GetObject returns the object definition for a node.
+// Returns nil if the node has no object definition.
+func (m *Model) GetObject(n *Node) *Object {
+	if n == nil || len(n.Definitions) == 0 {
+		return nil
+	}
+	objID := n.Definitions[0].Object
+	if objID == 0 || int(objID) > len(m.objects) {
+		return nil
+	}
+	return &m.objects[objID-1]
+}
+
+// GetObjectByID returns an object by ID.
+func (m *Model) GetObjectByID(id uint32) *Object {
+	if id == 0 || int(id) > len(m.objects) {
+		return nil
+	}
+	return &m.objects[id-1]
+}
+
+// GetType returns a type definition.
+func (m *Model) GetType(id uint32) *Type {
+	if id == 0 || int(id) > len(m.types) {
+		return nil
+	}
+	return &m.types[id-1]
+}
+
+// GetNotification returns a notification definition for a node.
+func (m *Model) GetNotification(n *Node) *Notification {
+	if n == nil || len(n.Definitions) == 0 {
+		return nil
+	}
+	notifID := n.Definitions[0].Notification
+	if notifID == 0 || int(notifID) > len(m.notifications) {
+		return nil
+	}
+	return &m.notifications[notifID-1]
+}
+
+// GetNotificationByID returns a notification by ID.
+func (m *Model) GetNotificationByID(id uint32) *Notification {
+	if id == 0 || int(id) > len(m.notifications) {
+		return nil
+	}
+	return &m.notifications[id-1]
+}
+
+// GetEffectiveHint walks the type chain to find a display hint.
+// Returns empty string if no hint found.
+func (m *Model) GetEffectiveHint(typeID uint32) string {
+	for typeID != 0 {
+		t := m.GetType(typeID)
+		if t == nil {
+			break
+		}
+		if t.Hint != 0 {
+			return m.GetStr(t.Hint)
+		}
+		typeID = t.Parent
+	}
+	return ""
+}
+
+// GetOID computes the full OID string for a node.
+func (m *Model) GetOID(n *Node) string {
+	if n == nil {
+		return ""
+	}
+
+	var arcs []uint32
+	current := n
+	for current != nil {
+		arcs = append(arcs, current.Subid)
+		if current.Parent == 0 {
+			break
+		}
+		current = m.GetNode(current.Parent)
+	}
+
+	// Reverse and format
+	var b strings.Builder
+	for i := len(arcs) - 1; i >= 0; i-- {
+		if i < len(arcs)-1 {
+			b.WriteByte('.')
+		}
+		b.WriteString(strconv.FormatUint(uint64(arcs[i]), 10))
+	}
+	return b.String()
+}
+
+// GetNodeID returns the ID of a node.
+// Returns 0 if the node is not in this model.
+func (m *Model) GetNodeID(n *Node) uint32 {
+	if n == nil {
+		return 0
+	}
+	// Calculate index from pointer offset
+	for i := range m.nodes {
+		if &m.nodes[i] == n {
+			return uint32(i + 1)
+		}
+	}
+	return 0
+}
+
+// Walk traverses the tree depth-first from a starting node.
+// The callback returns false to stop traversal.
+func (m *Model) Walk(nodeID uint32, fn func(*Node) bool) {
+	if nodeID == 0 || int(nodeID) > len(m.nodes) {
+		return
+	}
+	node := &m.nodes[nodeID-1]
+	if !fn(node) {
+		return
+	}
+	for _, childID := range node.Children {
+		m.Walk(childID, fn)
+	}
+}
+
+// WalkAll traverses all nodes starting from the roots.
+func (m *Model) WalkAll(fn func(*Node) bool) {
+	for _, rootID := range m.roots {
+		m.Walk(rootID, fn)
+	}
+}
+
+// Roots returns the root node IDs.
+func (m *Model) Roots() []uint32 {
+	return m.roots
+}
+
+// ModuleCount returns the number of modules.
+func (m *Model) ModuleCount() int {
+	return len(m.modules)
+}
+
+// NodeCount returns the number of nodes.
+func (m *Model) NodeCount() int {
+	return len(m.nodes)
+}
+
+// TypeCount returns the number of types.
+func (m *Model) TypeCount() int {
+	return len(m.types)
+}
+
+// ObjectCount returns the number of objects.
+func (m *Model) ObjectCount() int {
+	return len(m.objects)
+}
+
+// NotificationCount returns the number of notifications.
+func (m *Model) NotificationCount() int {
+	return len(m.notifications)
+}
+
+// IsComplete returns true if all references were resolved.
+func (m *Model) IsComplete() bool {
+	return m.unresolvedImports == 0 &&
+		m.unresolvedTypes == 0 &&
+		m.unresolvedOids == 0 &&
+		m.unresolvedIndexes == 0 &&
+		m.unresolvedNotificationObjects == 0
+}
+
+// UnresolvedCounts returns counts of unresolved references.
+func (m *Model) UnresolvedCounts() (imports, types, oids, indexes, notifObjects uint32) {
+	return m.unresolvedImports, m.unresolvedTypes, m.unresolvedOids,
+		m.unresolvedIndexes, m.unresolvedNotificationObjects
+}
+
+// Version returns the schema version of the serialized model.
+func (m *Model) Version() uint32 {
+	return m.version
+}
+
+// AllModules returns all modules.
+func (m *Model) AllModules() []Module {
+	return m.modules
+}
+
+// AllNodes returns all nodes.
+func (m *Model) AllNodes() []Node {
+	return m.nodes
+}
+
+// AllTypes returns all types.
+func (m *Model) AllTypes() []Type {
+	return m.types
+}
+
+// AllObjects returns all objects.
+func (m *Model) AllObjects() []Object {
+	return m.objects
+}
+
+// AllNotifications returns all notifications.
+func (m *Model) AllNotifications() []Notification {
+	return m.notifications
+}
+
+// === Index Building ===
+
+func (m *Model) buildIndices() {
+	m.oidIndex = make(map[string]uint32, len(m.nodes))
+	m.nameIndex = make(map[string][]uint32)
+	m.qualIndex = make(map[string]uint32)
+	m.moduleIndex = make(map[string]uint32, len(m.modules))
+
+	// Build module index
+	for i := range m.modules {
+		name := m.GetStr(m.modules[i].Name)
+		if name != "" {
+			m.moduleIndex[name] = uint32(i + 1)
+		}
+	}
+
+	// Build node indices via tree walk
+	for _, rootID := range m.roots {
+		m.Walk(rootID, func(n *Node) bool {
+			nodeID := m.GetNodeID(n)
+			if nodeID == 0 {
+				return true
+			}
+
+			// OID index
+			oid := m.GetOID(n)
+			if oid != "" {
+				m.oidIndex[oid] = nodeID
+			}
+
+			// Name and qualified name indices
+			for _, def := range n.Definitions {
+				name := m.GetStr(def.Label)
+				if name != "" {
+					m.nameIndex[name] = append(m.nameIndex[name], nodeID)
+
+					if def.Module > 0 && int(def.Module) <= len(m.modules) {
+						modName := m.GetStr(m.modules[def.Module-1].Name)
+						if modName != "" {
+							qualName := modName + "::" + name
+							m.qualIndex[qualName] = nodeID
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+}
