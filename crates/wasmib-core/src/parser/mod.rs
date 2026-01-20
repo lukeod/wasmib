@@ -164,6 +164,11 @@ impl<'src> Parser<'src> {
         core::str::from_utf8(bytes).unwrap_or("")
     }
 
+    /// Create an Ident from a token.
+    fn make_ident(&self, token: Token) -> Ident {
+        Ident::new(self.text(token.span).into(), token.span)
+    }
+
     /// Create an error diagnostic at current position.
     fn error(&self, message: &str) -> Diagnostic {
         Diagnostic {
@@ -247,7 +252,7 @@ impl<'src> Parser<'src> {
     fn parse_module_header(&mut self) -> Result<(Ident, DefinitionsKind), Diagnostic> {
         // Module name (uppercase identifier)
         let name_token = self.expect_identifier()?;
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         // DEFINITIONS or PIB-DEFINITIONS
         let definitions_kind = if self.check(TokenKind::UppercaseIdent) {
@@ -340,7 +345,7 @@ impl<'src> Parser<'src> {
                     return Err(self.error("expected symbol or FROM"));
                 };
 
-                symbols.push(Ident::new(self.text(sym_token.span).into(), sym_token.span));
+                symbols.push(self.make_ident(sym_token));
 
                 // Optional comma between symbols
                 if self.check(TokenKind::Comma) {
@@ -358,7 +363,7 @@ impl<'src> Parser<'src> {
                 return Err(self.error("expected module name after FROM"));
             };
 
-            let from_module = Ident::new(self.text(module_token.span).into(), module_token.span);
+            let from_module = self.make_ident(module_token);
             let span = Span::new(start, module_token.span.end);
 
             imports.push(ImportClause::new(symbols, from_module, span));
@@ -462,7 +467,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwObject)?;
         self.expect(TokenKind::KwIdentifier)?;
@@ -500,7 +505,7 @@ impl<'src> Parser<'src> {
             {
                 // Name, possibly followed by (number) or .name (qualified)
                 let first_token = self.advance();
-                let first_name = Ident::new(self.text(first_token.span).into(), first_token.span);
+                let first_name = self.make_ident(first_token);
 
                 if self.check(TokenKind::Dot) {
                     // Qualified reference: Module.name or Module.name(number)
@@ -508,7 +513,7 @@ impl<'src> Parser<'src> {
 
                     // Expect lowercase identifier after dot (symbol names are lowercase)
                     let name_token = self.expect(TokenKind::LowercaseIdent)?;
-                    let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+                    let name = self.make_ident(name_token);
 
                     if self.check(TokenKind::LParen) {
                         // QualifiedNamedNumber: Module.name(123)
@@ -562,7 +567,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwObjectType)?;
 
@@ -710,7 +715,7 @@ impl<'src> Parser<'src> {
                     self.advance();
                     let entry_token = self.expect_identifier()?;
                     let entry_type =
-                        Ident::new(self.text(entry_token.span).into(), entry_token.span);
+                        self.make_ident(entry_token);
                     let span = Span::new(start, entry_token.span.end);
                     TypeSyntax::SequenceOf { entry_type, span }
                 } else {
@@ -802,7 +807,7 @@ impl<'src> Parser<'src> {
             let start = self.current_span().start;
             // Enum labels can be identifiers OR keywords like 'deprecated', 'current', 'optional'
             let name_token = self.expect_enum_label()?;
-            let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+            let name = self.make_ident(name_token);
 
             self.expect(TokenKind::LParen)?;
 
@@ -941,7 +946,7 @@ impl<'src> Parser<'src> {
 
             let start = self.current_span().start;
             let name_token = self.expect_identifier()?;
-            let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+            let name = self.make_ident(name_token);
 
             let syntax = self.parse_type_syntax()?;
             let span = Span::new(start, syntax.span().end);
@@ -1070,7 +1075,7 @@ impl<'src> Parser<'src> {
                 };
 
                 let obj_token = self.expect_identifier()?;
-                let object = Ident::new(self.text(obj_token.span).into(), obj_token.span);
+                let object = self.make_ident(obj_token);
 
                 let span = Span::new(item_start, obj_token.span.end);
                 indexes.push(IndexItem {
@@ -1094,7 +1099,7 @@ impl<'src> Parser<'src> {
             self.expect(TokenKind::LBrace)?;
 
             let target_token = self.expect_identifier()?;
-            let target = Ident::new(self.text(target_token.span).into(), target_token.span);
+            let target = self.make_ident(target_token);
 
             let end_token = self.expect(TokenKind::RBrace)?;
             let span = Span::new(start, end_token.span.end);
@@ -1199,7 +1204,7 @@ impl<'src> Parser<'src> {
             // Identifier: enum label or OID reference (enabled, true, sysName)
             TokenKind::LowercaseIdent | TokenKind::UppercaseIdent => {
                 let token = self.advance();
-                let ident = Ident::new(self.text(token.span).into(), token.span);
+                let ident = self.make_ident(token);
                 Ok(DefValContent::Identifier(ident))
             }
 
@@ -1229,7 +1234,7 @@ impl<'src> Parser<'src> {
                         // Could be BITS { flag1, flag2 } or OID { sysName 0 }
                         // Look ahead to see if there's a comma (BITS) or number/paren (OID)
                         let ident_token = self.advance();
-                        let ident = Ident::new(self.text(ident_token.span).into(), ident_token.span);
+                        let ident = self.make_ident(ident_token);
 
                         if self.check(TokenKind::Comma) || self.check(TokenKind::RBrace) {
                             // This is BITS: { flag1, flag2 }
@@ -1283,7 +1288,7 @@ impl<'src> Parser<'src> {
                                 {
                                     let token = self.advance();
                                     let name =
-                                        Ident::new(self.text(token.span).into(), token.span);
+                                        self.make_ident(token);
                                     if self.check(TokenKind::LParen) {
                                         self.advance();
                                         let num_token = self.expect(TokenKind::Number)?;
@@ -1323,7 +1328,7 @@ impl<'src> Parser<'src> {
                                 || self.check(TokenKind::UppercaseIdent)
                             {
                                 let token = self.advance();
-                                let name = Ident::new(self.text(token.span).into(), token.span);
+                                let name = self.make_ident(token);
                                 if self.check(TokenKind::LParen) {
                                     self.advance();
                                     let num_token = self.expect(TokenKind::Number)?;
@@ -1428,7 +1433,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwModuleIdentity)?;
 
@@ -1489,7 +1494,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwObjectIdentity)?;
 
@@ -1531,7 +1536,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwNotificationType)?;
 
@@ -1585,7 +1590,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwTrapType)?;
 
@@ -1647,7 +1652,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwTextualConvention)?;
 
@@ -1697,7 +1702,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::ColonColonEqual)?;
         self.expect(TokenKind::KwTextualConvention)?;
@@ -1747,7 +1752,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::ColonColonEqual)?;
 
@@ -1766,7 +1771,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwObjectGroup)?;
 
@@ -1813,7 +1818,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwNotificationGroup)?;
 
@@ -1862,7 +1867,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwModuleCompliance)?;
 
@@ -2027,7 +2032,7 @@ impl<'src> Parser<'src> {
     /// Parse an identifier and return it as an Ident.
     fn parse_identifier_as_ident(&mut self) -> Result<Ident, Diagnostic> {
         let token = self.expect_identifier()?;
-        Ok(Ident::new(self.text(token.span).into(), token.span))
+        Ok(self.make_ident(token))
     }
 
     /// Parse AGENT-CAPABILITIES definition.
@@ -2035,7 +2040,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         self.expect(TokenKind::KwAgentCapabilities)?;
 
@@ -2230,7 +2235,7 @@ impl<'src> Parser<'src> {
         let start = self.current_span().start;
 
         let name_token = self.advance();
-        let name = Ident::new(self.text(name_token.span).into(), name_token.span);
+        let name = self.make_ident(name_token);
 
         // MACRO keyword triggers lexer skip state, so we just see MACRO then END
         self.expect(TokenKind::KwMacro)?;
@@ -2263,7 +2268,7 @@ impl<'src> Parser<'src> {
             }
 
             let token = self.expect_identifier()?;
-            idents.push(Ident::new(self.text(token.span).into(), token.span));
+            idents.push(self.make_ident(token));
 
             if self.check(TokenKind::Comma) {
                 self.advance();
