@@ -15,6 +15,21 @@ const DEDUP_THRESHOLD: usize = 64;
 /// Short strings (<64 bytes) are deduplicated via a lookup table.
 /// Long strings (descriptions, etc.) are stored directly without deduplication
 /// since they're typically unique.
+///
+/// # Memory Tradeoff
+///
+/// Short strings are stored twice: once in `data` (concatenated storage) and once
+/// as keys in `dedup` (for O(log n) lookup). This is an intentional tradeoff:
+///
+/// - **Space cost**: ~2x memory for unique short strings (<64 bytes each)
+/// - **Benefit**: O(log n) deduplication checks, crucial for names/types that repeat often
+///
+/// Alternative designs (offset-based keys, hash maps) were considered but rejected:
+/// - Offset-based keys require self-referential structures or unsafe code
+/// - Hash-based dedup introduces collision handling complexity
+///
+/// In practice, short strings are names, type names, and OID labels which have high
+/// reuse rates, making the dedup table pay for itself quickly.
 #[derive(Clone, Debug)]
 pub struct StringInterner {
     /// Concatenated string data.
@@ -22,6 +37,9 @@ pub struct StringInterner {
     /// Offsets into data for each string. offsets[i] is the start of string i.
     offsets: Vec<u32>,
     /// Lookup table for deduplicating short strings.
+    ///
+    /// Keys are cloned from input strings (not slices into `data`) to avoid
+    /// self-referential structures. See struct-level docs for tradeoff rationale.
     dedup: BTreeMap<String, StrId>,
 }
 
