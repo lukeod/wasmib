@@ -2,7 +2,52 @@
 
 use super::ids::{ModuleId, NodeId, ObjectId, StrId, TypeId};
 use super::types::{Access, BitDefinitions, EnumValues, Status};
+use alloc::string::String;
 use alloc::vec::Vec;
+
+/// Default value for an OBJECT-TYPE.
+///
+/// This represents the resolved DEFVAL clause content. Symbol references
+/// (enum labels, bit names) are stored as interned strings; full semantic
+/// resolution (mapping to numeric values) would require type context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum DefVal {
+    /// Integer value: `DEFVAL { 0 }`, `DEFVAL { -1 }`
+    Integer(i64),
+
+    /// Unsigned integer (for Counter64 etc): `DEFVAL { 4294967296 }`
+    Unsigned(u64),
+
+    /// String value: `DEFVAL { "public" }`, `DEFVAL { "" }`
+    String(StrId),
+
+    /// Hex string: `DEFVAL { 'FF00'H }`
+    /// Stored as raw hex digits (uppercase).
+    HexString(String),
+
+    /// Binary string: `DEFVAL { '1010'B }`
+    /// Stored as raw binary digits.
+    BinaryString(String),
+
+    /// Enum label reference: `DEFVAL { enabled }`, `DEFVAL { true }`
+    /// The StrId refers to an enumeration value name defined in the object's type.
+    Enum(StrId),
+
+    /// BITS value (set of bit labels): `DEFVAL { { flag1, flag2 } }`, `DEFVAL { {} }`
+    /// Each StrId refers to a bit name defined in the object's BITS type.
+    Bits(Vec<StrId>),
+
+    /// OID reference: `DEFVAL { sysName }` or `DEFVAL { { iso 3 6 1 } }`
+    /// If the OID could be resolved, contains the NodeId; otherwise None with
+    /// the symbolic name stored separately.
+    OidRef {
+        /// Resolved node (if found).
+        node: Option<NodeId>,
+        /// Original symbolic reference (if unresolved).
+        symbol: Option<StrId>,
+    },
+}
 
 /// An item in an INDEX clause.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +119,8 @@ pub struct ResolvedObject {
     pub index: Option<IndexSpec>,
     /// AUGMENTS target (for row objects).
     pub augments: Option<NodeId>,
+    /// Default value (DEFVAL clause).
+    pub defval: Option<DefVal>,
     /// Reference text.
     pub reference: Option<StrId>,
 }
@@ -112,6 +159,7 @@ impl ResolvedObject {
             units: None,
             index: None,
             augments: None,
+            defval: None,
             reference: None,
         }
     }

@@ -44,5 +44,8 @@ pub use definition::{
 pub use lower::{lower_module, LoweringContext};
 pub use module::{HirImport, HirModule};
 pub use normalize::{normalize_import, normalize_type_name, NormalizedImport};
-pub use syntax::{HirConstraint, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue, HirTypeSyntax};
+pub use syntax::{
+    HirConstraint, HirDefVal, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue,
+    HirTypeSyntax,
+};
 pub use types::{HirAccess, HirStatus, SmiLanguage, Symbol};

@@ -47,7 +47,7 @@ pub use ids::{ModuleId, NodeId, NotificationId, ObjectId, StrId, TypeId};
 pub use interner::StringInterner;
 pub use module::{ResolvedModule, Revision};
 pub use node::{NodeDefinition, NodeKind, OidNode};
-pub use object::{IndexItem, IndexSpec, ResolvedNotification, ResolvedObject};
+pub use object::{DefVal, IndexItem, IndexSpec, ResolvedNotification, ResolvedObject};
 pub use oid::Oid;
 pub use types::{
     Access, BaseType, BitDefinitions, EnumValues, ResolvedType, SizeConstraint, Status,

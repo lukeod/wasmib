@@ -166,3 +166,45 @@ pub enum HirRangeValue {
     /// MAX keyword.
     Max,
 }
+
+// === DEFVAL types ===
+
+/// Default value for an OBJECT-TYPE.
+///
+/// This is the normalized representation of DEFVAL clause content.
+/// Symbol references are kept unresolved; resolution happens in the semantic phase.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HirDefVal {
+    /// Integer value: `DEFVAL { 0 }`, `DEFVAL { -1 }`
+    Integer(i64),
+
+    /// Unsigned integer (for Counter64 etc): `DEFVAL { 4294967296 }`
+    Unsigned(u64),
+
+    /// String value: `DEFVAL { "public" }`, `DEFVAL { "" }`
+    String(alloc::string::String),
+
+    /// Hex string: `DEFVAL { 'FF00'H }`
+    /// Stored as raw hex digits (uppercase).
+    HexString(alloc::string::String),
+
+    /// Binary string: `DEFVAL { '1010'B }`
+    /// Stored as raw binary digits.
+    BinaryString(alloc::string::String),
+
+    /// Enum label reference: `DEFVAL { enabled }`, `DEFVAL { true }`
+    /// The symbol refers to an enumeration value defined in the object's type.
+    Enum(Symbol),
+
+    /// BITS value (set of bit labels): `DEFVAL { { flag1, flag2 } }`, `DEFVAL { {} }`
+    /// Each symbol refers to a bit name defined in the object's BITS type.
+    Bits(Vec<Symbol>),
+
+    /// OID reference: `DEFVAL { sysName }`
+    /// The symbol refers to another OID in the MIB.
+    OidRef(Symbol),
+
+    /// OID value (explicit components): `DEFVAL { { iso 3 6 1 } }`
+    /// Kept as HIR OID components for resolution.
+    OidValue(Vec<HirOidComponent>),
+}

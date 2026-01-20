@@ -297,6 +297,7 @@ mod tests {
             reference: None,
             index: None,
             augments: None,
+            defval: None,
             oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
             span: Span::new(0, 0),
         })

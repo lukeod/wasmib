@@ -3,7 +3,7 @@
 //! Each definition type is normalized from its AST counterpart.
 //! SMIv1 and SMIv2 forms are unified where appropriate.
 
-use super::syntax::{HirOidAssignment, HirTypeSyntax};
+use super::syntax::{HirDefVal, HirOidAssignment, HirTypeSyntax};
 use super::types::{HirAccess, HirStatus, Symbol};
 use crate::lexer::Span;
 use alloc::string::String;
@@ -108,6 +108,8 @@ pub struct HirObjectType {
     pub index: Option<Vec<HirIndexItem>>,
     /// AUGMENTS target.
     pub augments: Option<Symbol>,
+    /// DEFVAL clause (default value).
+    pub defval: Option<HirDefVal>,
     /// OID assignment.
     pub oid: HirOidAssignment,
     /// Source span.

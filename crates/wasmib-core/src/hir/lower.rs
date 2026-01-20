@@ -15,11 +15,14 @@ use super::definition::{
 };
 use super::module::{HirImport, HirModule};
 use super::normalize::{is_smiv2_base_module, normalize_import, normalize_type_name};
-use super::syntax::{HirConstraint, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue, HirTypeSyntax};
+use super::syntax::{
+    HirConstraint, HirDefVal, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue,
+    HirTypeSyntax,
+};
 use super::types::{HirAccess, HirStatus, SmiLanguage, Symbol};
 use crate::ast::{
-    self, AccessValue, Constraint, Definition, IndexClause, Module, OidComponent, RangeValue,
-    StatusValue, TypeSyntax,
+    self, AccessValue, Constraint, DefValClause, DefValContent, Definition, IndexClause, Module,
+    OidComponent, RangeValue, StatusValue, TypeSyntax,
 };
 use crate::lexer::Diagnostic;
 use alloc::vec::Vec;
@@ -180,9 +183,42 @@ fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObj
             .augments
             .as_ref()
             .map(|a| Symbol::new(a.target.name.clone())),
+        defval: def.defval.as_ref().map(lower_defval),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
     }
+}
+
+/// Lower a DEFVAL clause from AST to HIR.
+fn lower_defval(clause: &DefValClause) -> HirDefVal {
+    lower_defval_content(&clause.value)
+}
+
+/// Lower DefValContent from AST to HirDefVal.
+fn lower_defval_content(content: &DefValContent) -> HirDefVal {
+    match content {
+        DefValContent::Integer(n) => HirDefVal::Integer(*n),
+        DefValContent::Unsigned(n) => HirDefVal::Unsigned(*n),
+        DefValContent::String(qs) => HirDefVal::String(qs.value.clone()),
+        DefValContent::Identifier(ident) => {
+            // Could be enum label or OID reference - we can't distinguish
+            // until semantic analysis, so treat as Enum (most common case)
+            HirDefVal::Enum(Symbol::new(ident.name.clone()))
+        }
+        DefValContent::Bits { labels, .. } => {
+            HirDefVal::Bits(labels.iter().map(|i| Symbol::new(i.name.clone())).collect())
+        }
+        DefValContent::HexString { content, .. } => HirDefVal::HexString(content.clone()),
+        DefValContent::BinaryString { content, .. } => HirDefVal::BinaryString(content.clone()),
+        DefValContent::ObjectIdentifier { components, .. } => {
+            HirDefVal::OidValue(lower_oid_components(components))
+        }
+    }
+}
+
+/// Lower OID components from AST to HIR OID components.
+fn lower_oid_components(components: &[OidComponent]) -> Vec<HirOidComponent> {
+    components.iter().map(lower_oid_component).collect()
 }
 
 fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {

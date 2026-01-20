@@ -4,10 +4,10 @@
 
 use crate::ast::{
     AccessClause, AccessKeyword, AccessValue, AugmentsClause, Constraint, DefValClause,
-    Definition, DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem, Module,
-    NamedNumber, ObjectTypeDef, OidAssignment, OidComponent, QuotedString, Range, RangeValue,
-    SequenceField, StatusClause, StatusValue, SyntaxClause, TextualConventionDef, TypeAssignmentDef,
-    TypeSyntax, ValueAssignmentDef,
+    DefValContent, Definition, DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem,
+    Module, NamedNumber, ObjectTypeDef, OidAssignment, OidComponent, QuotedString, Range,
+    RangeValue, SequenceField, StatusClause, StatusValue, SyntaxClause, TextualConventionDef,
+    TypeAssignmentDef, TypeSyntax, ValueAssignmentDef,
 };
 use crate::lexer::{Diagnostic, Lexer, Severity, Span, Token, TokenKind};
 use alloc::string::String;
@@ -1011,35 +1011,304 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse DEFVAL clause.
+    ///
+    /// Per RFC 2578, DEFVAL values can be:
+    /// - Integer: `DEFVAL { 0 }`, `DEFVAL { -1 }`
+    /// - String: `DEFVAL { "public" }`
+    /// - Enum label: `DEFVAL { enabled }`
+    /// - BITS: `DEFVAL { { flag1, flag2 } }`
+    /// - Hex string: `DEFVAL { 'FF00'H }`
+    /// - Binary string: `DEFVAL { '1010'B }`
+    /// - OID value: `DEFVAL { { iso 3 6 1 } }`
     fn parse_defval_clause(&mut self) -> Result<DefValClause, Diagnostic> {
         let start = self.current_span().start;
         self.expect(TokenKind::KwDefval)?;
         self.expect(TokenKind::LBrace)?;
 
-        // Skip content until matching brace (simplified for now)
-        let mut depth = 1;
-        while depth > 0 && !self.is_eof() {
-            match self.peek().kind {
-                TokenKind::LBrace => {
-                    depth += 1;
-                    self.advance();
-                }
-                TokenKind::RBrace => {
-                    depth -= 1;
-                    if depth > 0 {
-                        self.advance();
-                    }
-                }
-                _ => {
-                    self.advance();
-                }
-            }
-        }
+        let value = self.parse_defval_content()?;
 
         let end_token = self.expect(TokenKind::RBrace)?;
         let span = Span::new(start, end_token.span.end);
 
-        Ok(DefValClause { span })
+        Ok(DefValClause { value, span })
+    }
+
+    /// Parse the content inside a DEFVAL clause.
+    fn parse_defval_content(&mut self) -> Result<DefValContent, Diagnostic> {
+        let content_start = self.current_span().start;
+
+        match self.peek().kind {
+            // Negative number: -1, -100
+            TokenKind::NegativeNumber => {
+                let token = self.advance();
+                let text = self.text(token.span);
+                let value: i64 = text.parse().unwrap_or(0);
+                Ok(DefValContent::Integer(value))
+            }
+
+            // Positive number: 0, 100, 4294967296
+            TokenKind::Number => {
+                let token = self.advance();
+                let text = self.text(token.span);
+                // Try i64 first (most common), fall back to u64 for Counter64 values
+                if let Ok(value) = text.parse::<i64>() {
+                    Ok(DefValContent::Integer(value))
+                } else if let Ok(value) = text.parse::<u64>() {
+                    Ok(DefValContent::Unsigned(value))
+                } else {
+                    Ok(DefValContent::Integer(0))
+                }
+            }
+
+            // Quoted string: "public", ""
+            TokenKind::QuotedString => {
+                let qs = self.parse_quoted_string()?;
+                Ok(DefValContent::String(qs))
+            }
+
+            // Hex string: 'FF00'H
+            TokenKind::HexString => {
+                let token = self.advance();
+                let text = self.text(token.span);
+                // Strip the quotes and H suffix: 'FF00'H -> FF00
+                let content = text
+                    .trim_start_matches('\'')
+                    .trim_end_matches('H')
+                    .trim_end_matches('h')
+                    .trim_end_matches('\'')
+                    .to_string();
+                Ok(DefValContent::HexString {
+                    content,
+                    span: token.span,
+                })
+            }
+
+            // Binary string: '1010'B
+            TokenKind::BinString => {
+                let token = self.advance();
+                let text = self.text(token.span);
+                // Strip the quotes and B suffix: '1010'B -> 1010
+                let content = text
+                    .trim_start_matches('\'')
+                    .trim_end_matches('B')
+                    .trim_end_matches('b')
+                    .trim_end_matches('\'')
+                    .to_string();
+                Ok(DefValContent::BinaryString {
+                    content,
+                    span: token.span,
+                })
+            }
+
+            // Identifier: enum label or OID reference (enabled, true, sysName)
+            TokenKind::LowercaseIdent | TokenKind::UppercaseIdent => {
+                let token = self.advance();
+                let ident = Ident::new(self.text(token.span).into(), token.span);
+                Ok(DefValContent::Identifier(ident))
+            }
+
+            // Nested braces: BITS value or OID value
+            // BITS: { flag1, flag2 } or { }
+            // OID: { iso 3 6 1 } or { sysName 0 }
+            TokenKind::LBrace => {
+                self.advance(); // consume opening brace
+                let inner_start = self.current_span().start;
+
+                // Empty braces: BITS { {} }
+                if self.check(TokenKind::RBrace) {
+                    let end_token = self.advance();
+                    let span = Span::new(inner_start, end_token.span.end);
+                    return Ok(DefValContent::Bits {
+                        labels: Vec::new(),
+                        span,
+                    });
+                }
+
+                // Peek to determine if this is BITS (comma-separated identifiers)
+                // or OID (space-separated components possibly with numbers)
+                let first_token = self.peek().kind;
+
+                match first_token {
+                    TokenKind::LowercaseIdent | TokenKind::UppercaseIdent => {
+                        // Could be BITS { flag1, flag2 } or OID { sysName 0 }
+                        // Look ahead to see if there's a comma (BITS) or number/paren (OID)
+                        let ident_token = self.advance();
+                        let ident = Ident::new(self.text(ident_token.span).into(), ident_token.span);
+
+                        if self.check(TokenKind::Comma) || self.check(TokenKind::RBrace) {
+                            // This is BITS: { flag1, flag2 }
+                            let mut labels = vec![ident];
+                            while self.check(TokenKind::Comma) {
+                                self.advance(); // consume comma
+                                if self.check(TokenKind::LowercaseIdent)
+                                    || self.check(TokenKind::UppercaseIdent)
+                                {
+                                    let token = self.advance();
+                                    labels.push(Ident::new(
+                                        self.text(token.span).into(),
+                                        token.span,
+                                    ));
+                                }
+                            }
+                            let end_token = self.expect(TokenKind::RBrace)?;
+                            let span = Span::new(inner_start, end_token.span.end);
+                            Ok(DefValContent::Bits { labels, span })
+                        } else {
+                            // This is OID: { sysName 0 } or { iso 3 6 1 }
+                            let mut components = Vec::new();
+                            // First component is the identifier we already parsed
+                            if self.check(TokenKind::LParen) {
+                                // Named number: iso(1)
+                                self.advance(); // (
+                                let num_token = self.expect(TokenKind::Number)?;
+                                let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+                                let end_paren = self.expect(TokenKind::RParen)?;
+                                components.push(OidComponent::NamedNumber {
+                                    name: ident,
+                                    number,
+                                    span: Span::new(ident_token.span.start, end_paren.span.end),
+                                });
+                            } else {
+                                // Just a name
+                                components.push(OidComponent::Name(ident));
+                            }
+
+                            // Parse remaining components
+                            while !self.check(TokenKind::RBrace) && !self.is_eof() {
+                                if self.check(TokenKind::Number) {
+                                    let token = self.advance();
+                                    let value: u32 = self.text(token.span).parse().unwrap_or(0);
+                                    components.push(OidComponent::Number {
+                                        value,
+                                        span: token.span,
+                                    });
+                                } else if self.check(TokenKind::LowercaseIdent)
+                                    || self.check(TokenKind::UppercaseIdent)
+                                {
+                                    let token = self.advance();
+                                    let name =
+                                        Ident::new(self.text(token.span).into(), token.span);
+                                    if self.check(TokenKind::LParen) {
+                                        self.advance();
+                                        let num_token = self.expect(TokenKind::Number)?;
+                                        let number: u32 =
+                                            self.text(num_token.span).parse().unwrap_or(0);
+                                        let end_paren = self.expect(TokenKind::RParen)?;
+                                        components.push(OidComponent::NamedNumber {
+                                            name,
+                                            number,
+                                            span: Span::new(token.span.start, end_paren.span.end),
+                                        });
+                                    } else {
+                                        components.push(OidComponent::Name(name));
+                                    }
+                                } else {
+                                    // Unknown token, skip
+                                    self.advance();
+                                }
+                            }
+                            let end_token = self.expect(TokenKind::RBrace)?;
+                            let span = Span::new(inner_start, end_token.span.end);
+                            Ok(DefValContent::ObjectIdentifier { components, span })
+                        }
+                    }
+                    TokenKind::Number => {
+                        // This is OID: { 1 3 6 1 }
+                        let mut components = Vec::new();
+                        while !self.check(TokenKind::RBrace) && !self.is_eof() {
+                            if self.check(TokenKind::Number) {
+                                let token = self.advance();
+                                let value: u32 = self.text(token.span).parse().unwrap_or(0);
+                                components.push(OidComponent::Number {
+                                    value,
+                                    span: token.span,
+                                });
+                            } else if self.check(TokenKind::LowercaseIdent)
+                                || self.check(TokenKind::UppercaseIdent)
+                            {
+                                let token = self.advance();
+                                let name = Ident::new(self.text(token.span).into(), token.span);
+                                if self.check(TokenKind::LParen) {
+                                    self.advance();
+                                    let num_token = self.expect(TokenKind::Number)?;
+                                    let number: u32 =
+                                        self.text(num_token.span).parse().unwrap_or(0);
+                                    let end_paren = self.expect(TokenKind::RParen)?;
+                                    components.push(OidComponent::NamedNumber {
+                                        name,
+                                        number,
+                                        span: Span::new(token.span.start, end_paren.span.end),
+                                    });
+                                } else {
+                                    components.push(OidComponent::Name(name));
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        let end_token = self.expect(TokenKind::RBrace)?;
+                        let span = Span::new(inner_start, end_token.span.end);
+                        Ok(DefValContent::ObjectIdentifier { components, span })
+                    }
+                    _ => {
+                        // Unknown content in braces, skip to closing brace
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_eof() {
+                            match self.peek().kind {
+                                TokenKind::LBrace => {
+                                    depth += 1;
+                                    self.advance();
+                                }
+                                TokenKind::RBrace => {
+                                    depth -= 1;
+                                    if depth > 0 {
+                                        self.advance();
+                                    }
+                                }
+                                _ => {
+                                    self.advance();
+                                }
+                            }
+                        }
+                        let end_token = self.expect(TokenKind::RBrace)?;
+                        let span = Span::new(content_start, end_token.span.end);
+                        Ok(DefValContent::Bits {
+                            labels: Vec::new(),
+                            span,
+                        })
+                    }
+                }
+            }
+
+            // Unknown content - skip to closing brace
+            _ => {
+                let mut depth = 0;
+                while !self.is_eof() {
+                    match self.peek().kind {
+                        TokenKind::LBrace => {
+                            depth += 1;
+                            self.advance();
+                        }
+                        TokenKind::RBrace => {
+                            if depth == 0 {
+                                break;
+                            }
+                            depth -= 1;
+                            self.advance();
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                // Return empty BITS as fallback for unparseable content
+                let span = Span::new(content_start, self.current_span().start);
+                Ok(DefValContent::Bits {
+                    labels: Vec::new(),
+                    span,
+                })
+            }
+        }
     }
 
     /// Parse a quoted string.
@@ -1784,6 +2053,162 @@ mod tests {
             assert_eq!(def.status.value, StatusValue::Current);
         } else {
             panic!("expected TextualConvention");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_integer() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testCounter OBJECT-TYPE
+                SYNTAX Integer32
+                MAX-ACCESS read-only
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { 0 }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            assert!(matches!(defval.value, DefValContent::Integer(0)));
+        } else {
+            panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_string() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testString OBJECT-TYPE
+                SYNTAX DisplayString
+                MAX-ACCESS read-write
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { "public" }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            if let DefValContent::String(qs) = &defval.value {
+                assert_eq!(qs.value, "public");
+            } else {
+                panic!("expected String DefValContent");
+            }
+        } else {
+            panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_enum_label() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testStatus OBJECT-TYPE
+                SYNTAX INTEGER { enabled(1), disabled(2) }
+                MAX-ACCESS read-write
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { enabled }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            if let DefValContent::Identifier(ident) = &defval.value {
+                assert_eq!(ident.name, "enabled");
+            } else {
+                panic!("expected Identifier DefValContent, got {:?}", defval.value);
+            }
+        } else {
+            panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_bits() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testBits OBJECT-TYPE
+                SYNTAX BITS { flag1(0), flag2(1) }
+                MAX-ACCESS read-write
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { { flag1, flag2 } }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            if let DefValContent::Bits { labels, .. } = &defval.value {
+                assert_eq!(labels.len(), 2);
+                assert_eq!(labels[0].name, "flag1");
+                assert_eq!(labels[1].name, "flag2");
+            } else {
+                panic!("expected Bits DefValContent, got {:?}", defval.value);
+            }
+        } else {
+            panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_empty_bits() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testBits OBJECT-TYPE
+                SYNTAX BITS { flag1(0) }
+                MAX-ACCESS read-write
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { {} }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            if let DefValContent::Bits { labels, .. } = &defval.value {
+                assert!(labels.is_empty());
+            } else {
+                panic!("expected Bits DefValContent, got {:?}", defval.value);
+            }
+        } else {
+            panic!("expected ObjectType");
+        }
+    }
+
+    #[test]
+    fn test_parse_defval_negative() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testOffset OBJECT-TYPE
+                SYNTAX Integer32
+                MAX-ACCESS read-write
+                STATUS current
+                DESCRIPTION "Test"
+                DEFVAL { -100 }
+                ::= { testEntry 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::ObjectType(def) = &module.body[0] {
+            assert!(def.defval.is_some());
+            let defval = def.defval.as_ref().unwrap();
+            assert!(matches!(defval.value, DefValContent::Integer(-100)));
+        } else {
+            panic!("expected ObjectType");
         }
     }
 }

@@ -284,14 +284,68 @@ pub struct AugmentsClause {
 // === DEFVAL clause ===
 
 /// DEFVAL clause.
-///
-/// DEFVAL values can be complex (OID values, bits, etc.) so we store
-/// the raw content for now.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefValClause {
+    /// The default value content.
+    pub value: DefValContent,
     /// Source location (includes DEFVAL keyword and braces).
     pub span: Span,
-    // TODO: Parse DEFVAL content properly
+}
+
+/// Content of a DEFVAL clause.
+///
+/// Per RFC 2578, DEFVAL can contain:
+/// - Integer literals
+/// - String literals (quoted)
+/// - Enumeration labels (identifiers)
+/// - BITS values (set of bit labels in braces)
+/// - OID references (identifiers)
+/// - Hex or binary strings
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DefValContent {
+    /// Integer value: `DEFVAL { 0 }`, `DEFVAL { -1 }`
+    Integer(i64),
+
+    /// Unsigned integer (for Counter64 etc): `DEFVAL { 4294967296 }`
+    Unsigned(u64),
+
+    /// Quoted string: `DEFVAL { "public" }`, `DEFVAL { "" }`
+    String(QuotedString),
+
+    /// Identifier (enum label or OID reference): `DEFVAL { enabled }`, `DEFVAL { sysName }`
+    Identifier(Ident),
+
+    /// BITS value (set of bit labels): `DEFVAL { { flag1, flag2 } }`, `DEFVAL { {} }`
+    Bits {
+        /// Bit labels (identifiers).
+        labels: Vec<Ident>,
+        /// Source location.
+        span: Span,
+    },
+
+    /// Hex string: `DEFVAL { 'FF00'H }`
+    HexString {
+        /// Hex content (without quotes and 'H' suffix).
+        content: alloc::string::String,
+        /// Source location.
+        span: Span,
+    },
+
+    /// Binary string: `DEFVAL { '1010'B }`
+    BinaryString {
+        /// Binary content (without quotes and 'B' suffix).
+        content: alloc::string::String,
+        /// Source location.
+        span: Span,
+    },
+
+    /// Object identifier value: `DEFVAL { { iso 3 6 1 } }`
+    ObjectIdentifier {
+        /// OID components.
+        components: Vec<super::OidComponent>,
+        /// Source location.
+        span: Span,
+    },
 }
 
 // === REVISION clause ===

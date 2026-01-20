@@ -110,6 +110,7 @@ mod tests {
             reference: None,
             index: None,
             augments: None,
+            defval: None,
             oid: HirOidAssignment::new(
                 vec![
                     HirOidComponent::Name(Symbol::from_str("enterprises")),

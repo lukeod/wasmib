@@ -2,10 +2,10 @@
 //!
 //! Infer node kinds, resolve table semantics, and perform validation.
 
-use crate::hir::{HirDefinition, HirTypeSyntax};
+use crate::hir::{HirDefVal, HirDefinition, HirTypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
-    Access, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedObject, Status, UnresolvedIndex,
+    Access, DefVal, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedObject, Status, UnresolvedIndex,
 };
 use crate::resolver::context::ResolverContext;
 use alloc::vec::Vec;
@@ -239,6 +239,11 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             resolved.augments = ctx.lookup_node_in_module(&module_name, &augments_sym.name);
         }
 
+        // Handle DEFVAL
+        if let Some(ref defval) = obj.defval {
+            resolved.defval = Some(convert_defval(ctx, defval, &module_name));
+        }
+
         // Handle inline enums
         if let HirTypeSyntax::IntegerEnum(ref enums) = obj.syntax {
             let values: Vec<_> = enums
@@ -321,6 +326,61 @@ fn resolve_type_syntax(
     }
 }
 
+/// Convert HirDefVal to resolved DefVal.
+fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_name: &str) -> DefVal {
+    match defval {
+        HirDefVal::Integer(n) => DefVal::Integer(*n),
+        HirDefVal::Unsigned(n) => DefVal::Unsigned(*n),
+        HirDefVal::String(s) => DefVal::String(ctx.intern(s)),
+        HirDefVal::HexString(s) => DefVal::HexString(s.clone()),
+        HirDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
+        HirDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
+        HirDefVal::Bits(syms) => {
+            DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect())
+        }
+        HirDefVal::OidRef(sym) => {
+            // Try to resolve the OID reference
+            let resolved_node = ctx.lookup_node_in_module(module_name, &sym.name);
+            DefVal::OidRef {
+                node: resolved_node,
+                symbol: if resolved_node.is_none() {
+                    Some(ctx.intern(&sym.name))
+                } else {
+                    None
+                },
+            }
+        }
+        HirDefVal::OidValue(components) => {
+            // Try to resolve the OID value by looking up the first component
+            // This is a best-effort resolution
+            if let Some(first) = components.first() {
+                if let Some(name) = first.name() {
+                    if let Some(node) = ctx.lookup_node_in_module(module_name, &name.name) {
+                        return DefVal::OidRef {
+                            node: Some(node),
+                            symbol: None,
+                        };
+                    }
+                }
+            }
+            // If we can't resolve it, store the first symbol as unresolved
+            if let Some(first) = components.first() {
+                if let Some(name) = first.name() {
+                    return DefVal::OidRef {
+                        node: None,
+                        symbol: Some(ctx.intern(&name.name)),
+                    };
+                }
+            }
+            // Fallback for numeric-only OIDs (rare in DEFVAL)
+            DefVal::OidRef {
+                node: None,
+                symbol: None,
+            }
+        }
+    }
+}
+
 fn hir_access_to_access(access: crate::hir::HirAccess) -> Access {
     match access {
         crate::hir::HirAccess::ReadOnly => Access::ReadOnly,
@@ -367,6 +427,7 @@ mod tests {
             reference: None,
             index,
             augments: None,
+            defval: None,
             oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
             span: Span::new(0, 0),
         })
