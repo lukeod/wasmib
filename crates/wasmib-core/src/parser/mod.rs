@@ -173,6 +173,74 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Create an error diagnostic at a specific span.
+    fn error_at(&self, span: Span, message: &str) -> Diagnostic {
+        Diagnostic {
+            severity: Severity::Error,
+            span,
+            message: message.into(),
+        }
+    }
+
+    /// Parse a u32 from token text, emitting diagnostic on failure.
+    /// Returns 0 as fallback to allow continued parsing.
+    fn parse_u32(&mut self, span: Span, context: &str) -> u32 {
+        match self.text(span).parse::<u32>() {
+            Ok(v) => v,
+            Err(_) => {
+                self.diagnostics.push(self.error_at(
+                    span,
+                    &alloc::format!("invalid {} (not a valid u32)", context),
+                ));
+                0
+            }
+        }
+    }
+
+    /// Parse an i64 from token text, emitting diagnostic on failure.
+    /// Returns 0 as fallback to allow continued parsing.
+    fn parse_i64(&mut self, span: Span, context: &str) -> i64 {
+        match self.text(span).parse::<i64>() {
+            Ok(v) => v,
+            Err(_) => {
+                self.diagnostics.push(self.error_at(
+                    span,
+                    &alloc::format!("invalid {} (not a valid integer)", context),
+                ));
+                0
+            }
+        }
+    }
+
+    /// Parse a hex string to u64, emitting diagnostic on failure.
+    /// Expected format: 'xxxx'H or 'xxxx'h
+    /// Returns 0 as fallback to allow continued parsing.
+    fn parse_hex(&mut self, span: Span, context: &str) -> u64 {
+        let text = self.text(span);
+        let hex_part = text
+            .trim_start_matches('\'')
+            .trim_end_matches(|c| c == '\'' || c == 'H' || c == 'h');
+
+        if hex_part.is_empty() {
+            self.diagnostics.push(self.error_at(
+                span,
+                &alloc::format!("empty {} value", context),
+            ));
+            return 0;
+        }
+
+        match u64::from_str_radix(hex_part, 16) {
+            Ok(v) => v,
+            Err(_) => {
+                self.diagnostics.push(self.error_at(
+                    span,
+                    &alloc::format!("invalid {} (not valid hexadecimal)", context),
+                ));
+                0
+            }
+        }
+    }
+
     // === Parsing methods ===
 
     /// Parse module header: `ModuleName DEFINITIONS ::= BEGIN`
@@ -423,7 +491,7 @@ impl<'src> Parser<'src> {
             if self.check(TokenKind::Number) {
                 // Numeric: 1, 3, 6, ...
                 let token = self.advance();
-                let value: u32 = self.text(token.span).parse().unwrap_or(0);
+                let value = self.parse_u32(token.span, "OID component");
                 components.push(OidComponent::Number {
                     value,
                     span: token.span,
@@ -446,7 +514,7 @@ impl<'src> Parser<'src> {
                         // QualifiedNamedNumber: Module.name(123)
                         self.advance(); // (
                         let num_token = self.expect(TokenKind::Number)?;
-                        let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+                        let number = self.parse_u32(num_token.span, "OID component");
                         let end_token = self.expect(TokenKind::RParen)?;
                         components.push(OidComponent::QualifiedNamedNumber {
                             module: first_name,
@@ -466,7 +534,7 @@ impl<'src> Parser<'src> {
                     // Named number: iso(1), org(3)
                     self.advance(); // (
                     let num_token = self.expect(TokenKind::Number)?;
-                    let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+                    let number = self.parse_u32(num_token.span, "OID component");
                     let end_token = self.expect(TokenKind::RParen)?;
                     components.push(OidComponent::NamedNumber {
                         name: first_name,
@@ -744,7 +812,7 @@ impl<'src> Parser<'src> {
             } else {
                 self.expect(TokenKind::Number)?
             };
-            let value: i64 = self.text(num_token.span).parse().unwrap_or(0);
+            let value = self.parse_i64(num_token.span, "named number value");
 
             let end_token = self.expect(TokenKind::RParen)?;
             let span = Span::new(start, end_token.span.end);
@@ -840,20 +908,17 @@ impl<'src> Parser<'src> {
                 Ok(RangeValue::Unsigned(value))
             } else {
                 // Fallback to signed (shouldn't happen for positive numbers, but be safe)
-                let value: i64 = text.parse().unwrap_or(0);
+                let value = self.parse_i64(token.span, "range value");
                 Ok(RangeValue::Signed(value))
             }
         } else if self.check(TokenKind::NegativeNumber) {
             let token = self.advance();
-            let value: i64 = self.text(token.span).parse().unwrap_or(0);
+            let value = self.parse_i64(token.span, "range value");
             Ok(RangeValue::Signed(value))
         } else if self.check(TokenKind::HexString) {
             // Hex string like 'ffffffff'h - parse to unsigned number
             let token = self.advance();
-            let text = self.text(token.span);
-            // Extract hex digits (format: 'xxxx'H)
-            let hex_part = text.trim_start_matches('\'').trim_end_matches(|c| c == '\'' || c == 'H' || c == 'h');
-            let value = u64::from_str_radix(hex_part, 16).unwrap_or(0);
+            let value = self.parse_hex(token.span, "hex range value");
             Ok(RangeValue::Unsigned(value))
         } else if self.check(TokenKind::UppercaseIdent) || self.check(TokenKind::ForbiddenKeyword) {
             // MIN and MAX are actually forbidden keywords but used here
@@ -1071,8 +1136,7 @@ impl<'src> Parser<'src> {
             // Negative number: -1, -100
             TokenKind::NegativeNumber => {
                 let token = self.advance();
-                let text = self.text(token.span);
-                let value: i64 = text.parse().unwrap_or(0);
+                let value = self.parse_i64(token.span, "DEFVAL integer");
                 Ok(DefValContent::Integer(value))
             }
 
@@ -1086,7 +1150,9 @@ impl<'src> Parser<'src> {
                 } else if let Ok(value) = text.parse::<u64>() {
                     Ok(DefValContent::Unsigned(value))
                 } else {
-                    Ok(DefValContent::Integer(0))
+                    // Emit diagnostic for unparseable number
+                    let value = self.parse_i64(token.span, "DEFVAL integer");
+                    Ok(DefValContent::Integer(value))
                 }
             }
 
@@ -1191,7 +1257,7 @@ impl<'src> Parser<'src> {
                                 // Named number: iso(1)
                                 self.advance(); // (
                                 let num_token = self.expect(TokenKind::Number)?;
-                                let number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+                                let number = self.parse_u32(num_token.span, "OID component");
                                 let end_paren = self.expect(TokenKind::RParen)?;
                                 components.push(OidComponent::NamedNumber {
                                     name: ident,
@@ -1207,7 +1273,7 @@ impl<'src> Parser<'src> {
                             while !self.check(TokenKind::RBrace) && !self.is_eof() {
                                 if self.check(TokenKind::Number) {
                                     let token = self.advance();
-                                    let value: u32 = self.text(token.span).parse().unwrap_or(0);
+                                    let value = self.parse_u32(token.span, "OID component");
                                     components.push(OidComponent::Number {
                                         value,
                                         span: token.span,
@@ -1221,8 +1287,8 @@ impl<'src> Parser<'src> {
                                     if self.check(TokenKind::LParen) {
                                         self.advance();
                                         let num_token = self.expect(TokenKind::Number)?;
-                                        let number: u32 =
-                                            self.text(num_token.span).parse().unwrap_or(0);
+                                        let number =
+                                            self.parse_u32(num_token.span, "OID component");
                                         let end_paren = self.expect(TokenKind::RParen)?;
                                         components.push(OidComponent::NamedNumber {
                                             name,
@@ -1248,7 +1314,7 @@ impl<'src> Parser<'src> {
                         while !self.check(TokenKind::RBrace) && !self.is_eof() {
                             if self.check(TokenKind::Number) {
                                 let token = self.advance();
-                                let value: u32 = self.text(token.span).parse().unwrap_or(0);
+                                let value = self.parse_u32(token.span, "OID component");
                                 components.push(OidComponent::Number {
                                     value,
                                     span: token.span,
@@ -1261,8 +1327,8 @@ impl<'src> Parser<'src> {
                                 if self.check(TokenKind::LParen) {
                                     self.advance();
                                     let num_token = self.expect(TokenKind::Number)?;
-                                    let number: u32 =
-                                        self.text(num_token.span).parse().unwrap_or(0);
+                                    let number =
+                                        self.parse_u32(num_token.span, "OID component");
                                     let end_paren = self.expect(TokenKind::RParen)?;
                                     components.push(OidComponent::NamedNumber {
                                         name,
@@ -1561,7 +1627,7 @@ impl<'src> Parser<'src> {
         // ::= number
         self.expect(TokenKind::ColonColonEqual)?;
         let num_token = self.expect(TokenKind::Number)?;
-        let trap_number: u32 = self.text(num_token.span).parse().unwrap_or(0);
+        let trap_number = self.parse_u32(num_token.span, "trap number");
 
         let span = Span::new(start, num_token.span.end);
 
