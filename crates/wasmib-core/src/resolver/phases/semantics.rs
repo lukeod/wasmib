@@ -9,6 +9,7 @@ use crate::model::{
     ResolvedObject, Status, UnresolvedIndex,
 };
 use crate::resolver::context::ResolverContext;
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 /// Perform semantic analysis on the resolved model.
@@ -85,8 +86,25 @@ fn infer_node_kinds(ctx: &mut ResolverContext) {
 }
 
 /// Collect children of ROW nodes.
+/// Uses a visited set to prevent infinite recursion if the tree has cycles.
 fn collect_row_children(ctx: &ResolverContext, node_id: NodeId) -> Vec<NodeId> {
+    let mut visited = BTreeSet::new();
     let mut result = Vec::new();
+    collect_row_children_inner(ctx, node_id, &mut visited, &mut result);
+    result
+}
+
+/// Inner recursive helper for collect_row_children with cycle detection.
+fn collect_row_children_inner(
+    ctx: &ResolverContext,
+    node_id: NodeId,
+    visited: &mut BTreeSet<NodeId>,
+    result: &mut Vec<NodeId>,
+) {
+    // Cycle detection: skip if already visited
+    if !visited.insert(node_id) {
+        return;
+    }
 
     if let Some(node) = ctx.model.get_node(node_id) {
         if node.kind == NodeKind::Row {
@@ -96,11 +114,9 @@ fn collect_row_children(ctx: &ResolverContext, node_id: NodeId) -> Vec<NodeId> {
 
         // Recurse into children
         for &child_id in &node.children {
-            result.extend(collect_row_children(ctx, child_id));
+            collect_row_children_inner(ctx, child_id, visited, result);
         }
     }
-
-    result
 }
 
 /// Resolve table semantics (INDEX and AUGMENTS).
