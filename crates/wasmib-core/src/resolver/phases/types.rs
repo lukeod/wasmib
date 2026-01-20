@@ -183,11 +183,11 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
                 .filter_map(move |def| {
                     if let HirDefinition::TypeDef(td) = def {
                         if let HirTypeSyntax::TypeRef(ref base_name) = td.syntax {
-                            return Some((module_idx, td.name.name.clone(), base_name.name.clone()));
+                            return Some((module_idx, td.name.name.clone(), base_name.name.clone(), td.span));
                         }
                         if let HirTypeSyntax::Constrained { ref base, .. } = td.syntax {
                             if let HirTypeSyntax::TypeRef(ref base_name) = **base {
-                                return Some((module_idx, td.name.name.clone(), base_name.name.clone()));
+                                return Some((module_idx, td.name.name.clone(), base_name.name.clone(), td.span));
                             }
                         }
                     }
@@ -196,7 +196,7 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
         })
         .collect();
 
-    for (module_idx, type_name, base_name) in type_refs {
+    for (module_idx, type_name, base_name, span) in type_refs {
         let hir_module = &ctx.hir_modules[module_idx];
         let module_id = *ctx.module_index.get(&hir_module.name.name)
             .and_then(|v| v.first())
@@ -212,7 +212,7 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
                 typ.parent_type = Some(parent_id);
             }
         } else if ctx.lookup_type(&base_name).is_none() {
-            ctx.record_unresolved_type(module_id, &type_name, &base_name);
+            ctx.record_unresolved_type(module_id, &type_name, &base_name, span);
         }
     }
 

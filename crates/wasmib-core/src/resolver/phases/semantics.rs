@@ -3,6 +3,7 @@
 //! Infer node kinds, resolve table semantics, and perform validation.
 
 use crate::hir::{HirDefinition, HirTypeSyntax};
+use crate::lexer::Span;
 use crate::model::{
     Access, IndexItem, IndexSpec, NodeId, NodeKind, ResolvedObject, Status, UnresolvedIndex,
 };
@@ -117,6 +118,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                                     obj.name.name.clone(),
                                     obj.index.clone(),
                                     obj.augments.clone(),
+                                    obj.span,
                                 ));
                             }
                         }
@@ -126,7 +128,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
         })
         .collect();
 
-    for (module_id, name, index_opt, augments_opt) in table_defs {
+    for (module_id, name, index_opt, augments_opt, span) in table_defs {
         let module_name = match ctx.model.get_module(module_id) {
             Some(m) => ctx.model.get_str(m.name).to_string(),
             None => continue,
@@ -146,6 +148,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                             module: module_id,
                             row: row_str,
                             index_object: index_str,
+                            span,
                         });
                 }
             }
@@ -154,7 +157,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
         // Resolve AUGMENTS target
         if let Some(ref augments_sym) = augments_opt {
             if ctx.lookup_node_in_module(&module_name, &augments_sym.name).is_none() {
-                ctx.record_unresolved_oid(module_id, &name, &augments_sym.name);
+                ctx.record_unresolved_oid(module_id, &name, &augments_sym.name, span);
             }
         }
     }
@@ -195,7 +198,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         };
 
         // Find the type (may be None if unresolved)
-        let type_id = resolve_type_syntax(ctx, &obj.syntax, module_id, &obj.name.name);
+        let type_id = resolve_type_syntax(ctx, &obj.syntax, module_id, &obj.name.name, obj.span);
 
         let name = ctx.intern(&obj.name.name);
         let access = hir_access_to_access(obj.access);
@@ -286,6 +289,7 @@ fn resolve_type_syntax(
     syntax: &HirTypeSyntax,
     module_id: crate::model::ModuleId,
     object_name: &str,
+    span: Span,
 ) -> Option<crate::model::TypeId> {
     match syntax {
         HirTypeSyntax::TypeRef(name) => {
@@ -293,13 +297,13 @@ fn resolve_type_syntax(
                 Some(type_id) => Some(type_id),
                 None => {
                     // Record the unresolved type reference
-                    ctx.record_unresolved_type(module_id, object_name, &name.name);
+                    ctx.record_unresolved_type(module_id, object_name, &name.name, span);
                     None
                 }
             }
         }
         HirTypeSyntax::Constrained { base, .. } => {
-            resolve_type_syntax(ctx, base, module_id, object_name)
+            resolve_type_syntax(ctx, base, module_id, object_name, span)
         }
         HirTypeSyntax::IntegerEnum(_) => {
             // INTEGER with enum values - base type is Integer32

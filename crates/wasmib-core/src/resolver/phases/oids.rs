@@ -60,7 +60,7 @@ pub fn resolve_oids(ctx: &mut ResolverContext) {
             // Record unresolved for remaining definitions
             for def in still_pending {
                 if let Some(HirOidComponent::Name(sym)) = def.oid.components.first() {
-                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name);
+                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name, def.oid.span);
                 }
             }
             break;
@@ -83,7 +83,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
             Some(id) => id,
             None => {
                 // Enterprise reference not found
-                ctx.record_unresolved_oid(def.module_id, &def.def_name, &def.enterprise);
+                ctx.record_unresolved_oid(def.module_id, &def.def_name, &def.enterprise, def.span);
                 continue;
             }
         };
@@ -230,7 +230,7 @@ pub fn resolve_oids_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut T)
                             component: &sym.name,
                         }
                     );
-                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name);
+                    ctx.record_unresolved_oid(def.module_id, &def.def_name, &sym.name, def.oid.span);
                 }
             }
             break;
@@ -259,6 +259,8 @@ struct TrapTypeDefinition {
     def_name: String,
     enterprise: String,
     trap_number: u32,
+    /// Source span for diagnostics.
+    span: crate::lexer::Span,
 }
 
 #[derive(Clone, Copy)]
@@ -310,6 +312,7 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
                             def_name: d.name.name.clone(),
                             enterprise: trap_info.enterprise.name.clone(),
                             trap_number: trap_info.trap_number,
+                            span: d.span,
                         });
                         continue;
                     } else {
@@ -367,7 +370,7 @@ fn resolve_oid_definition(ctx: &mut ResolverContext, def: &OidDefinition) {
                     }
                 } else {
                     // Unresolved name reference
-                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name);
+                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name, def.oid.span);
                     return;
                 }
             }
@@ -519,7 +522,7 @@ fn resolve_oid_definition_traced<T: Tracer>(
                             component: &sym.name,
                         }
                     );
-                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name);
+                    ctx.record_unresolved_oid(module_id, &def.def_name, &sym.name, def.oid.span);
                     return false;
                 }
             }

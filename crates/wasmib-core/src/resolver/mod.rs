@@ -52,7 +52,7 @@ mod phases;
 pub mod tracing;
 
 use crate::hir::HirModule;
-use crate::lexer::{Diagnostic, Severity, Span};
+use crate::lexer::{Diagnostic, Severity};
 use crate::model::Model;
 use alloc::vec::Vec;
 use context::ResolverContext;
@@ -212,7 +212,7 @@ impl Resolver {
             let symbol = ctx.model.get_str(imp.symbol);
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                span: Span::new(0, 0),
+                span: imp.span,
                 message: alloc::format!("Unresolved import: {}::{}", from_module, symbol),
             });
         }
@@ -222,7 +222,7 @@ impl Resolver {
             let referenced = ctx.model.get_str(typ.referenced);
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                span: Span::new(0, 0),
+                span: typ.span,
                 message: alloc::format!("Unresolved type reference in {}: {}", referrer, referenced),
             });
         }
@@ -232,7 +232,7 @@ impl Resolver {
             let component = ctx.model.get_str(oid.component);
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                span: Span::new(0, 0),
+                span: oid.span,
                 message: alloc::format!("Unresolved OID component in {}: {}", definition, component),
             });
         }
@@ -242,7 +242,7 @@ impl Resolver {
             let index_obj = ctx.model.get_str(idx.index_object);
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                span: Span::new(0, 0),
+                span: idx.span,
                 message: alloc::format!("Unresolved INDEX object in {}: {}", row, index_obj),
             });
         }

@@ -54,6 +54,7 @@ pub use types::{
     ValueConstraint,
 };
 
+use crate::lexer::Span;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -99,6 +100,8 @@ pub struct UnresolvedImport {
     pub from_module: StrId,
     /// Symbol being imported.
     pub symbol: StrId,
+    /// Source location of the import.
+    pub span: Span,
 }
 
 /// An unresolved type reference.
@@ -111,6 +114,8 @@ pub struct UnresolvedType {
     pub referrer: StrId,
     /// Type being referenced.
     pub referenced: StrId,
+    /// Source location of the type reference.
+    pub span: Span,
 }
 
 /// An unresolved OID component.
@@ -123,6 +128,8 @@ pub struct UnresolvedOid {
     pub definition: StrId,
     /// Unresolved component name.
     pub component: StrId,
+    /// Source location of the OID reference.
+    pub span: Span,
 }
 
 /// An unresolved index object.
@@ -135,6 +142,8 @@ pub struct UnresolvedIndex {
     pub row: StrId,
     /// Unresolved index object name.
     pub index_object: StrId,
+    /// Source location of the index reference.
+    pub span: Span,
 }
 
 /// Decomposed model for serialization.

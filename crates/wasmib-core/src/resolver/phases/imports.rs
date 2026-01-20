@@ -7,6 +7,7 @@
 //! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
 use crate::hir::HirDefinition;
+use crate::lexer::Span;
 use crate::model::ModuleId;
 use crate::resolver::context::ResolverContext;
 use alloc::collections::BTreeMap;
@@ -15,6 +16,12 @@ use alloc::vec::Vec;
 
 #[cfg(feature = "tracing")]
 use crate::resolver::tracing::{TraceEvent, TraceLevel, Tracer};
+
+/// An import symbol with its source span.
+struct ImportSymbol {
+    name: String,
+    span: Span,
+}
 
 /// Resolve all imports across all modules.
 pub fn resolve_imports(ctx: &mut ResolverContext) {
@@ -26,13 +33,16 @@ pub fn resolve_imports(ctx: &mut ResolverContext) {
         .collect();
 
     for (module_id, hir_idx) in module_ids {
-        // Group imports by source module name
-        let mut imports_by_source: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // Group imports by source module name, keeping spans
+        let mut imports_by_source: BTreeMap<String, Vec<ImportSymbol>> = BTreeMap::new();
         for imp in &ctx.hir_modules[hir_idx].imports {
             imports_by_source
                 .entry(imp.module.name.clone())
                 .or_default()
-                .push(imp.symbol.name.clone());
+                .push(ImportSymbol {
+                    name: imp.symbol.name.clone(),
+                    span: imp.span,
+                });
         }
 
         // Resolve each source module atomically
@@ -53,13 +63,16 @@ pub fn resolve_imports_traced<T: Tracer>(ctx: &mut ResolverContext, tracer: &mut
         .collect();
 
     for (module_id, hir_idx) in module_ids {
-        // Group imports by source module name
-        let mut imports_by_source: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // Group imports by source module name, keeping spans
+        let mut imports_by_source: BTreeMap<String, Vec<ImportSymbol>> = BTreeMap::new();
         for imp in &ctx.hir_modules[hir_idx].imports {
             imports_by_source
                 .entry(imp.module.name.clone())
                 .or_default()
-                .push(imp.symbol.name.clone());
+                .push(ImportSymbol {
+                    name: imp.symbol.name.clone(),
+                    span: imp.span,
+                });
         }
 
         // Resolve each source module atomically
@@ -112,13 +125,12 @@ fn resolve_imports_from_module(
     ctx: &mut ResolverContext,
     importing_module: ModuleId,
     from_module_name: &str,
-    symbols: &[String],
+    symbols: &[ImportSymbol],
 ) {
     // Filter out MACROs (they don't need resolution)
     let user_symbols: Vec<_> = symbols
         .iter()
-        .filter(|s| !is_macro_symbol(s))
-        .cloned()
+        .filter(|s| !is_macro_symbol(&s.name))
         .collect();
 
     // If no symbols to resolve (all MACROs), we're done
@@ -135,8 +147,8 @@ fn resolve_imports_from_module(
 
     if candidates.is_empty() {
         // No candidates at all - mark all as unresolved
-        for symbol in &user_symbols {
-            ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+        for sym in &user_symbols {
+            ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
         }
         return;
     }
@@ -155,7 +167,7 @@ fn resolve_imports_from_module(
                     hir_module
                         .definitions
                         .iter()
-                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.as_str()))
+                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.name.as_str()))
                 })
                 .count();
 
@@ -176,8 +188,8 @@ fn resolve_imports_from_module(
     for (candidate_id, symbol_count, _last_updated) in &scored_candidates {
         if *symbol_count == user_symbols.len() {
             // This candidate has all the symbols - use it for everything
-            for symbol in &user_symbols {
-                ctx.register_import(importing_module, symbol.clone(), *candidate_id);
+            for sym in &user_symbols {
+                ctx.register_import(importing_module, sym.name.clone(), *candidate_id);
             }
             return;
         }
@@ -185,8 +197,8 @@ fn resolve_imports_from_module(
 
     // No single candidate has all symbols.
     // Mark all as unresolved to maintain atomicity.
-    for symbol in &user_symbols {
-        ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+    for sym in &user_symbols {
+        ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
     }
 }
 
@@ -196,14 +208,13 @@ fn resolve_imports_from_module_traced<T: Tracer>(
     ctx: &mut ResolverContext,
     importing_module: ModuleId,
     from_module_name: &str,
-    symbols: &[String],
+    symbols: &[ImportSymbol],
     tracer: &mut T,
 ) {
     // Filter out MACROs (they don't need resolution)
     let user_symbols: Vec<_> = symbols
         .iter()
-        .filter(|s| !is_macro_symbol(s))
-        .cloned()
+        .filter(|s| !is_macro_symbol(&s.name))
         .collect();
 
     // If no symbols to resolve (all MACROs), we're done
@@ -219,17 +230,17 @@ fn resolve_imports_from_module_traced<T: Tracer>(
         .unwrap_or_default();
 
     if candidates.is_empty() {
-        for symbol in &user_symbols {
+        for sym in &user_symbols {
             crate::trace_event!(
                 tracer,
                 TraceLevel::Debug,
                 TraceEvent::ImportUnresolved {
                     importing_module,
                     from_module: from_module_name,
-                    symbol,
+                    symbol: &sym.name,
                 }
             );
-            ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+            ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
         }
         return;
     }
@@ -246,7 +257,7 @@ fn resolve_imports_from_module_traced<T: Tracer>(
                     hir_module
                         .definitions
                         .iter()
-                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.as_str()))
+                        .any(|def| def.name().map(|n| n.name.as_str()) == Some(sym.name.as_str()))
                 })
                 .count();
 
@@ -284,25 +295,25 @@ fn resolve_imports_from_module_traced<T: Tracer>(
                 }
             );
 
-            for symbol in &user_symbols {
-                ctx.register_import(importing_module, symbol.clone(), *candidate_id);
+            for sym in &user_symbols {
+                ctx.register_import(importing_module, sym.name.clone(), *candidate_id);
             }
             return;
         }
     }
 
     // No single candidate has all symbols - mark all as unresolved
-    for symbol in &user_symbols {
+    for sym in &user_symbols {
         crate::trace_event!(
             tracer,
             TraceLevel::Debug,
             TraceEvent::ImportUnresolved {
                 importing_module,
                 from_module: from_module_name,
-                symbol,
+                symbol: &sym.name,
             }
         );
-        ctx.record_unresolved_import(importing_module, from_module_name, symbol);
+        ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
     }
 }
 

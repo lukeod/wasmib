@@ -1,6 +1,7 @@
 //! Resolution context (indices and working state during resolution).
 
 use crate::hir::{HirModule, Symbol};
+use crate::lexer::Span;
 use crate::model::{
     Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedOid, UnresolvedType,
 };
@@ -180,6 +181,7 @@ impl ResolverContext {
         importing_module: ModuleId,
         from_module: &str,
         symbol: &str,
+        span: Span,
     ) {
         let from_module_str = self.intern(from_module);
         let symbol_str = self.intern(symbol);
@@ -187,6 +189,7 @@ impl ResolverContext {
             importing_module,
             from_module: from_module_str,
             symbol: symbol_str,
+            span,
         });
     }
 
@@ -196,6 +199,7 @@ impl ResolverContext {
         module: ModuleId,
         referrer: &str,
         referenced: &str,
+        span: Span,
     ) {
         let referrer_str = self.intern(referrer);
         let referenced_str = self.intern(referenced);
@@ -203,6 +207,7 @@ impl ResolverContext {
             module,
             referrer: referrer_str,
             referenced: referenced_str,
+            span,
         });
     }
 
@@ -212,6 +217,7 @@ impl ResolverContext {
         module: ModuleId,
         definition: &str,
         component: &str,
+        span: Span,
     ) {
         let def_str = self.intern(definition);
         let comp_str = self.intern(component);
@@ -219,6 +225,7 @@ impl ResolverContext {
             module,
             definition: def_str,
             component: comp_str,
+            span,
         });
     }
 }

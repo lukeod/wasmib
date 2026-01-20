@@ -4,6 +4,7 @@ use super::ByteOffset;
 
 /// Span of source text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Span {
     /// Start byte offset (inclusive).
     pub start: ByteOffset,
