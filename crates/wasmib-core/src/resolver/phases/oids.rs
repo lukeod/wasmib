@@ -107,6 +107,29 @@ fn lookup_node_scoped(ctx: &ResolverContext, module_id: ModuleId, symbol: &str) 
     ctx.lookup_node_for_module(module_id, symbol)
 }
 
+/// Check if the first component of an OID definition is resolvable.
+fn is_first_component_resolvable<TR: OidTracer>(
+    ctx: &ResolverContext,
+    def: &OidDefinition,
+    tracer: &mut TR,
+) -> bool {
+    match def.oid.components.first() {
+        Some(HirOidComponent::Name(sym)) => {
+            let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
+            tracer.trace_lookup(def.module_id, &def.def_name, &sym.name, found);
+            found
+        }
+        Some(HirOidComponent::NamedNumber { .. })
+        | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true, // Named numbers create nodes
+        Some(HirOidComponent::Number(_)) => true, // Bare numbers extend from current
+        Some(HirOidComponent::QualifiedName { module, name }) => {
+            // Qualified name: use cross-module lookup
+            ctx.lookup_node_in_module(&module.name, &name.name).is_some()
+        }
+        None => false,
+    }
+}
+
 /// Resolve all OIDs across all modules.
 pub fn resolve_oids(ctx: &mut ResolverContext) {
     resolve_oids_inner(ctx, &mut NoopOidTracer);
@@ -144,21 +167,7 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
 
         for def in pending {
             // Try to resolve - check if the first component is now resolvable
-            let first_resolvable = match &def.oid.components.first() {
-                Some(HirOidComponent::Name(sym)) => {
-                    let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
-                    tracer.trace_lookup(def.module_id, &def.def_name, &sym.name, found);
-                    found
-                }
-                Some(HirOidComponent::NamedNumber { .. })
-                | Some(HirOidComponent::QualifiedNamedNumber { .. }) => true, // Named numbers create nodes
-                Some(HirOidComponent::Number(_)) => true, // Bare numbers extend from current
-                Some(HirOidComponent::QualifiedName { module, name }) => {
-                    // Qualified name: use cross-module lookup
-                    ctx.lookup_node_in_module(&module.name, &name.name).is_some()
-                }
-                None => false,
-            };
+            let first_resolvable = is_first_component_resolvable(ctx, &def, tracer);
 
             if first_resolvable {
                 if resolve_oid_definition_inner(ctx, &def, tracer) {
