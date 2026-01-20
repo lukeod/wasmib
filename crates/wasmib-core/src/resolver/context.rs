@@ -56,6 +56,8 @@ impl ResolverContext {
     pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
         let mut visited = BTreeSet::new();
         let mut current = module_id;
+        // Convert name to String once, clone per iteration (avoids 2 allocations per iteration)
+        let name_owned = name.to_string();
 
         loop {
             // Cycle detection: if we've seen this module before, stop
@@ -63,18 +65,16 @@ impl ResolverContext {
                 return None;
             }
 
+            // Create key once per iteration for both lookups
+            let key = (current, name_owned.clone());
+
             // Check module-local definitions
-            if let Some(node_id) = self.module_symbol_to_node
-                .get(&(current, name.to_string()))
-                .copied()
-            {
+            if let Some(&node_id) = self.module_symbol_to_node.get(&key) {
                 return Some(node_id);
             }
 
             // Check imports - continue to source module
-            if let Some(&source_module_id) = self.module_imports
-                .get(&(current, name.to_string()))
-            {
+            if let Some(&source_module_id) = self.module_imports.get(&key) {
                 current = source_module_id;
                 continue;
             }
