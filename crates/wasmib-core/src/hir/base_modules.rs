@@ -316,6 +316,47 @@ fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition
     })
 }
 
+// ============================================================================
+// Helper functions for constrained type syntax
+// ============================================================================
+
+/// Create a constrained INTEGER type with a value range.
+fn constrained_int_range(min: HirRangeValue, max: Option<HirRangeValue>) -> HirTypeSyntax {
+    HirTypeSyntax::Constrained {
+        base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
+        constraint: HirConstraint::Range(vec![HirRange { min, max }]),
+    }
+}
+
+/// Create a constrained OCTET STRING type with size constraints.
+fn constrained_octet_size(ranges: Vec<HirRange>) -> HirTypeSyntax {
+    HirTypeSyntax::Constrained {
+        base: Box::new(HirTypeSyntax::OctetString),
+        constraint: HirConstraint::Size(ranges),
+    }
+}
+
+/// Create a constrained OCTET STRING with a single fixed size.
+fn constrained_octet_fixed(size: u64) -> HirTypeSyntax {
+    constrained_octet_size(vec![HirRange {
+        min: HirRangeValue::Unsigned(size),
+        max: None,
+    }])
+}
+
+/// Create a constrained OCTET STRING with a size range.
+fn constrained_octet_range(min: u64, max: u64) -> HirTypeSyntax {
+    constrained_octet_size(vec![HirRange {
+        min: HirRangeValue::Unsigned(min),
+        max: Some(HirRangeValue::Unsigned(max)),
+    }])
+}
+
+/// Create a constrained INTEGER with unsigned range (0..max).
+fn constrained_uint_range(max: u64) -> HirTypeSyntax {
+    constrained_int_range(HirRangeValue::Unsigned(0), Some(HirRangeValue::Unsigned(max)))
+}
+
 /// Create base type definitions as `TypeDefs`.
 ///
 /// These are the `SMIv2` base types from RFC 2578.
@@ -324,80 +365,23 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         // Integer32 ::= INTEGER (-2147483648..2147483647)
         make_typedef(
             "Integer32",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Signed(i64::from(i32::MIN)),
-                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
-                }]),
-            },
+            constrained_int_range(
+                HirRangeValue::Signed(i64::from(i32::MIN)),
+                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+            ),
         ),
         // Counter32 ::= [APPLICATION 1] IMPLICIT INTEGER (0..4294967295)
-        make_typedef(
-            "Counter32",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
-                }]),
-            },
-        ),
+        make_typedef("Counter32", constrained_uint_range(u64::from(u32::MAX))),
         // Counter64 ::= [APPLICATION 6] IMPLICIT INTEGER (0..18446744073709551615)
-        make_typedef(
-            "Counter64",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(u64::MAX)),
-                }]),
-            },
-        ),
+        make_typedef("Counter64", constrained_uint_range(u64::MAX)),
         // Gauge32 ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
-        make_typedef(
-            "Gauge32",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
-                }]),
-            },
-        ),
+        make_typedef("Gauge32", constrained_uint_range(u64::from(u32::MAX))),
         // Unsigned32 ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
-        make_typedef(
-            "Unsigned32",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
-                }]),
-            },
-        ),
+        make_typedef("Unsigned32", constrained_uint_range(u64::from(u32::MAX))),
         // TimeTicks ::= [APPLICATION 3] IMPLICIT INTEGER (0..4294967295)
-        make_typedef(
-            "TimeTicks",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(u64::from(u32::MAX))),
-                }]),
-            },
-        ),
+        make_typedef("TimeTicks", constrained_uint_range(u64::from(u32::MAX))),
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
-        make_typedef(
-            "IpAddress",
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Unsigned(4),
-                    max: None,
-                }]),
-            },
-        ),
+        make_typedef("IpAddress", constrained_octet_fixed(4)),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
         make_typedef("Opaque", HirTypeSyntax::OctetString),
     ]
@@ -420,23 +404,12 @@ fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
 /// Create textual convention definitions as `TypeDefs`.
 ///
 /// These are from SNMPv2-TC (RFC 2579).
-#[allow(clippy::too_many_lines)] // Data-driven definition list
 fn create_tc_definitions() -> Vec<HirDefinition> {
     vec![
         // DisplayString ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "255a"
         //     SYNTAX OCTET STRING (SIZE (0..255))
-        make_tc(
-            "DisplayString",
-            Some("255a"),
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(255)),
-                }]),
-            },
-        ),
+        make_tc("DisplayString", Some("255a"), constrained_octet_range(0, 255)),
         // PhysAddress ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "1x:"
         //     SYNTAX OCTET STRING
@@ -444,17 +417,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         // MacAddress ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "1x:"
         //     SYNTAX OCTET STRING (SIZE (6))
-        make_tc(
-            "MacAddress",
-            Some("1x:"),
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Unsigned(6),
-                    max: None,
-                }]),
-            },
-        ),
+        make_tc("MacAddress", Some("1x:"), constrained_octet_fixed(6)),
         // TruthValue ::= TEXTUAL-CONVENTION
         //     SYNTAX INTEGER { true(1), false(2) }
         make_tc_with_enum("TruthValue", &[("true", 1), ("false", 2)]),
@@ -497,13 +460,10 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         make_tc(
             "TimeInterval",
             None,
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
-                }]),
-            },
+            constrained_int_range(
+                HirRangeValue::Unsigned(0),
+                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+            ),
         ),
         // DateAndTime ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "2d-1d-1d,1d:1d:1d.1d,1a1d:1d"
@@ -511,32 +471,26 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         make_tc(
             "DateAndTime",
             Some("2d-1d-1d,1d:1d:1d.1d,1a1d:1d"),
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![
-                    HirRange {
-                        min: HirRangeValue::Unsigned(8),
-                        max: None,
-                    },
-                    HirRange {
-                        min: HirRangeValue::Unsigned(11),
-                        max: None,
-                    },
-                ]),
-            },
+            constrained_octet_size(vec![
+                HirRange {
+                    min: HirRangeValue::Unsigned(8),
+                    max: None,
+                },
+                HirRange {
+                    min: HirRangeValue::Unsigned(11),
+                    max: None,
+                },
+            ]),
         ),
         // TestAndIncr ::= TEXTUAL-CONVENTION
         //     SYNTAX INTEGER (0..2147483647)
         make_tc(
             "TestAndIncr",
             None,
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-                constraint: HirConstraint::Range(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Signed(i64::from(i32::MAX))),
-                }]),
-            },
+            constrained_int_range(
+                HirRangeValue::Unsigned(0),
+                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+            ),
         ),
         // AutonomousType ::= TEXTUAL-CONVENTION
         //     SYNTAX OBJECT IDENTIFIER
@@ -555,17 +509,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         make_tc("TDomain", None, HirTypeSyntax::ObjectIdentifier),
         // TAddress ::= TEXTUAL-CONVENTION
         //     SYNTAX OCTET STRING (SIZE (1..255))
-        make_tc(
-            "TAddress",
-            None,
-            HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Unsigned(1),
-                    max: Some(HirRangeValue::Unsigned(255)),
-                }]),
-            },
-        ),
+        make_tc("TAddress", None, constrained_octet_range(1, 255)),
     ]
 }
 

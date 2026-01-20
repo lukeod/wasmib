@@ -44,50 +44,53 @@ pub fn deduplicate_definitions(model: &mut Model) -> usize {
 }
 
 /// Deduplicate definitions on a single node.
+///
+/// Uses a two-phase approach to avoid cloning the definitions vector:
+/// 1. First pass (read-only): group indices by module name
+/// 2. Second pass (read-only): identify duplicates within each group
+/// 3. Third pass (mutable): remove duplicates
 fn deduplicate_node_definitions(model: &mut Model, node_id: NodeId) -> usize {
-    // Get the definitions for this node
-    let definitions = match model.get_node(node_id) {
-        Some(node) => node.definitions.clone(),
-        None => return 0,
+    // Phase 1: Early check and group definition indices by module name (read-only)
+    let module_groups: BTreeMap<StrId, Vec<usize>> = {
+        let node = match model.get_node(node_id) {
+            Some(node) if node.definitions.len() > 1 => node,
+            _ => return 0,
+        };
+
+        let mut groups: BTreeMap<StrId, Vec<usize>> = BTreeMap::new();
+        for (idx, def) in node.definitions.iter().enumerate() {
+            if let Some(module) = model.get_module(def.module) {
+                groups.entry(module.name).or_default().push(idx);
+            }
+        }
+        groups
     };
 
-    if definitions.len() <= 1 {
-        return 0;
-    }
-
-    // Group definitions by module name
-    let mut by_module_name: BTreeMap<StrId, Vec<(usize, &NodeDefinition)>> = BTreeMap::new();
-
-    for (idx, def) in definitions.iter().enumerate() {
-        if let Some(module) = model.get_module(def.module) {
-            by_module_name
-                .entry(module.name)
-                .or_default()
-                .push((idx, def));
-        }
-    }
-
-    // Find indices to remove (duplicates within same module name)
+    // Phase 2: Find indices to remove (duplicates within same module name)
     let mut indices_to_remove: Vec<usize> = Vec::new();
 
-    for defs in by_module_name.values() {
-        if defs.len() <= 1 {
+    for indices in module_groups.values() {
+        if indices.len() <= 1 {
             continue;
         }
 
         // Compare each pair - keep the first unique one, remove duplicates
         let mut kept_indices: Vec<usize> = Vec::new();
 
-        for (idx, def) in defs {
+        for &idx in indices {
             let is_duplicate = kept_indices.iter().any(|&kept_idx| {
-                let kept_def = &definitions[kept_idx];
+                // Re-access definitions through model for each comparison
+                // This avoids holding a long-lived reference to definitions
+                let node = model.get_node(node_id).unwrap();
+                let def = &node.definitions[idx];
+                let kept_def = &node.definitions[kept_idx];
                 definitions_are_equivalent(model, def, kept_def)
             });
 
             if is_duplicate {
-                indices_to_remove.push(*idx);
+                indices_to_remove.push(idx);
             } else {
-                kept_indices.push(*idx);
+                kept_indices.push(idx);
             }
         }
     }
@@ -98,6 +101,7 @@ fn deduplicate_node_definitions(model: &mut Model, node_id: NodeId) -> usize {
 
     let removed_count = indices_to_remove.len();
 
+    // Phase 3: Apply removals (mutable)
     // Convert to set for O(1) lookup during filter
     let remove_set: BTreeSet<usize> = indices_to_remove.into_iter().collect();
 
