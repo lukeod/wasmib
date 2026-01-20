@@ -90,6 +90,18 @@ impl UnresolvedReferences {
     }
 }
 
+/// Reason why an import could not be resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum UnresolvedImportReason {
+    /// No module with the given name was found.
+    ModuleNotFound,
+    /// Module(s) exist but no single candidate exports all required symbols.
+    /// This happens when imports from a module are resolved atomically and
+    /// no candidate has all the symbols.
+    SymbolNotExported,
+}
+
 /// An unresolved import.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -100,6 +112,8 @@ pub struct UnresolvedImport {
     pub from_module: StrId,
     /// Symbol being imported.
     pub symbol: StrId,
+    /// Reason the import could not be resolved.
+    pub reason: UnresolvedImportReason,
     /// Source location of the import.
     pub span: Span,
 }

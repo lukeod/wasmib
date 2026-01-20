@@ -8,7 +8,7 @@
 
 use crate::hir::HirDefinition;
 use crate::lexer::Span;
-use crate::model::ModuleId;
+use crate::model::{ModuleId, UnresolvedImportReason};
 use crate::resolver::context::ResolverContext;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
@@ -213,7 +213,13 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
         // No candidates at all - mark all as unresolved
         for sym in &user_symbols {
             tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
-            ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
+            ctx.record_unresolved_import(
+                importing_module,
+                from_module_name,
+                &sym.name,
+                UnresolvedImportReason::ModuleNotFound,
+                sym.span,
+            );
         }
         return;
     }
@@ -276,7 +282,13 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     // Mark all as unresolved to maintain atomicity.
     for sym in &user_symbols {
         tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
-        ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, sym.span);
+        ctx.record_unresolved_import(
+            importing_module,
+            from_module_name,
+            &sym.name,
+            UnresolvedImportReason::SymbolNotExported,
+            sym.span,
+        );
     }
 }
 

@@ -9,7 +9,8 @@
 use crate::hir::HirModule;
 use crate::lexer::Span;
 use crate::model::{
-    Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedOid, UnresolvedType,
+    Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedImportReason,
+    UnresolvedOid, UnresolvedType,
 };
 use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
@@ -191,12 +192,13 @@ impl ResolverContext {
         self.symbol_to_type.insert(name, type_id);
     }
 
-    /// Record an unresolved import.
+    /// Record an unresolved import with its failure reason.
     pub fn record_unresolved_import(
         &mut self,
         importing_module: ModuleId,
         from_module: &str,
         symbol: &str,
+        reason: UnresolvedImportReason,
         span: Span,
     ) {
         let from_module_str = self.intern(from_module);
@@ -205,6 +207,7 @@ impl ResolverContext {
             importing_module,
             from_module: from_module_str,
             symbol: symbol_str,
+            reason,
             span,
         });
     }

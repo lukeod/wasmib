@@ -1,6 +1,38 @@
 //! MIB parser module.
 //!
 //! Parses SMIv1/SMIv2 MIB source text into an AST.
+//!
+//! # Lenient Parsing Philosophy
+//!
+//! This parser is intentionally **lenient** rather than strict. The goal is to successfully
+//! parse real-world vendor MIBs, which are frequently non-compliant with RFC specifications.
+//!
+//! ## Design Principles
+//!
+//! 1. **Accept common deviations silently**: Underscores in identifiers, trailing hyphens,
+//!    missing or empty descriptions, and other common vendor quirks are accepted without
+//!    warnings.
+//!
+//! 2. **Recover from errors**: When the parser encounters unexpected tokens, it attempts
+//!    to recover and continue parsing the rest of the module. Parse errors are collected
+//!    as diagnostics rather than causing immediate failure.
+//!
+//! 3. **No pedantic warnings**: Users don't need lectures about RFC compliance. The parser
+//!    exists to load MIBs, not to validate them against standards.
+//!
+//! 4. **Errors are blockers only**: Diagnostics are emitted only for issues that prevent
+//!    successful parsing or would cause incorrect interpretation of the MIB content.
+//!
+//! ## Error Recovery
+//!
+//! When a parse error occurs:
+//! - A diagnostic is recorded with the location and message
+//! - The parser attempts to skip to the next recognizable construct
+//! - Parsing continues to extract as much useful information as possible
+//! - Partial results are always returned (never panics)
+//!
+//! This approach ensures that a single malformed definition doesn't prevent parsing
+//! the hundreds of other valid definitions that may exist in the same module.
 
 use crate::ast::{
     AccessClause, AccessKeyword, AccessValue, AugmentsClause, Compliance, ComplianceGroup,

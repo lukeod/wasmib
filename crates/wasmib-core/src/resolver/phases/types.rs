@@ -54,83 +54,127 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     ctx.register_type_symbol(name, type_id);
 }
 
+/// Extracted type definition data needed for creating ResolvedType.
+/// This is smaller than a full HirTypeDef clone (no span, no reference field).
+struct TypeDefData {
+    module_idx: usize,
+    name: String,
+    base: Option<BaseType>,
+    is_tc: bool,
+    status: HirStatus,
+    hint: Option<String>,
+    description: Option<String>,
+    enums: Option<Vec<(i64, String)>>,
+    bits: Option<Vec<(u32, String)>>,
+    size: Option<SizeConstraint>,
+    value_range: Option<ValueConstraint>,
+}
+
 /// Create type nodes for all user-defined types.
 fn create_user_types(ctx: &mut ResolverContext) {
-    // Collect type definitions
-    let type_defs: Vec<_> = ctx
+    // Extract only the data needed from type definitions.
+    // This avoids cloning the entire HirTypeDef (which includes reference, span, etc.)
+    // and allows us to work with owned data without borrow checker issues.
+    let type_data: Vec<TypeDefData> = ctx
         .hir_modules
         .iter()
         .enumerate()
         .flat_map(|(module_idx, module)| {
-            module
-                .definitions
-                .iter()
-                .enumerate()
-                .filter_map(move |(def_idx, def)| {
-                    if let HirDefinition::TypeDef(td) = def {
-                        Some((module_idx, def_idx, td.clone()))
+            module.definitions.iter().filter_map(move |def| {
+                if let HirDefinition::TypeDef(td) = def {
+                    // Extract enum values (names only)
+                    let enums = if let HirTypeSyntax::IntegerEnum(e) = &td.syntax {
+                        Some(e.iter().map(|(sym, val)| (*val, sym.name.clone())).collect())
                     } else {
                         None
-                    }
-                })
+                    };
+
+                    // Extract BITS definitions
+                    let bits = if let HirTypeSyntax::Bits(b) = &td.syntax {
+                        Some(b.iter().map(|(sym, pos)| (*pos, sym.name.clone())).collect())
+                    } else {
+                        None
+                    };
+
+                    // Extract constraints
+                    let (size, value_range) =
+                        if let HirTypeSyntax::Constrained { constraint, .. } = &td.syntax {
+                            match constraint {
+                                HirConstraint::Size(r) => {
+                                    (Some(hir_ranges_to_size_constraint(r)), None)
+                                }
+                                HirConstraint::Range(r) => {
+                                    (None, Some(hir_ranges_to_value_constraint(r)))
+                                }
+                            }
+                        } else {
+                            (None, None)
+                        };
+
+                    Some(TypeDefData {
+                        module_idx,
+                        name: td.name.name.clone(),
+                        base: syntax_to_base_type(&td.syntax),
+                        is_tc: td.is_textual_convention,
+                        status: td.status,
+                        hint: td.display_hint.clone(),
+                        description: td.description.clone(),
+                        enums,
+                        bits,
+                        size,
+                        value_range,
+                    })
+                } else {
+                    None
+                }
+            })
         })
         .collect();
 
-    for (module_idx, _def_idx, td) in type_defs {
-        let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
+    for data in type_data {
+        let Some(module_id) = ctx.get_module_id_for_hir_index(data.module_idx) else {
             continue; // Skip if module not registered (shouldn't happen)
         };
 
-        let name = ctx.intern(&td.name.name);
-
-        // Determine base type from syntax (None means it needs parent resolution)
-        let base = syntax_to_base_type(&td.syntax).unwrap_or(BaseType::Integer32);
+        let name = ctx.intern(&data.name);
+        let base = data.base.unwrap_or(BaseType::Integer32);
 
         let mut typ = ResolvedType::new(name, module_id, base);
 
         // Track if base type needs resolution from parent
-        typ.needs_base_resolution = syntax_to_base_type(&td.syntax).is_none();
+        typ.needs_base_resolution = data.base.is_none();
+        typ.is_textual_convention = data.is_tc;
+        typ.status = hir_status_to_status(data.status);
 
-        typ.is_textual_convention = td.is_textual_convention;
-        typ.status = hir_status_to_status(td.status);
-
-        if let Some(ref hint) = td.display_hint {
+        if let Some(ref hint) = data.hint {
             typ.hint = Some(ctx.intern(hint));
         }
 
-        if let Some(ref desc) = td.description {
+        if let Some(ref desc) = data.description {
             typ.description = Some(ctx.intern(desc));
         }
 
-        // Handle enum values from syntax
-        if let HirTypeSyntax::IntegerEnum(enums) = &td.syntax {
+        // Handle enum values
+        if let Some(enums) = data.enums {
             let values: Vec<_> = enums
                 .iter()
-                .map(|(sym, val)| (*val, ctx.intern(&sym.name)))
+                .map(|(val, name)| (*val, ctx.intern(name)))
                 .collect();
             typ.enum_values = Some(EnumValues::new(values));
         }
 
-        // Handle BITS from syntax
-        if let HirTypeSyntax::Bits(bits) = &td.syntax {
+        // Handle BITS
+        if let Some(bits) = data.bits {
             let defs: Vec<_> = bits
                 .iter()
-                .map(|(sym, pos)| (*pos, ctx.intern(&sym.name)))
+                .map(|(pos, name)| (*pos, ctx.intern(name)))
                 .collect();
             typ.bit_defs = Some(BitDefinitions::new(defs));
         }
 
         // Handle constraints
-        if let HirTypeSyntax::Constrained { constraint, .. } = &td.syntax {
-            match constraint {
-                HirConstraint::Size(ranges) => {
-                    typ.size = Some(hir_ranges_to_size_constraint(ranges));
-                }
-                HirConstraint::Range(ranges) => {
-                    typ.value_range = Some(hir_ranges_to_value_constraint(ranges));
-                }
-            }
-        }
+        typ.size = data.size;
+        typ.value_range = data.value_range;
 
         let type_id = ctx.model.add_type(typ).unwrap();
         ctx.register_type_symbol(name, type_id);
