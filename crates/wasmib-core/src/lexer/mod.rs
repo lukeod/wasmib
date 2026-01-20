@@ -419,8 +419,13 @@ impl<'src> Lexer<'src> {
             if self.matches_keyword(b"END") {
                 let start = self.pos;
                 self.pos += 3;
-                // Verify delimiter follows
-                if self.is_eof() || !self.peek().unwrap_or(0).is_ascii_alphanumeric() {
+                // Verify delimiter follows per libsmi: ([^a-zA-Z0-9-])|--
+                // A delimiter is: non-alphanumeric AND non-hyphen, OR double-hyphen (comment)
+                let next = self.peek().unwrap_or(0);
+                let is_delimiter = self.is_eof()
+                    || (!next.is_ascii_alphanumeric() && next != b'-')
+                    || (next == b'-' && self.peek_at(1) == Some(b'-'));
+                if is_delimiter {
                     self.state = LexerState::Normal;
                     return self.token(TokenKind::KwEnd, start);
                 }
@@ -1080,6 +1085,59 @@ mod tests {
                 TokenKind::KwObjectType,
                 TokenKind::KwMacro,
                 TokenKind::KwEnd,          // From the MACRO END
+                TokenKind::LowercaseIdent, // ifIndex
+                TokenKind::KwObjectType,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_macro_skip_hyphenated_end() {
+        // END followed by single hyphen should NOT terminate macro
+        // per libsmi delimiter: ([^a-zA-Z0-9-])|--
+        // But END followed by double-hyphen (comment) SHOULD terminate
+        let source = r#"
+            OBJECT-TYPE MACRO ::=
+            BEGIN
+                END-something is not a delimiter
+            END
+
+            ifIndex OBJECT-TYPE
+        "#;
+        let kinds = token_kinds(source);
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::KwObjectType,
+                TokenKind::KwMacro,
+                TokenKind::KwEnd, // From final "END" (not "END-something")
+                TokenKind::LowercaseIdent, // ifIndex
+                TokenKind::KwObjectType,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_macro_end_with_double_hyphen() {
+        // END followed by -- (comment) should terminate macro
+        // because -- is a valid delimiter per libsmi
+        let source = r#"
+            OBJECT-TYPE MACRO ::=
+            BEGIN
+                some content
+            END-- comment terminates macro
+
+            ifIndex OBJECT-TYPE
+        "#;
+        let kinds = token_kinds(source);
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::KwObjectType,
+                TokenKind::KwMacro,
+                TokenKind::KwEnd, // END-- works as delimiter
                 TokenKind::LowercaseIdent, // ifIndex
                 TokenKind::KwObjectType,
                 TokenKind::Eof,
