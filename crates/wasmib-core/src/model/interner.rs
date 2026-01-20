@@ -94,6 +94,20 @@ impl StringInterner {
         self.data.len()
     }
 
+    /// Find a string's ID if it exists. O(n) scan.
+    /// For frequent lookups, consider maintaining a reverse index.
+    #[must_use]
+    pub fn find(&self, s: &str) -> Option<StrId> {
+        for idx in 0..self.len() {
+            if let Some(id) = StrId::from_index(idx) {
+                if self.get(id) == s {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+
     /// Decompose the interner into its raw parts for serialization.
     ///
     /// Returns `(data, offsets)` where `data` is the concatenated string buffer

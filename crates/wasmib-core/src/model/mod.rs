@@ -141,6 +141,7 @@ pub struct UnresolvedIndex {
 ///
 /// This struct contains all data needed to reconstruct a Model.
 /// It exposes internal storage directly for efficient serialization.
+/// Lookup indices are rebuilt on load from `from_parts()`.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ModelParts {
@@ -158,10 +159,6 @@ pub struct ModelParts {
     pub objects: Vec<ResolvedObject>,
     /// All resolved notifications.
     pub notifications: Vec<ResolvedNotification>,
-    /// OID to node ID mapping (as Vec for serialization).
-    pub oid_to_node: Vec<(Oid, NodeId)>,
-    /// Module name to module ID mapping (as Vec for serialization).
-    pub module_name_to_id: Vec<(StrId, ModuleId)>,
     /// Root node IDs.
     pub roots: Vec<NodeId>,
     /// Unresolved references.
@@ -179,9 +176,10 @@ pub struct Model {
     objects: Vec<ResolvedObject>,
     notifications: Vec<ResolvedNotification>,
 
-    // Lookup indices
+    // Lookup indices (rebuilt on load)
     oid_to_node: BTreeMap<Oid, NodeId>,
     module_name_to_id: BTreeMap<StrId, ModuleId>,
+    name_to_nodes: BTreeMap<StrId, Vec<NodeId>>,
 
     // Tree roots
     roots: Vec<NodeId>,
@@ -209,6 +207,7 @@ impl Model {
             notifications: Vec::new(),
             oid_to_node: BTreeMap::new(),
             module_name_to_id: BTreeMap::new(),
+            name_to_nodes: BTreeMap::new(),
             roots: Vec::new(),
             unresolved: UnresolvedReferences::default(),
         }
@@ -316,24 +315,32 @@ impl Model {
     }
 
     /// Get all nodes with a given name.
+    /// Uses the name index for O(1) lookup after finding the StrId.
     pub fn get_nodes_by_name(&self, name: &str) -> Vec<&OidNode> {
-        self.nodes
-            .iter()
-            .filter(|node| {
-                node.primary_definition()
-                    .is_some_and(|d| self.strings.get(d.label) == name)
-            })
-            .collect()
+        let Some(str_id) = self.strings.find(name) else {
+            return Vec::new();
+        };
+        self.name_to_nodes
+            .get(&str_id)
+            .map(|ids| ids.iter().filter_map(|id| self.get_node(*id)).collect())
+            .unwrap_or_default()
     }
 
     /// Get a node by module-qualified name.
+    /// Uses the name index for faster lookup.
     #[must_use]
     pub fn get_node_by_qualified_name(&self, module: &str, name: &str) -> Option<&OidNode> {
         let module_id = self.get_module_by_name(module)?.id;
-        for node in &self.nodes {
-            for def in &node.definitions {
-                if def.module == module_id && self.strings.get(def.label) == name {
-                    return Some(node);
+        let str_id = self.strings.find(name)?;
+
+        if let Some(node_ids) = self.name_to_nodes.get(&str_id) {
+            for &node_id in node_ids {
+                if let Some(node) = self.get_node(node_id) {
+                    for def in &node.definitions {
+                        if def.module == module_id {
+                            return Some(node);
+                        }
+                    }
                 }
             }
         }
@@ -531,6 +538,7 @@ impl Model {
     // === Serialization ===
 
     /// Decompose the model into parts for serialization.
+    /// Indices are not serialized; they are rebuilt on load.
     #[must_use]
     pub fn into_parts(self) -> ModelParts {
         let (strings_data, strings_offsets) = self.strings.into_parts();
@@ -542,28 +550,85 @@ impl Model {
             types: self.types,
             objects: self.objects,
             notifications: self.notifications,
-            oid_to_node: self.oid_to_node.into_iter().collect(),
-            module_name_to_id: self.module_name_to_id.into_iter().collect(),
             roots: self.roots,
             unresolved: self.unresolved,
         }
     }
 
     /// Reconstruct a model from serialized parts.
+    /// Rebuilds all lookup indices from raw data.
     #[must_use]
     pub fn from_parts(parts: ModelParts) -> Self {
-        Self {
+        let mut model = Self {
             strings: StringInterner::from_parts(parts.strings_data, parts.strings_offsets),
             modules: parts.modules,
             nodes: parts.nodes,
             types: parts.types,
             objects: parts.objects,
             notifications: parts.notifications,
-            oid_to_node: parts.oid_to_node.into_iter().collect(),
-            module_name_to_id: parts.module_name_to_id.into_iter().collect(),
+            oid_to_node: BTreeMap::new(),
+            module_name_to_id: BTreeMap::new(),
+            name_to_nodes: BTreeMap::new(),
             roots: parts.roots,
             unresolved: parts.unresolved,
+        };
+        model.rebuild_indices();
+        model
+    }
+
+    /// Rebuild all lookup indices from raw data.
+    /// Called after deserialization.
+    fn rebuild_indices(&mut self) {
+        self.oid_to_node.clear();
+        self.module_name_to_id.clear();
+        self.name_to_nodes.clear();
+
+        // Module name index
+        for (idx, module) in self.modules.iter().enumerate() {
+            if let Some(id) = ModuleId::from_index(idx) {
+                self.module_name_to_id.insert(module.name, id);
+            }
         }
+
+        // Name-to-nodes index and OID-to-node index
+        for idx in 0..self.nodes.len() {
+            let Some(node_id) = NodeId::from_index(idx) else {
+                continue;
+            };
+            let Some(node) = self.nodes.get(idx) else {
+                continue;
+            };
+
+            // Add to name index
+            for def in &node.definitions {
+                self.name_to_nodes
+                    .entry(def.label)
+                    .or_default()
+                    .push(node_id);
+            }
+
+            // Compute and register OID
+            let oid = self.compute_oid_for_index(idx);
+            self.oid_to_node.insert(oid, node_id);
+        }
+    }
+
+    /// Compute OID for a node by index (avoids borrow issues during rebuild).
+    fn compute_oid_for_index(&self, idx: usize) -> Oid {
+        let mut arcs = Vec::new();
+        let mut current_idx = Some(idx);
+
+        while let Some(i) = current_idx {
+            if let Some(node) = self.nodes.get(i) {
+                arcs.push(node.subid);
+                current_idx = node.parent.map(|id| id.to_index());
+            } else {
+                break;
+            }
+        }
+
+        arcs.reverse();
+        Oid::new(arcs)
     }
 }
 
