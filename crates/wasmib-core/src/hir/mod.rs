@@ -39,8 +39,8 @@ pub use base_modules::{create_base_modules, is_base_module, BaseModule};
 pub use definition::{
     HirAgentCapabilities, HirComplianceGroup, HirComplianceModule, HirComplianceObject,
     HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity, HirNotification,
-    HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType, HirTypeDef,
-    HirValueAssignment,
+    HirNotificationGroup, HirNotificationVariation, HirObjectGroup, HirObjectIdentity,
+    HirObjectType, HirObjectVariation, HirSupportsModule, HirTypeDef, HirValueAssignment,
 };
 pub use lower::{lower_module, LoweringContext};
 pub use module::{HirImport, HirModule};

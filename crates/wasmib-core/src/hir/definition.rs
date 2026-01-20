@@ -355,9 +355,53 @@ pub struct HirAgentCapabilities {
     pub description: String,
     /// REFERENCE.
     pub reference: Option<String>,
+    /// SUPPORTS clauses.
+    pub supports: Vec<HirSupportsModule>,
     /// OID assignment.
     pub oid: HirOidAssignment,
     /// Source span.
     pub span: Span,
-    // TODO: SUPPORTS clauses with INCLUDES, VARIATION
+}
+
+/// Normalized SUPPORTS clause in AGENT-CAPABILITIES.
+#[derive(Clone, Debug)]
+pub struct HirSupportsModule {
+    /// Module name.
+    pub module_name: Symbol,
+    /// INCLUDES list of group references.
+    pub includes: Vec<Symbol>,
+    /// Object variations.
+    pub object_variations: Vec<HirObjectVariation>,
+    /// Notification variations.
+    pub notification_variations: Vec<HirNotificationVariation>,
+}
+
+/// Normalized object VARIATION.
+#[derive(Clone, Debug)]
+pub struct HirObjectVariation {
+    /// Object reference.
+    pub object: Symbol,
+    /// SYNTAX restriction.
+    pub syntax: Option<HirTypeSyntax>,
+    /// WRITE-SYNTAX restriction.
+    pub write_syntax: Option<HirTypeSyntax>,
+    /// ACCESS restriction.
+    pub access: Option<HirAccess>,
+    /// CREATION-REQUIRES list.
+    pub creation_requires: Option<Vec<Symbol>>,
+    /// DEFVAL override.
+    pub defval: Option<HirDefVal>,
+    /// Description.
+    pub description: String,
+}
+
+/// Normalized notification VARIATION.
+#[derive(Clone, Debug)]
+pub struct HirNotificationVariation {
+    /// Notification reference.
+    pub notification: Symbol,
+    /// ACCESS restriction (only "not-implemented" is valid per RFC 2580).
+    pub access: Option<HirAccess>,
+    /// Description.
+    pub description: String,
 }

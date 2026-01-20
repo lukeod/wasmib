@@ -11,8 +11,9 @@
 use super::definition::{
     HirAgentCapabilities, HirComplianceGroup, HirComplianceModule, HirComplianceObject,
     HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity, HirNotification,
-    HirNotificationGroup, HirObjectGroup, HirObjectIdentity, HirObjectType, HirRevision,
-    HirTrapInfo, HirTypeDef, HirValueAssignment,
+    HirNotificationGroup, HirNotificationVariation, HirObjectGroup, HirObjectIdentity,
+    HirObjectType, HirObjectVariation, HirRevision, HirSupportsModule, HirTrapInfo, HirTypeDef,
+    HirValueAssignment,
 };
 use super::module::{HirImport, HirModule};
 use super::normalize::{is_smiv2_base_module, normalize_import, normalize_type_name};
@@ -417,8 +418,63 @@ fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> HirAgentCapabili
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
+        supports: def.supports.iter().map(lower_supports_module).collect(),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
+    }
+}
+
+fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
+    let mut object_variations = Vec::new();
+    let mut notification_variations = Vec::new();
+
+    for variation in &module.variations {
+        match variation {
+            ast::Variation::Object(v) => {
+                object_variations.push(lower_object_variation(v));
+            }
+            ast::Variation::Notification(v) => {
+                notification_variations.push(lower_notification_variation(v));
+            }
+        }
+    }
+
+    HirSupportsModule {
+        module_name: Symbol::new(module.module_name.name.clone()),
+        includes: module
+            .includes
+            .iter()
+            .map(|i| Symbol::new(i.name.clone()))
+            .collect(),
+        object_variations,
+        notification_variations,
+    }
+}
+
+fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
+    HirObjectVariation {
+        object: Symbol::new(v.object.name.clone()),
+        syntax: v.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
+        write_syntax: v
+            .write_syntax
+            .as_ref()
+            .map(|s| lower_type_syntax(&s.syntax)),
+        access: v.access.as_ref().map(|a| lower_access(&a.value)),
+        creation_requires: v.creation_requires.as_ref().map(|objs| {
+            objs.iter()
+                .map(|i| Symbol::new(i.name.clone()))
+                .collect()
+        }),
+        defval: v.defval.as_ref().map(|d| lower_defval(d)),
+        description: v.description.value.clone(),
+    }
+}
+
+fn lower_notification_variation(v: &ast::NotificationVariation) -> HirNotificationVariation {
+    HirNotificationVariation {
+        notification: Symbol::new(v.notification.name.clone()),
+        access: v.access.as_ref().map(|a| lower_access(&a.value)),
+        description: v.description.value.clone(),
     }
 }
 

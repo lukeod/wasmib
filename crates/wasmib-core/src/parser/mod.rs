@@ -6,9 +6,9 @@ use crate::ast::{
     AccessClause, AccessKeyword, AccessValue, AugmentsClause, Compliance, ComplianceGroup,
     ComplianceModule, ComplianceObject, Constraint, DefValClause, DefValContent, Definition,
     DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem, Module, NamedNumber,
-    ObjectTypeDef, OidAssignment, OidComponent, QuotedString, Range, RangeValue, SequenceField,
-    StatusClause, StatusValue, SyntaxClause, TextualConventionDef, TypeAssignmentDef, TypeSyntax,
-    ValueAssignmentDef,
+    ObjectTypeDef, ObjectVariation, OidAssignment, OidComponent, QuotedString, Range, RangeValue,
+    SequenceField, StatusClause, StatusValue, SupportsModule, SyntaxClause, TextualConventionDef,
+    TypeAssignmentDef, TypeSyntax, ValueAssignmentDef, Variation,
 };
 use crate::lexer::{Diagnostic, Lexer, Severity, Span, Token, TokenKind};
 use alloc::string::String;
@@ -1964,9 +1964,10 @@ impl<'src> Parser<'src> {
             None
         };
 
-        // Skip SUPPORTS clauses for now
+        // Parse SUPPORTS clauses
+        let mut supports = Vec::new();
         while self.check(TokenKind::KwSupports) {
-            self.skip_supports_clause();
+            supports.push(self.parse_supports_module()?);
         }
 
         // ::= { oid }
@@ -1982,21 +1983,151 @@ impl<'src> Parser<'src> {
                 status,
                 description,
                 reference,
+                supports,
                 oid_assignment: oid,
                 span,
             },
         ))
     }
 
-    /// Skip SUPPORTS clause in AGENT-CAPABILITIES (simplified).
-    fn skip_supports_clause(&mut self) {
-        self.advance(); // SUPPORTS
-        // Skip until we see ::= or another SUPPORTS
-        while !self.is_eof()
-            && !self.check(TokenKind::ColonColonEqual)
-            && !self.check(TokenKind::KwSupports)
-        {
+    /// Parse SUPPORTS clause in AGENT-CAPABILITIES.
+    fn parse_supports_module(&mut self) -> Result<SupportsModule, Diagnostic> {
+        let start = self.current_span().start;
+        self.expect(TokenKind::KwSupports)?;
+
+        // Module name (uppercase identifier)
+        let module_name = self.parse_identifier_as_ident()?;
+
+        // Optional module OID
+        let module_oid = if self.check(TokenKind::LBrace) {
+            Some(self.parse_oid_assignment()?)
+        } else {
+            None
+        };
+
+        // INCLUDES { groups }
+        self.expect(TokenKind::KwIncludes)?;
+        self.expect(TokenKind::LBrace)?;
+        let includes = self.parse_identifier_list()?;
+        self.expect(TokenKind::RBrace)?;
+
+        // VARIATION clauses (zero or more)
+        let mut variations = Vec::new();
+        while self.check(TokenKind::KwVariation) {
+            variations.push(self.parse_variation_clause()?);
+        }
+
+        let end = self.current_span().start;
+        Ok(SupportsModule {
+            module_name,
+            module_oid,
+            includes,
+            variations,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Parse VARIATION clause in AGENT-CAPABILITIES.
+    ///
+    /// Can be either an object variation or a notification variation.
+    /// We detect which based on the presence of SYNTAX/WRITE-SYNTAX/CREATION-REQUIRES/DEFVAL
+    /// (which are only valid for objects, not notifications).
+    fn parse_variation_clause(&mut self) -> Result<Variation, Diagnostic> {
+        let start = self.current_span().start;
+        self.expect(TokenKind::KwVariation)?;
+
+        // Object or notification name
+        let name = self.parse_identifier_as_ident()?;
+
+        // Check for object-specific clauses to determine type
+        // Per RFC 2580: notifications can only have ACCESS and DESCRIPTION
+        // Objects can have: SYNTAX, WRITE-SYNTAX, ACCESS, CREATION-REQUIRES, DEFVAL, DESCRIPTION
+
+        // Optional SYNTAX (objects only)
+        let syntax = if self.check(TokenKind::KwSyntax) {
             self.advance();
+            Some(self.parse_syntax_clause()?)
+        } else {
+            None
+        };
+
+        // Optional WRITE-SYNTAX (objects only)
+        let write_syntax = if self.check(TokenKind::KwWriteSyntax) {
+            self.advance();
+            Some(self.parse_syntax_clause()?)
+        } else {
+            None
+        };
+
+        // Optional ACCESS
+        let access = if self.check(TokenKind::KwAccess) {
+            Some(self.parse_access_clause()?)
+        } else {
+            None
+        };
+
+        // Optional CREATION-REQUIRES (objects only)
+        let creation_requires = if self.check(TokenKind::KwCreationRequires) {
+            self.advance();
+            self.expect(TokenKind::LBrace)?;
+            let objects = self.parse_identifier_list()?;
+            self.expect(TokenKind::RBrace)?;
+            Some(objects)
+        } else {
+            None
+        };
+
+        // Optional DEFVAL (objects only)
+        let defval = if self.check(TokenKind::KwDefval) {
+            Some(self.parse_defval_clause()?)
+        } else {
+            None
+        };
+
+        // Required DESCRIPTION
+        self.expect(TokenKind::KwDescription)?;
+        let description = self.parse_quoted_string()?;
+
+        let end = description.span.end;
+
+        // Determine if this is an object or notification variation
+        // If any object-specific clause was present, it's an object variation
+        if syntax.is_some()
+            || write_syntax.is_some()
+            || creation_requires.is_some()
+            || defval.is_some()
+        {
+            Ok(Variation::Object(ObjectVariation {
+                object: name,
+                syntax,
+                write_syntax,
+                access,
+                creation_requires,
+                defval,
+                description,
+                span: Span::new(start, end),
+            }))
+        } else {
+            // Could be either object or notification with just ACCESS and DESCRIPTION
+            // We don't have enough info here to distinguish, so we treat it as an object
+            // variation. The resolver can validate later if needed.
+            // Actually, per RFC 2580, if only ACCESS is present with "not-implemented",
+            // it could be a notification. For now, we'll use a heuristic: if ACCESS
+            // is "not-implemented" and no other clauses, treat as notification.
+            // But for simplicity, we'll treat everything with any object-compatible
+            // fields as object, and only pure ACCESS+DESCRIPTION as potentially
+            // notification. Since we can't know for sure without resolving the name,
+            // we'll default to ObjectVariation.
+            Ok(Variation::Object(ObjectVariation {
+                object: name,
+                syntax: None,
+                write_syntax: None,
+                access,
+                creation_requires: None,
+                defval: None,
+                description,
+                span: Span::new(start, end),
+            }))
         }
     }
 
@@ -2622,6 +2753,328 @@ mod tests {
             assert!(def.modules.is_empty());
         } else {
             panic!("expected ModuleCompliance");
+        }
+    }
+
+    // === AGENT-CAPABILITIES tests ===
+
+    #[test]
+    fn test_parse_agent_capabilities_basic() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent capabilities"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        assert_eq!(module.body.len(), 1);
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            assert_eq!(def.name.name, "testAgent");
+            assert_eq!(def.product_release.value, "Version 1.0");
+            assert_eq!(def.status.value, StatusValue::Current);
+            assert!(def.description.value.contains("Test agent"));
+            assert!(def.supports.is_empty());
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_with_reference() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                REFERENCE "RFC 9999"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            assert!(def.reference.is_some());
+            assert_eq!(def.reference.as_ref().unwrap().value, "RFC 9999");
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_supports_basic() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup, ifStackGroup }
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            assert_eq!(def.supports.len(), 1);
+            let sup = &def.supports[0];
+            assert_eq!(sup.module_name.name, "IF-MIB");
+            assert_eq!(sup.includes.len(), 2);
+            assert_eq!(sup.includes[0].name, "ifGeneralGroup");
+            assert_eq!(sup.includes[1].name, "ifStackGroup");
+            assert!(sup.variations.is_empty());
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_variation_access() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                    VARIATION ifAdminStatus
+                        ACCESS read-only
+                        DESCRIPTION "Only read access supported"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            assert_eq!(def.supports.len(), 1);
+            let sup = &def.supports[0];
+            assert_eq!(sup.variations.len(), 1);
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert_eq!(v.object.name, "ifAdminStatus");
+                assert_eq!(v.access.as_ref().unwrap().value, AccessValue::ReadOnly);
+                assert!(v.description.value.contains("read access"));
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_variation_syntax() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                    VARIATION ifType
+                        SYNTAX INTEGER (1..50)
+                        DESCRIPTION "Only first 50 types supported"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert!(v.syntax.is_some());
+                assert!(v.access.is_none());
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_variation_write_syntax() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                    VARIATION ifAlias
+                        SYNTAX DisplayString (SIZE (0..64))
+                        WRITE-SYNTAX DisplayString (SIZE (0..32))
+                        DESCRIPTION "Different read/write sizes"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert!(v.syntax.is_some());
+                assert!(v.write_syntax.is_some());
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_creation_requires() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifStackGroup }
+                    VARIATION ifStackEntry
+                        CREATION-REQUIRES { ifStackHigherLayer, ifStackLowerLayer }
+                        DESCRIPTION "Both layers required for row creation"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert!(v.creation_requires.is_some());
+                let cr = v.creation_requires.as_ref().unwrap();
+                assert_eq!(cr.len(), 2);
+                assert_eq!(cr[0].name, "ifStackHigherLayer");
+                assert_eq!(cr[1].name, "ifStackLowerLayer");
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_defval() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                    VARIATION ifLinkUpDownTrapEnable
+                        DEFVAL { enabled }
+                        DESCRIPTION "Default to enabled"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert!(v.defval.is_some());
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_multiple_supports() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                SUPPORTS IP-MIB
+                    INCLUDES { ipGroup }
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            assert_eq!(def.supports.len(), 2);
+            assert_eq!(def.supports[0].module_name.name, "IF-MIB");
+            assert_eq!(def.supports[1].module_name.name, "IP-MIB");
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_multiple_variations() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 1.0"
+                STATUS current
+                DESCRIPTION "Test agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup }
+                    VARIATION ifAdminStatus
+                        ACCESS read-only
+                        DESCRIPTION "Read-only"
+                    VARIATION ifOperStatus
+                        ACCESS read-only
+                        DESCRIPTION "Read-only"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            assert_eq!(sup.variations.len(), 2);
+        } else {
+            panic!("expected AgentCapabilities");
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_capabilities_full_variation() {
+        let source = br#"TEST-MIB DEFINITIONS ::= BEGIN
+            testAgent AGENT-CAPABILITIES
+                PRODUCT-RELEASE "Version 2.0"
+                STATUS current
+                DESCRIPTION "Full featured agent"
+                SUPPORTS IF-MIB
+                    INCLUDES { ifGeneralGroup, ifStackGroup }
+                    VARIATION ifType
+                        SYNTAX INTEGER (1..100)
+                        WRITE-SYNTAX INTEGER (1..50)
+                        ACCESS read-write
+                        CREATION-REQUIRES { ifIndex }
+                        DEFVAL { 1 }
+                        DESCRIPTION "Limited interface types"
+                ::= { testCapabilities 1 }
+            END"#;
+        let parser = Parser::new(source);
+        let module = parser.parse_module();
+
+        if let Definition::AgentCapabilities(def) = &module.body[0] {
+            let sup = &def.supports[0];
+            assert_eq!(sup.includes.len(), 2);
+            assert_eq!(sup.variations.len(), 1);
+            if let crate::ast::Variation::Object(v) = &sup.variations[0] {
+                assert!(v.syntax.is_some());
+                assert!(v.write_syntax.is_some());
+                assert!(v.access.is_some());
+                assert!(v.creation_requires.is_some());
+                assert!(v.defval.is_some());
+            } else {
+                panic!("expected Object variation");
+            }
+        } else {
+            panic!("expected AgentCapabilities");
         }
     }
 }

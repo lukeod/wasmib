@@ -14,8 +14,9 @@ pub use common::{Ident, NamedNumber, QuotedString};
 pub use definition::{
     AgentCapabilitiesDef, Compliance, ComplianceGroup, ComplianceModule, ComplianceObject,
     Definition, ErrorDef, MacroDefinitionDef, ModuleComplianceDef, ModuleIdentityDef,
-    NotificationGroupDef, NotificationTypeDef, ObjectGroupDef, ObjectIdentityDef, ObjectTypeDef,
-    TextualConventionDef, TrapTypeDef, TypeAssignmentDef, ValueAssignmentDef,
+    NotificationGroupDef, NotificationTypeDef, NotificationVariation, ObjectGroupDef,
+    ObjectIdentityDef, ObjectTypeDef, ObjectVariation, SupportsModule, TextualConventionDef,
+    TrapTypeDef, TypeAssignmentDef, ValueAssignmentDef, Variation,
 };
 pub use module::{DefinitionsKind, ExportsClause, ImportClause, Module};
 pub use oid::{OidAssignment, OidComponent};

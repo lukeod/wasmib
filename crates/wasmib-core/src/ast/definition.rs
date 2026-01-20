@@ -389,11 +389,70 @@ pub struct AgentCapabilitiesDef {
     pub description: QuotedString,
     /// REFERENCE clause.
     pub reference: Option<QuotedString>,
+    /// SUPPORTS clauses.
+    pub supports: Vec<SupportsModule>,
     /// OID assignment.
     pub oid_assignment: OidAssignment,
     /// Source location.
     pub span: Span,
-    // TODO: SUPPORTS clauses with INCLUDES, VARIATION
+}
+
+/// A SUPPORTS clause in AGENT-CAPABILITIES.
+#[derive(Clone, Debug)]
+pub struct SupportsModule {
+    /// Module name.
+    pub module_name: Ident,
+    /// Module OID (optional).
+    pub module_oid: Option<OidAssignment>,
+    /// INCLUDES list of groups.
+    pub includes: Vec<Ident>,
+    /// VARIATION clauses.
+    pub variations: Vec<Variation>,
+    /// Source location.
+    pub span: Span,
+}
+
+/// A VARIATION clause in AGENT-CAPABILITIES.
+#[derive(Clone, Debug)]
+pub enum Variation {
+    /// Object variation.
+    Object(ObjectVariation),
+    /// Notification variation.
+    Notification(NotificationVariation),
+}
+
+/// Object VARIATION in AGENT-CAPABILITIES.
+#[derive(Clone, Debug)]
+pub struct ObjectVariation {
+    /// Object reference.
+    pub object: Ident,
+    /// SYNTAX restriction (optional).
+    pub syntax: Option<SyntaxClause>,
+    /// WRITE-SYNTAX restriction (optional).
+    pub write_syntax: Option<SyntaxClause>,
+    /// ACCESS restriction (optional).
+    pub access: Option<AccessClause>,
+    /// CREATION-REQUIRES list (optional).
+    pub creation_requires: Option<Vec<Ident>>,
+    /// DEFVAL override (optional).
+    pub defval: Option<DefValClause>,
+    /// DESCRIPTION (required).
+    pub description: QuotedString,
+    /// Source location.
+    pub span: Span,
+}
+
+/// Notification VARIATION in AGENT-CAPABILITIES.
+#[derive(Clone, Debug)]
+pub struct NotificationVariation {
+    /// Notification reference.
+    pub notification: Ident,
+    /// ACCESS restriction (optional, only "not-implemented" is valid).
+    pub access: Option<AccessClause>,
+    /// DESCRIPTION (required).
+    pub description: QuotedString,
+    /// Source location.
+    pub span: Span,
 }
 
 /// MACRO definition (skipped content).
