@@ -73,7 +73,7 @@ pub fn lower_module(ast_module: &Module) -> HirModule {
 
     // Create HIR module
     let mut hir_module = HirModule::new(
-        Symbol::new(ast_module.name.name.clone()),
+        Symbol::from(&ast_module.name),
         ast_module.span,
     );
 
@@ -170,7 +170,7 @@ fn lower_definition(def: &Definition, ctx: &LoweringContext) -> Option<HirDefini
 
 fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObjectType {
     HirObjectType {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         units: def.units.as_ref().map(|u| u.value.clone()),
         access: lower_access(&def.access.value),
@@ -184,7 +184,7 @@ fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObj
         augments: def
             .augments
             .as_ref()
-            .map(|a| Symbol::new(a.target.name.clone())),
+            .map(|a| Symbol::from(&a.target)),
         defval: def.defval.as_ref().map(lower_defval),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
@@ -205,10 +205,10 @@ fn lower_defval_content(content: &DefValContent) -> HirDefVal {
         DefValContent::Identifier(ident) => {
             // Could be enum label or OID reference - we can't distinguish
             // until semantic analysis, so treat as Enum (most common case)
-            HirDefVal::Enum(Symbol::new(ident.name.clone()))
+            HirDefVal::Enum(Symbol::from(ident))
         }
         DefValContent::Bits { labels, .. } => {
-            HirDefVal::Bits(labels.iter().map(|i| Symbol::new(i.name.clone())).collect())
+            HirDefVal::Bits(labels.iter().map(Symbol::from).collect())
         }
         DefValContent::HexString { content, .. } => HirDefVal::HexString(content.clone()),
         DefValContent::BinaryString { content, .. } => HirDefVal::BinaryString(content.clone()),
@@ -225,7 +225,7 @@ fn lower_oid_components(components: &[OidComponent]) -> Vec<HirOidComponent> {
 
 fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
     HirModuleIdentity {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         last_updated: def.last_updated.value.clone(),
         organization: def.organization.value.clone(),
         contact_info: def.contact_info.value.clone(),
@@ -245,7 +245,7 @@ fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
 
 fn lower_object_identity(def: &ast::ObjectIdentityDef) -> HirObjectIdentity {
     HirObjectIdentity {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
@@ -256,8 +256,8 @@ fn lower_object_identity(def: &ast::ObjectIdentityDef) -> HirObjectIdentity {
 
 fn lower_notification_type(def: &ast::NotificationTypeDef) -> HirNotification {
     HirNotification {
-        name: Symbol::new(def.name.name.clone()),
-        objects: def.objects.iter().map(|o| Symbol::new(o.name.clone())).collect(),
+        name: Symbol::from(&def.name),
+        objects: def.objects.iter().map(Symbol::from).collect(),
         status: lower_status(&def.status.value),
         description: Some(def.description.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
@@ -269,17 +269,17 @@ fn lower_notification_type(def: &ast::NotificationTypeDef) -> HirNotification {
 
 fn lower_trap_type(def: &ast::TrapTypeDef) -> HirNotification {
     HirNotification {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         objects: def
             .variables
             .iter()
-            .map(|v| Symbol::new(v.name.clone()))
+            .map(Symbol::from)
             .collect(),
         status: HirStatus::Current, // TRAP-TYPE doesn't have STATUS
         description: def.description.as_ref().map(|d| d.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         trap_info: Some(HirTrapInfo {
-            enterprise: Symbol::new(def.enterprise.name.clone()),
+            enterprise: Symbol::from(&def.enterprise),
             trap_number: def.trap_number,
         }),
         oid: None, // TRAP-TYPE OID is derived from enterprise + trap_number
@@ -289,7 +289,7 @@ fn lower_trap_type(def: &ast::TrapTypeDef) -> HirNotification {
 
 fn lower_textual_convention(def: &ast::TextualConventionDef) -> HirTypeDef {
     HirTypeDef {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         display_hint: def.display_hint.as_ref().map(|h| h.value.clone()),
         status: lower_status(&def.status.value),
@@ -302,7 +302,7 @@ fn lower_textual_convention(def: &ast::TextualConventionDef) -> HirTypeDef {
 
 fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> HirTypeDef {
     HirTypeDef {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax),
         display_hint: None,
         status: HirStatus::Current,
@@ -315,7 +315,7 @@ fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> HirTypeDef {
 
 fn lower_value_assignment(def: &ast::ValueAssignmentDef) -> HirValueAssignment {
     HirValueAssignment {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
     }
@@ -323,8 +323,8 @@ fn lower_value_assignment(def: &ast::ValueAssignmentDef) -> HirValueAssignment {
 
 fn lower_object_group(def: &ast::ObjectGroupDef) -> HirObjectGroup {
     HirObjectGroup {
-        name: Symbol::new(def.name.name.clone()),
-        objects: def.objects.iter().map(|o| Symbol::new(o.name.clone())).collect(),
+        name: Symbol::from(&def.name),
+        objects: def.objects.iter().map(Symbol::from).collect(),
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
@@ -335,11 +335,11 @@ fn lower_object_group(def: &ast::ObjectGroupDef) -> HirObjectGroup {
 
 fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationGroup {
     HirNotificationGroup {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         notifications: def
             .notifications
             .iter()
-            .map(|n| Symbol::new(n.name.clone()))
+            .map(Symbol::from)
             .collect(),
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
@@ -351,7 +351,7 @@ fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationG
 
 fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleCompliance {
     HirModuleCompliance {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
@@ -364,11 +364,11 @@ fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleComplianc
 /// Lower a compliance MODULE clause to HIR.
 fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
     HirComplianceModule {
-        module_name: m.module_name.as_ref().map(|n| Symbol::new(n.name.clone())),
+        module_name: m.module_name.as_ref().map(Symbol::from),
         mandatory_groups: m
             .mandatory_groups
             .iter()
-            .map(|g| Symbol::new(g.name.clone()))
+            .map(Symbol::from)
             .collect(),
         groups: m
             .compliances
@@ -392,7 +392,7 @@ fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
 /// Lower a compliance GROUP clause to HIR.
 fn lower_compliance_group(g: &ast::ComplianceGroup) -> HirComplianceGroup {
     HirComplianceGroup {
-        group: Symbol::new(g.group.name.clone()),
+        group: Symbol::from(&g.group),
         description: g.description.value.clone(),
     }
 }
@@ -400,7 +400,7 @@ fn lower_compliance_group(g: &ast::ComplianceGroup) -> HirComplianceGroup {
 /// Lower a compliance OBJECT clause to HIR.
 fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
     HirComplianceObject {
-        object: Symbol::new(o.object.name.clone()),
+        object: Symbol::from(&o.object),
         syntax: o.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
         write_syntax: o
             .write_syntax
@@ -413,7 +413,7 @@ fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
 
 fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> HirAgentCapabilities {
     HirAgentCapabilities {
-        name: Symbol::new(def.name.name.clone()),
+        name: Symbol::from(&def.name),
         product_release: def.product_release.value.clone(),
         status: lower_status(&def.status.value),
         description: def.description.value.clone(),
@@ -440,11 +440,11 @@ fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
     }
 
     HirSupportsModule {
-        module_name: Symbol::new(module.module_name.name.clone()),
+        module_name: Symbol::from(&module.module_name),
         includes: module
             .includes
             .iter()
-            .map(|i| Symbol::new(i.name.clone()))
+            .map(Symbol::from)
             .collect(),
         object_variations,
         notification_variations,
@@ -453,7 +453,7 @@ fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
 
 fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
     HirObjectVariation {
-        object: Symbol::new(v.object.name.clone()),
+        object: Symbol::from(&v.object),
         syntax: v.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
         write_syntax: v
             .write_syntax
@@ -462,7 +462,7 @@ fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
         access: v.access.as_ref().map(|a| lower_access(&a.value)),
         creation_requires: v.creation_requires.as_ref().map(|objs| {
             objs.iter()
-                .map(|i| Symbol::new(i.name.clone()))
+                .map(Symbol::from)
                 .collect()
         }),
         defval: v.defval.as_ref().map(|d| lower_defval(d)),
@@ -472,7 +472,7 @@ fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
 
 fn lower_notification_variation(v: &ast::NotificationVariation) -> HirNotificationVariation {
     HirNotificationVariation {
-        notification: Symbol::new(v.notification.name.clone()),
+        notification: Symbol::from(&v.notification),
         access: v.access.as_ref().map(|a| lower_access(&a.value)),
         description: v.description.value.clone(),
     }
@@ -493,7 +493,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
         } => HirTypeSyntax::IntegerEnum(
             named_numbers
                 .iter()
-                .map(|nn| (Symbol::new(nn.name.name.clone()), nn.value))
+                .map(|nn| (Symbol::from(&nn.name), nn.value))
                 .collect(),
         ),
         TypeSyntax::Bits { named_bits, .. } => HirTypeSyntax::Bits(
@@ -501,7 +501,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
                 .iter()
                 .map(|nb| {
                     (
-                        Symbol::new(nb.name.name.clone()),
+                        Symbol::from(&nb.name),
                         nb.value as u32, // BITS positions are non-negative
                     )
                 })
@@ -514,12 +514,12 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
             constraint: lower_constraint(constraint),
         },
         TypeSyntax::SequenceOf { entry_type, .. } => {
-            HirTypeSyntax::SequenceOf(Symbol::new(entry_type.name.clone()))
+            HirTypeSyntax::SequenceOf(Symbol::from(entry_type))
         }
         TypeSyntax::Sequence { fields, .. } => HirTypeSyntax::Sequence(
             fields
                 .iter()
-                .map(|f| (Symbol::new(f.name.name.clone()), lower_type_syntax(&f.syntax)))
+                .map(|f| (Symbol::from(&f.name), lower_type_syntax(&f.syntax)))
                 .collect(),
         ),
         TypeSyntax::OctetString { .. } => HirTypeSyntax::OctetString,
@@ -575,15 +575,15 @@ fn lower_oid_assignment(oid: &ast::OidAssignment) -> HirOidAssignment {
 /// Lower AST OID component to HIR OID component.
 fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
     match comp {
-        OidComponent::Name(ident) => HirOidComponent::Name(Symbol::new(ident.name.clone())),
+        OidComponent::Name(ident) => HirOidComponent::Name(Symbol::from(ident)),
         OidComponent::Number { value, .. } => HirOidComponent::Number(*value),
         OidComponent::NamedNumber { name, number, .. } => HirOidComponent::NamedNumber {
-            name: Symbol::new(name.name.clone()),
+            name: Symbol::from(name),
             number: *number,
         },
         OidComponent::QualifiedName { module, name, .. } => HirOidComponent::QualifiedName {
-            module: Symbol::new(module.name.clone()),
-            name: Symbol::new(name.name.clone()),
+            module: Symbol::from(module),
+            name: Symbol::from(name),
         },
         OidComponent::QualifiedNamedNumber {
             module,
@@ -591,8 +591,8 @@ fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
             number,
             ..
         } => HirOidComponent::QualifiedNamedNumber {
-            module: Symbol::new(module.name.clone()),
-            name: Symbol::new(name.name.clone()),
+            module: Symbol::from(module),
+            name: Symbol::from(name),
             number: *number,
         },
     }
@@ -632,7 +632,7 @@ fn lower_index_clause(clause: Option<&IndexClause>) -> Option<Vec<HirIndexItem>>
     clause.map(|c| match c {
         IndexClause::Index { indexes, .. } | IndexClause::PibIndex { indexes, .. } => indexes
             .iter()
-            .map(|i| HirIndexItem::new(Symbol::new(i.object.name.clone()), i.implied))
+            .map(|i| HirIndexItem::new(Symbol::from(&i.object), i.implied))
             .collect(),
     })
 }

@@ -1,5 +1,6 @@
 //! Core HIR types.
 
+use crate::ast::Ident;
 use alloc::string::String;
 use core::fmt;
 
@@ -90,6 +91,18 @@ impl From<&str> for Symbol {
 impl From<String> for Symbol {
     fn from(s: String) -> Self {
         Self::new(s)
+    }
+}
+
+impl From<Ident> for Symbol {
+    fn from(ident: Ident) -> Self {
+        Self::new(ident.name)
+    }
+}
+
+impl From<&Ident> for Symbol {
+    fn from(ident: &Ident) -> Self {
+        Self::from_str(&ident.name)
     }
 }
 
