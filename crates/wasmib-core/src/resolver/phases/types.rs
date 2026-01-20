@@ -32,45 +32,25 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
 
     // INTEGER - base integer type
     let name = ctx.intern("INTEGER");
-    let typ = ResolvedType::new(
-        crate::model::TypeId::from_raw(1).unwrap(),
-        name,
-        module_id,
-        BaseType::Integer32,
-    );
+    let typ = ResolvedType::new(name, module_id, BaseType::Integer32);
     let type_id = ctx.model.add_type(typ);
     ctx.register_type_symbol(String::from("INTEGER"), type_id);
 
     // OCTET STRING - base octet string type
     let name = ctx.intern("OCTET STRING");
-    let typ = ResolvedType::new(
-        crate::model::TypeId::from_raw(1).unwrap(),
-        name,
-        module_id,
-        BaseType::OctetString,
-    );
+    let typ = ResolvedType::new(name, module_id, BaseType::OctetString);
     let type_id = ctx.model.add_type(typ);
     ctx.register_type_symbol(String::from("OCTET STRING"), type_id);
 
     // OBJECT IDENTIFIER - base OID type
     let name = ctx.intern("OBJECT IDENTIFIER");
-    let typ = ResolvedType::new(
-        crate::model::TypeId::from_raw(1).unwrap(),
-        name,
-        module_id,
-        BaseType::ObjectIdentifier,
-    );
+    let typ = ResolvedType::new(name, module_id, BaseType::ObjectIdentifier);
     let type_id = ctx.model.add_type(typ);
     ctx.register_type_symbol(String::from("OBJECT IDENTIFIER"), type_id);
 
     // BITS - bit string type
     let name = ctx.intern("BITS");
-    let typ = ResolvedType::new(
-        crate::model::TypeId::from_raw(1).unwrap(),
-        name,
-        module_id,
-        BaseType::Bits,
-    );
+    let typ = ResolvedType::new(name, module_id, BaseType::Bits);
     let type_id = ctx.model.add_type(typ);
     ctx.register_type_symbol(String::from("BITS"), type_id);
 }
@@ -108,12 +88,7 @@ fn create_user_types(ctx: &mut ResolverContext) {
         // Determine base type from syntax (None means it needs parent resolution)
         let base = syntax_to_base_type(&td.syntax).unwrap_or(BaseType::Integer32);
 
-        let mut typ = ResolvedType::new(
-            crate::model::TypeId::from_raw(1).unwrap(),
-            name,
-            module_id,
-            base,
-        );
+        let mut typ = ResolvedType::new(name, module_id, base);
 
         // Track if base type needs resolution from parent
         typ.needs_base_resolution = syntax_to_base_type(&td.syntax).is_none();

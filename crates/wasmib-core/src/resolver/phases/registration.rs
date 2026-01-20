@@ -42,11 +42,8 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         // Intern module name
         let name_str = ctx.intern(&module_name);
 
-        // Create resolved module
-        let module = ResolvedModule::new(
-            crate::model::ModuleId::from_raw(1).unwrap(), // Will be updated
-            name_str,
-        );
+        // Create resolved module (ID assigned by add_module)
+        let module = ResolvedModule::new(name_str);
 
         // Add to model
         let module_id = ctx.model.add_module(module);

@@ -252,13 +252,11 @@ mod tests {
         ];
         let mut ctx = ResolverContext::new(hir_modules);
 
-        // Register modules - ResolvedModule::new takes (ModuleId, StrId)
-        // Use placeholder IDs that will be replaced by add_module
+        // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let placeholder_id = ModuleId::from_raw(1).unwrap();
-        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
 
         // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
         ctx.register_import(module_a, "foo".into(), module_b);
@@ -278,12 +276,11 @@ mod tests {
         ];
         let mut ctx = ResolverContext::new(hir_modules);
 
-        // Register modules
+        // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let placeholder_id = ModuleId::from_raw(1).unwrap();
-        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
 
         // Create a node in module B - OidNode::new takes (subid, parent)
         let node = OidNode::new(1, None);
@@ -308,12 +305,11 @@ mod tests {
         ];
         let mut ctx = ResolverContext::new(hir_modules);
 
-        // Register modules
+        // Register modules (IDs assigned by add_module)
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
-        let placeholder_id = ModuleId::from_raw(1).unwrap();
-        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
 
         // Create nodes in both modules
         let node_a = OidNode::new(1, None);
@@ -345,10 +341,9 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let name_c = ctx.intern("ModuleC");
-        let placeholder_id = ModuleId::from_raw(1).unwrap();
-        let module_a = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_a));
-        let module_b = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_b));
-        let module_c = ctx.model.add_module(ResolvedModule::new(placeholder_id, name_c));
+        let module_a = ctx.model.add_module(ResolvedModule::new(name_a));
+        let module_b = ctx.model.add_module(ResolvedModule::new(name_b));
+        let module_c = ctx.model.add_module(ResolvedModule::new(name_c));
 
         // Create node in C
         let node = OidNode::new(1, None);

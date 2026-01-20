@@ -669,7 +669,7 @@ mod tests {
     fn test_add_module() {
         let mut model = Model::new();
         let name = model.intern("IF-MIB");
-        let module = ResolvedModule::new(ModuleId::from_raw(1).unwrap(), name);
+        let module = ResolvedModule::new(name);
 
         let id = model.add_module(module);
         assert_eq!(model.module_count(), 1);
@@ -680,7 +680,7 @@ mod tests {
     fn test_get_module_by_name() {
         let mut model = Model::new();
         let name = model.intern("IF-MIB");
-        let module = ResolvedModule::new(ModuleId::from_raw(1).unwrap(), name);
+        let module = ResolvedModule::new(name);
 
         model.add_module(module);
         assert!(model.get_module_by_name("IF-MIB").is_some());

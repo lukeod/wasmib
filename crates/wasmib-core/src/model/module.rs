@@ -51,12 +51,22 @@ pub struct ResolvedModule {
     pub notifications: Vec<NotificationId>,
 }
 
+/// Placeholder ID used before entity is added to the model.
+/// This value is always overwritten by Model::add_module().
+const UNASSIGNED_ID: ModuleId = match ModuleId::from_raw(1) {
+    Some(id) => id,
+    None => unreachable!(),
+};
+
 impl ResolvedModule {
     /// Create a new resolved module.
+    ///
+    /// The `id` field is initialized to a placeholder and will be assigned
+    /// by `Model::add_module()` when the module is added to the model.
     #[must_use]
-    pub fn new(id: ModuleId, name: StrId) -> Self {
+    pub fn new(name: StrId) -> Self {
         Self {
-            id,
+            id: UNASSIGNED_ID,
             name,
             last_updated: None,
             organization: None,
@@ -98,11 +108,11 @@ mod tests {
 
     #[test]
     fn test_resolved_module_new() {
-        let id = ModuleId::from_raw(1).unwrap();
         let name = StrId::from_raw(1).unwrap();
-        let module = ResolvedModule::new(id, name);
+        let module = ResolvedModule::new(name);
 
-        assert_eq!(module.id, id);
+        // ID is a placeholder until added to model
+        assert_eq!(module.id, UNASSIGNED_ID);
         assert_eq!(module.name, name);
         assert!(module.nodes.is_empty());
         assert!(module.types.is_empty());
@@ -111,9 +121,8 @@ mod tests {
 
     #[test]
     fn test_add_nodes() {
-        let id = ModuleId::from_raw(1).unwrap();
         let name = StrId::from_raw(1).unwrap();
-        let mut module = ResolvedModule::new(id, name);
+        let mut module = ResolvedModule::new(name);
 
         let node1 = NodeId::from_raw(1).unwrap();
         let node2 = NodeId::from_raw(2).unwrap();

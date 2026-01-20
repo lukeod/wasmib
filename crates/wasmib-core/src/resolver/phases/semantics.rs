@@ -204,14 +204,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         let access = hir_access_to_access(obj.access);
         let status = hir_status_to_status(obj.status);
 
-        let mut resolved = ResolvedObject::new(
-            crate::model::ObjectId::from_raw(1).unwrap(), // Will be updated
-            node_id,
-            module_id,
-            name,
-            type_id,
-            access,
-        );
+        let mut resolved = ResolvedObject::new(node_id, module_id, name, type_id, access);
 
         resolved.status = status;
 
