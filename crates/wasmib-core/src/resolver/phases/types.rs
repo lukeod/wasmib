@@ -84,14 +84,22 @@ fn create_user_types(ctx: &mut ResolverContext) {
                 if let HirDefinition::TypeDef(td) = def {
                     // Extract enum values (names only)
                     let enums = if let HirTypeSyntax::IntegerEnum(e) = &td.syntax {
-                        Some(e.iter().map(|(sym, val)| (*val, sym.name.clone())).collect())
+                        Some(
+                            e.iter()
+                                .map(|nn| (nn.value, nn.name.name.clone()))
+                                .collect(),
+                        )
                     } else {
                         None
                     };
 
                     // Extract BITS definitions
                     let bits = if let HirTypeSyntax::Bits(b) = &td.syntax {
-                        Some(b.iter().map(|(sym, pos)| (*pos, sym.name.clone())).collect())
+                        Some(
+                            b.iter()
+                                .map(|nb| (nb.position, nb.name.name.clone()))
+                                .collect(),
+                        )
                     } else {
                         None
                     };
@@ -466,7 +474,7 @@ fn range_value_to_bound(v: &HirRangeValue) -> RangeBound {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{HirModule, HirTypeDef, Symbol};
+    use crate::hir::{HirModule, HirTypeDef, NamedBit, NamedNumber, Symbol};
     use crate::lexer::Span;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
@@ -860,8 +868,8 @@ mod tests {
         let typedef = HirTypeDef {
             name: Symbol::from_name("TestTruthValue"),
             syntax: HirTypeSyntax::IntegerEnum(vec![
-                (Symbol::from_name("true"), 1),
-                (Symbol::from_name("false"), 2),
+                NamedNumber::new(Symbol::from_name("true"), 1),
+                NamedNumber::new(Symbol::from_name("false"), 2),
             ]),
             display_hint: None,
             status: HirStatus::Current,
@@ -902,8 +910,8 @@ mod tests {
         let typedef = HirTypeDef {
             name: Symbol::from_name("TestBitsType"),
             syntax: HirTypeSyntax::Bits(vec![
-                (Symbol::from_name("flag1"), 0),
-                (Symbol::from_name("flag2"), 1),
+                NamedBit::new(Symbol::from_name("flag1"), 0),
+                NamedBit::new(Symbol::from_name("flag2"), 1),
             ]),
             display_hint: None,
             status: HirStatus::Current,

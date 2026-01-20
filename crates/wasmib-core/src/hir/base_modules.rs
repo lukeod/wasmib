@@ -31,7 +31,8 @@ use alloc::boxed::Box;
 
 use super::{
     HirConstraint, HirDefinition, HirModule, HirOidAssignment, HirOidComponent, HirRange,
-    HirRangeValue, HirStatus, HirTypeDef, HirTypeSyntax, HirValueAssignment, SmiLanguage, Symbol,
+    HirRangeValue, HirStatus, HirTypeDef, HirTypeSyntax, HirValueAssignment, NamedNumber,
+    SmiLanguage, Symbol,
 };
 
 /// SMI base modules.
@@ -354,7 +355,10 @@ fn constrained_octet_range(min: u64, max: u64) -> HirTypeSyntax {
 
 /// Create a constrained INTEGER with unsigned range (0..max).
 fn constrained_uint_range(max: u64) -> HirTypeSyntax {
-    constrained_int_range(HirRangeValue::Unsigned(0), Some(HirRangeValue::Unsigned(max)))
+    constrained_int_range(
+        HirRangeValue::Unsigned(0),
+        Some(HirRangeValue::Unsigned(max)),
+    )
 }
 
 /// Create base type definitions as `TypeDefs`.
@@ -409,7 +413,11 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         // DisplayString ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "255a"
         //     SYNTAX OCTET STRING (SIZE (0..255))
-        make_tc("DisplayString", Some("255a"), constrained_octet_range(0, 255)),
+        make_tc(
+            "DisplayString",
+            Some("255a"),
+            constrained_octet_range(0, 255),
+        ),
         // PhysAddress ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "1x:"
         //     SYNTAX OCTET STRING
@@ -547,9 +555,9 @@ fn make_tc_obsolete(
 
 /// Create a `TypeDef` for a textual convention with enumerated values.
 fn make_tc_with_enum(name: &str, values: &[(&str, i64)]) -> HirDefinition {
-    let enum_values: Vec<(Symbol, i64)> = values
+    let enum_values: Vec<NamedNumber> = values
         .iter()
-        .map(|(n, v)| (Symbol::from_name(n), *v))
+        .map(|(n, v)| NamedNumber::new(Symbol::from_name(n), *v))
         .collect();
 
     HirDefinition::TypeDef(HirTypeDef {

@@ -212,6 +212,7 @@ impl StringInterner {
     /// For short strings (<64 bytes), uses the dedup table for O(log n) lookup.
     /// For long strings, falls back to O(n) scan.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)] // Offsets are bounded by string data length
     pub fn find(&self, s: &str) -> Option<StrId> {
         // Short strings use hash+verify lookup
         if s.len() < DEDUP_THRESHOLD {
@@ -226,12 +227,13 @@ impl StringInterner {
             return None;
         }
 
-        // Long strings require O(n) scan
-        for idx in 0..self.len() {
-            if let Some(id) = StrId::from_index(idx)
-                && self.get(id) == s
-            {
-                return Some(id);
+        // Long strings require O(n) scan.
+        // Iterate directly over offset pairs to avoid StrId creation per iteration.
+        for (idx, window) in self.offsets.windows(2).enumerate() {
+            let start = window[0] as usize;
+            let end = window[1] as usize;
+            if self.data.get(start..end) == Some(s) {
+                return StrId::from_index(idx);
             }
         }
         None

@@ -389,7 +389,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         if let HirTypeSyntax::IntegerEnum(ref enums) = obj_data.syntax {
             let values: Vec<_> = enums
                 .iter()
-                .map(|(sym, val)| (*val, ctx.intern(&sym.name)))
+                .map(|nn| (nn.value, ctx.intern(&nn.name.name)))
                 .collect();
             resolved.inline_enum = Some(crate::model::EnumValues::new(values));
         }
@@ -398,7 +398,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         if let HirTypeSyntax::Bits(ref bits) = obj_data.syntax {
             let defs: Vec<_> = bits
                 .iter()
-                .map(|(sym, pos)| (*pos, ctx.intern(&sym.name)))
+                .map(|nb| (nb.position, ctx.intern(&nb.name.name)))
                 .collect();
             resolved.inline_bits = Some(crate::model::BitDefinitions::new(defs));
         }
@@ -637,7 +637,8 @@ mod tests {
     use super::*;
     use crate::hir::{
         HirAccess, HirDefinition, HirImport, HirIndexItem, HirModule, HirNotification,
-        HirObjectType, HirOidAssignment, HirOidComponent, HirStatus, HirTypeSyntax, Symbol,
+        HirObjectType, HirOidAssignment, HirOidComponent, HirStatus, HirTypeSyntax, NamedBit,
+        Symbol,
     };
     use crate::lexer::Span;
     use crate::resolver::phases::{
@@ -948,8 +949,8 @@ mod tests {
         let obj = make_object_type(
             "testBits",
             HirTypeSyntax::Bits(vec![
-                (Symbol::from_name("flag1"), 0),
-                (Symbol::from_name("flag2"), 1),
+                NamedBit::new(Symbol::from_name("flag1"), 0),
+                NamedBit::new(Symbol::from_name("flag2"), 1),
             ]),
             vec![
                 HirOidComponent::Name(Symbol::from_name("enterprises")),

@@ -19,7 +19,7 @@ use super::module::{HirImport, HirModule};
 use super::normalize::{is_smiv2_base_module, normalize_import, normalize_type_name};
 use super::syntax::{
     HirConstraint, HirDefVal, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue,
-    HirTypeSyntax,
+    HirTypeSyntax, NamedBit, NamedNumber, SequenceField,
 };
 use super::types::{HirAccess, HirStatus, SmiLanguage, Symbol};
 use crate::ast::{
@@ -471,7 +471,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
         TypeSyntax::IntegerEnum { named_numbers, .. } => HirTypeSyntax::IntegerEnum(
             named_numbers
                 .iter()
-                .map(|nn| (Symbol::from(&nn.name), nn.value))
+                .map(|nn| NamedNumber::new(Symbol::from(&nn.name), nn.value))
                 .collect(),
         ),
         TypeSyntax::Bits { named_bits, .. } => HirTypeSyntax::Bits(
@@ -481,7 +481,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
                     // BITS positions are small non-negative integers (0-127)
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let pos = nb.value as u32;
-                    (Symbol::from(&nb.name), pos)
+                    NamedBit::new(Symbol::from(&nb.name), pos)
                 })
                 .collect(),
         ),
@@ -497,7 +497,7 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
         TypeSyntax::Sequence { fields, .. } => HirTypeSyntax::Sequence(
             fields
                 .iter()
-                .map(|f| (Symbol::from(&f.name), lower_type_syntax(&f.syntax)))
+                .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(&f.syntax)))
                 .collect(),
         ),
         TypeSyntax::OctetString { .. } => HirTypeSyntax::OctetString,

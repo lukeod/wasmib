@@ -5,6 +5,67 @@ use crate::lexer::Span;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+// === Named types for tuple-based HIR types ===
+//
+// These provide clearer field names than raw tuples like `(Symbol, i64)`.
+
+/// A named number in an INTEGER enumeration.
+///
+/// Used in `INTEGER { up(1), down(2) }` syntax.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamedNumber {
+    /// The name of the enumeration value (e.g., "up", "down").
+    pub name: Symbol,
+    /// The numeric value assigned to this name.
+    pub value: i64,
+}
+
+impl NamedNumber {
+    /// Create a new named number.
+    #[must_use]
+    pub fn new(name: Symbol, value: i64) -> Self {
+        Self { name, value }
+    }
+}
+
+/// A named bit in a BITS type definition.
+///
+/// Used in `BITS { flag1(0), flag2(1) }` syntax.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamedBit {
+    /// The name of the bit (e.g., "flag1", "flag2").
+    pub name: Symbol,
+    /// The bit position (0-indexed from the left).
+    pub position: u32,
+}
+
+impl NamedBit {
+    /// Create a new named bit.
+    #[must_use]
+    pub fn new(name: Symbol, position: u32) -> Self {
+        Self { name, position }
+    }
+}
+
+/// A field in a SEQUENCE type (used for row entry types).
+///
+/// Used in `SEQUENCE { ifIndex InterfaceIndex, ifDescr DisplayString }` syntax.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SequenceField {
+    /// The name of the field (e.g., "ifIndex", "ifDescr").
+    pub name: Symbol,
+    /// The type of the field.
+    pub syntax: HirTypeSyntax,
+}
+
+impl SequenceField {
+    /// Create a new sequence field.
+    #[must_use]
+    pub fn new(name: Symbol, syntax: HirTypeSyntax) -> Self {
+        Self { name, syntax }
+    }
+}
+
 /// OID assignment (unresolved).
 ///
 /// Keeps OID components as symbols; resolution happens in the resolver.
@@ -101,10 +162,10 @@ pub enum HirTypeSyntax {
     TypeRef(Symbol),
 
     /// INTEGER with enum values: `INTEGER { up(1), down(2) }`
-    IntegerEnum(Vec<(Symbol, i64)>),
+    IntegerEnum(Vec<NamedNumber>),
 
     /// BITS with named bits: `BITS { flag1(0), flag2(1) }`
-    Bits(Vec<(Symbol, u32)>),
+    Bits(Vec<NamedBit>),
 
     /// Constrained type: `OCTET STRING (SIZE (0..255))`
     Constrained {
@@ -118,7 +179,7 @@ pub enum HirTypeSyntax {
     SequenceOf(Symbol),
 
     /// SEQUENCE with fields (for row types).
-    Sequence(Vec<(Symbol, HirTypeSyntax)>),
+    Sequence(Vec<SequenceField>),
 
     /// OCTET STRING (explicit).
     OctetString,

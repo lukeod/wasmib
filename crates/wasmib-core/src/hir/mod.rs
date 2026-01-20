@@ -47,6 +47,6 @@ pub use module::{HirImport, HirModule};
 pub use normalize::{NormalizedImport, normalize_import, normalize_type_name};
 pub use syntax::{
     HirConstraint, HirDefVal, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue,
-    HirTypeSyntax,
+    HirTypeSyntax, NamedBit, NamedNumber, SequenceField,
 };
 pub use types::{HirAccess, HirStatus, SmiLanguage, Symbol};
