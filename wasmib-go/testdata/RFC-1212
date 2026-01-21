@@ -1,0 +1,13 @@
+RFC-1212 DEFINITIONS ::= BEGIN
+
+OBJECT-TYPE MACRO ::=
+BEGIN
+    TYPE NOTATION ::= "SYNTAX" type
+                      "ACCESS" Access
+                      "STATUS" Status
+    VALUE NOTATION ::= value (VALUE OBJECT IDENTIFIER)
+    Access ::= "read-only" | "read-write" | "write-only" | "not-accessible"
+    Status ::= "mandatory" | "optional" | "obsolete" | "deprecated"
+END
+
+END

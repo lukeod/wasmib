@@ -2,7 +2,7 @@
 //!
 //! Build the type graph with inheritance chains and resolve all type references.
 
-use crate::hir::{HirConstraint, HirDefinition, HirRange, HirRangeValue, HirStatus, HirTypeSyntax};
+use crate::module::{Constraint, Definition, Range, RangeValue, Status as ModuleStatus, TypeSyntax};
 use crate::model::{
     BaseType, BitDefinitions, EnumValues, RangeBound, ResolvedType, SizeConstraint, Status, TypeId,
     ValueConstraint,
@@ -26,43 +26,47 @@ pub fn resolve_types(ctx: &mut ResolverContext) {
 /// Seed the model with primitive ASN.1 types.
 ///
 /// These are the fundamental types that other types reference.
+/// Primitives are registered in the SNMPv2-SMI module scope.
 fn seed_primitive_types(ctx: &mut ResolverContext) {
-    // Use a pseudo-module for primitives (module_id=1 which is SNMPv2-SMI)
-    let module_id = crate::model::ModuleId::from_raw(1).unwrap();
+    // Get the SNMPv2-SMI module ID (first synthetic module, index 0)
+    let Some(module_id) = ctx.snmpv2_smi_module_id else {
+        // SNMPv2-SMI not registered yet - should not happen after registration phase
+        return;
+    };
 
     // INTEGER - base integer type
     let name = ctx.intern("INTEGER");
     let typ = ResolvedType::new(name, module_id, BaseType::Integer32);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(name, type_id);
+    ctx.register_module_type_symbol(module_id, name, type_id);
 
     // OCTET STRING - base octet string type
     let name = ctx.intern("OCTET STRING");
     let typ = ResolvedType::new(name, module_id, BaseType::OctetString);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(name, type_id);
+    ctx.register_module_type_symbol(module_id, name, type_id);
 
     // OBJECT IDENTIFIER - base OID type
     let name = ctx.intern("OBJECT IDENTIFIER");
     let typ = ResolvedType::new(name, module_id, BaseType::ObjectIdentifier);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(name, type_id);
+    ctx.register_module_type_symbol(module_id, name, type_id);
 
     // BITS - bit string type
     let name = ctx.intern("BITS");
     let typ = ResolvedType::new(name, module_id, BaseType::Bits);
     let type_id = ctx.model.add_type(typ).unwrap();
-    ctx.register_type_symbol(name, type_id);
+    ctx.register_module_type_symbol(module_id, name, type_id);
 }
 
 /// Extracted type definition data needed for creating ResolvedType.
-/// This is smaller than a full HirTypeDef clone (no span, no reference field).
+/// This is smaller than a full TypeDef clone (no span, no reference field).
 struct TypeDefData {
     module_idx: usize,
     name: String,
     base: Option<BaseType>,
     is_tc: bool,
-    status: HirStatus,
+    status: ModuleStatus,
     hint: Option<String>,
     description: Option<String>,
     enums: Option<Vec<(i64, String)>>,
@@ -74,7 +78,7 @@ struct TypeDefData {
 /// Create type nodes for all user-defined types.
 fn create_user_types(ctx: &mut ResolverContext) {
     // Extract only the data needed from type definitions.
-    // This avoids cloning the entire HirTypeDef (which includes reference, span, etc.)
+    // This avoids cloning the entire TypeDef (which includes reference, span, etc.)
     // and allows us to work with owned data without borrow checker issues.
     let type_data: Vec<TypeDefData> = ctx
         .hir_modules
@@ -82,9 +86,9 @@ fn create_user_types(ctx: &mut ResolverContext) {
         .enumerate()
         .flat_map(|(module_idx, module)| {
             module.definitions.iter().filter_map(move |def| {
-                if let HirDefinition::TypeDef(td) = def {
+                if let Definition::TypeDef(td) = def {
                     // Extract enum values (names only)
-                    let enums = if let HirTypeSyntax::IntegerEnum(e) = &td.syntax {
+                    let enums = if let TypeSyntax::IntegerEnum(e) = &td.syntax {
                         Some(
                             e.iter()
                                 .map(|nn| (nn.value, nn.name.name.clone()))
@@ -95,7 +99,7 @@ fn create_user_types(ctx: &mut ResolverContext) {
                     };
 
                     // Extract BITS definitions
-                    let bits = if let HirTypeSyntax::Bits(b) = &td.syntax {
+                    let bits = if let TypeSyntax::Bits(b) = &td.syntax {
                         Some(
                             b.iter()
                                 .map(|nb| (nb.position, nb.name.name.clone()))
@@ -107,12 +111,12 @@ fn create_user_types(ctx: &mut ResolverContext) {
 
                     // Extract constraints
                     let (size, value_range) =
-                        if let HirTypeSyntax::Constrained { constraint, .. } = &td.syntax {
+                        if let TypeSyntax::Constrained { constraint, .. } = &td.syntax {
                             match constraint {
-                                HirConstraint::Size(r) => {
+                                Constraint::Size(r) => {
                                     (Some(hir_ranges_to_size_constraint(r)), None)
                                 }
-                                HirConstraint::Range(r) => {
+                                Constraint::Range(r) => {
                                     (None, Some(hir_ranges_to_value_constraint(r)))
                                 }
                             }
@@ -186,7 +190,8 @@ fn create_user_types(ctx: &mut ResolverContext) {
         typ.value_range = data.value_range;
 
         let type_id = ctx.model.add_type(typ).unwrap();
-        ctx.register_type_symbol(name, type_id);
+        // Register module-scoped type for import-aware lookup
+        ctx.register_module_type_symbol(module_id, name, type_id);
 
         // Add to module
         if let Some(module) = ctx.model.get_module_mut(module_id) {
@@ -218,8 +223,8 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         .enumerate()
         .flat_map(|(module_idx, module)| {
             module.definitions.iter().filter_map(move |def| {
-                if let HirDefinition::TypeDef(td) = def {
-                    if let HirTypeSyntax::TypeRef(ref base_name) = td.syntax {
+                if let Definition::TypeDef(td) = def {
+                    if let TypeSyntax::TypeRef(ref base_name) = td.syntax {
                         return Some((
                             module_idx,
                             td.name.name.clone(),
@@ -227,8 +232,8 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
                             td.span,
                         ));
                     }
-                    if let HirTypeSyntax::Constrained { ref base, .. } = td.syntax
-                        && let HirTypeSyntax::TypeRef(ref base_name) = **base
+                    if let TypeSyntax::Constrained { ref base, .. } = td.syntax
+                        && let TypeSyntax::TypeRef(ref base_name) = **base
                     {
                         return Some((
                             module_idx,
@@ -248,15 +253,18 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
             continue; // Skip if module not registered (shouldn't happen)
         };
 
-        // Look up the type and its base
-        if let (Some(type_id), Some(parent_id)) =
-            (ctx.lookup_type(&type_name), ctx.lookup_type(&base_name))
-        {
+        // Both lookups must be module-scoped:
+        // - type_id: the type being defined (must find THIS module's type, not another module's)
+        // - parent_id: the base type (respects imports)
+        let type_id = ctx.lookup_type_for_module(module_id, &type_name);
+        let parent_id = ctx.lookup_type_for_module(module_id, &base_name);
+
+        if let (Some(type_id), Some(parent_id)) = (type_id, parent_id) {
             // Set parent pointer
             if let Some(typ) = ctx.model.get_type_mut(type_id) {
                 typ.parent_type = Some(parent_id);
             }
-        } else if ctx.lookup_type(&base_name).is_none() {
+        } else if parent_id.is_none() {
             ctx.record_unresolved_type(module_id, &type_name, &base_name, span);
         }
     }
@@ -265,21 +273,21 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
 /// Get the primitive type name for a syntax that uses primitive syntax directly.
 ///
 /// Returns the primitive type name to link as parent for:
-/// - `HirTypeSyntax::OctetString` -> "OCTET STRING"
-/// - `HirTypeSyntax::ObjectIdentifier` -> "OBJECT IDENTIFIER"
-/// - `HirTypeSyntax::IntegerEnum` -> "INTEGER"
-/// - `HirTypeSyntax::Bits` -> "BITS"
-/// - `HirTypeSyntax::Constrained { base: OctetString/ObjectIdentifier, .. }` -> respective primitive
-fn get_primitive_parent_name(syntax: &HirTypeSyntax) -> Option<&'static str> {
+/// - `TypeSyntax::OctetString` -> "OCTET STRING"
+/// - `TypeSyntax::ObjectIdentifier` -> "OBJECT IDENTIFIER"
+/// - `TypeSyntax::IntegerEnum` -> "INTEGER"
+/// - `TypeSyntax::Bits` -> "BITS"
+/// - `TypeSyntax::Constrained { base: OctetString/ObjectIdentifier, .. }` -> respective primitive
+fn get_primitive_parent_name(syntax: &TypeSyntax) -> Option<&'static str> {
     match syntax {
-        HirTypeSyntax::OctetString => Some("OCTET STRING"),
-        HirTypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
-        HirTypeSyntax::IntegerEnum(_) => Some("INTEGER"),
-        HirTypeSyntax::Bits(_) => Some("BITS"),
-        HirTypeSyntax::Constrained { base, .. } => {
+        TypeSyntax::OctetString => Some("OCTET STRING"),
+        TypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
+        TypeSyntax::IntegerEnum(_) => Some("INTEGER"),
+        TypeSyntax::Bits(_) => Some("BITS"),
+        TypeSyntax::Constrained { base, .. } => {
             match **base {
-                HirTypeSyntax::OctetString => Some("OCTET STRING"),
-                HirTypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
+                TypeSyntax::OctetString => Some("OCTET STRING"),
+                TypeSyntax::ObjectIdentifier => Some("OBJECT IDENTIFIER"),
                 // TypeRef cases are handled in link_typeref_parents
                 _ => None,
             }
@@ -297,15 +305,16 @@ fn get_primitive_parent_name(syntax: &HirTypeSyntax) -> Option<&'static str> {
 /// - `SYNTAX INTEGER { enum values }`
 /// - `SYNTAX BITS { bit values }`
 fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
-    // Collect types that need primitive parent linking
+    // Collect types that need primitive parent linking, preserving module context
     let primitive_links: Vec<_> = ctx
         .hir_modules
         .iter()
-        .flat_map(|module| {
-            module.definitions.iter().filter_map(|def| {
-                if let HirDefinition::TypeDef(td) = def {
+        .enumerate()
+        .flat_map(|(module_idx, module)| {
+            module.definitions.iter().filter_map(move |def| {
+                if let Definition::TypeDef(td) = def {
                     get_primitive_parent_name(&td.syntax)
-                        .map(|primitive_name| (td.name.name.clone(), primitive_name))
+                        .map(|primitive_name| (module_idx, td.name.name.clone(), primitive_name))
                 } else {
                     None
                 }
@@ -314,10 +323,17 @@ fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
         .collect();
 
     // Link each type to its primitive parent
-    for (type_name, primitive_name) in primitive_links {
-        if let (Some(type_id), Some(parent_id)) =
-            (ctx.lookup_type(&type_name), ctx.lookup_type(primitive_name))
-            && let Some(typ) = ctx.model.get_type_mut(type_id)
+    for (module_idx, type_name, primitive_name) in primitive_links {
+        let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
+            continue;
+        };
+
+        // Use module-scoped lookup for type_name to find THIS module's type
+        // Primitive names are global (INTEGER, OCTET STRING, etc.)
+        if let (Some(type_id), Some(parent_id)) = (
+            ctx.lookup_type_for_module(module_id, &type_name),
+            ctx.lookup_type(primitive_name),
+        ) && let Some(typ) = ctx.model.get_type_mut(type_id)
         {
             // Only set if not already set (TypeRef linking takes precedence)
             if typ.parent_type.is_none() {
@@ -381,11 +397,11 @@ fn resolve_base_from_chain(ctx: &ResolverContext, type_id: TypeId) -> Option<Bas
     None
 }
 
-/// Convert `HirTypeSyntax` to `BaseType`.
+/// Convert `TypeSyntax` to `BaseType`.
 /// Returns None for `TypeRef` that cannot be immediately resolved (will be inherited from parent).
-fn syntax_to_base_type(syntax: &HirTypeSyntax) -> Option<BaseType> {
+fn syntax_to_base_type(syntax: &TypeSyntax) -> Option<BaseType> {
     match syntax {
-        HirTypeSyntax::TypeRef(name) => {
+        TypeSyntax::TypeRef(name) => {
             // Only map primitive/built-in type names; others need parent resolution
             match name.name.as_str() {
                 "Integer32" | "INTEGER" => Some(BaseType::Integer32),
@@ -402,26 +418,26 @@ fn syntax_to_base_type(syntax: &HirTypeSyntax) -> Option<BaseType> {
                 _ => None, // Unknown TypeRef - will inherit from parent
             }
         }
-        HirTypeSyntax::IntegerEnum(_) => Some(BaseType::Integer32),
-        HirTypeSyntax::Bits(_) => Some(BaseType::Bits),
-        HirTypeSyntax::OctetString => Some(BaseType::OctetString),
-        HirTypeSyntax::ObjectIdentifier => Some(BaseType::ObjectIdentifier),
-        HirTypeSyntax::Constrained { base, .. } => syntax_to_base_type(base),
-        HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => Some(BaseType::Sequence),
+        TypeSyntax::IntegerEnum(_) => Some(BaseType::Integer32),
+        TypeSyntax::Bits(_) => Some(BaseType::Bits),
+        TypeSyntax::OctetString => Some(BaseType::OctetString),
+        TypeSyntax::ObjectIdentifier => Some(BaseType::ObjectIdentifier),
+        TypeSyntax::Constrained { base, .. } => syntax_to_base_type(base),
+        TypeSyntax::SequenceOf(_) | TypeSyntax::Sequence(_) => Some(BaseType::Sequence),
     }
 }
 
-/// Convert `HirStatus` to Status.
-fn hir_status_to_status(status: HirStatus) -> Status {
+/// Convert `Status` to Status.
+fn hir_status_to_status(status: ModuleStatus) -> Status {
     match status {
-        HirStatus::Current => Status::Current,
-        HirStatus::Deprecated => Status::Deprecated,
-        HirStatus::Obsolete => Status::Obsolete,
+        ModuleStatus::Current => Status::Current,
+        ModuleStatus::Deprecated => Status::Deprecated,
+        ModuleStatus::Obsolete => Status::Obsolete,
     }
 }
 
 /// Convert HIR ranges to `SizeConstraint`.
-fn hir_ranges_to_size_constraint(ranges: &[HirRange]) -> SizeConstraint {
+fn hir_ranges_to_size_constraint(ranges: &[Range]) -> SizeConstraint {
     let size_ranges: Vec<_> = ranges
         .iter()
         .map(|r| {
@@ -436,7 +452,7 @@ fn hir_ranges_to_size_constraint(ranges: &[HirRange]) -> SizeConstraint {
 }
 
 /// Convert HIR ranges to `ValueConstraint`.
-fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
+fn hir_ranges_to_value_constraint(ranges: &[Range]) -> ValueConstraint {
     let value_ranges: Vec<_> = ranges
         .iter()
         .map(|r| {
@@ -451,37 +467,58 @@ fn hir_ranges_to_value_constraint(ranges: &[HirRange]) -> ValueConstraint {
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn range_value_to_u32(v: &HirRangeValue) -> u32 {
+fn range_value_to_u32(v: &RangeValue) -> u32 {
     // Intentional conversion: size constraints in MIBs are typically small values
     match v {
-        HirRangeValue::Signed(n) => *n as u32,
-        HirRangeValue::Unsigned(n) => *n as u32,
-        HirRangeValue::Min => 0,
-        HirRangeValue::Max => u32::MAX,
+        RangeValue::Signed(n) => *n as u32,
+        RangeValue::Unsigned(n) => *n as u32,
+        RangeValue::Min => 0,
+        RangeValue::Max => u32::MAX,
     }
 }
 
-fn range_value_to_bound(v: &HirRangeValue) -> RangeBound {
+fn range_value_to_bound(v: &RangeValue) -> RangeBound {
     match v {
-        HirRangeValue::Signed(n) => RangeBound::Signed(*n),
-        HirRangeValue::Unsigned(n) => RangeBound::Unsigned(*n),
+        RangeValue::Signed(n) => RangeBound::Signed(*n),
+        RangeValue::Unsigned(n) => RangeBound::Unsigned(*n),
         // For MIN/MAX, we use signed variants as they're typically used in signed integer contexts
         // The actual interpretation depends on the type (Integer32 vs Counter64)
-        HirRangeValue::Min => RangeBound::Signed(i64::MIN),
-        HirRangeValue::Max => RangeBound::Unsigned(u64::MAX),
+        RangeValue::Min => RangeBound::Signed(i64::MIN),
+        RangeValue::Max => RangeBound::Unsigned(u64::MAX),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{HirModule, HirTypeDef, NamedBit, NamedNumber, Symbol};
+    use crate::module::{Import, Module, TypeDef, NamedBit, NamedNumber, Symbol, Status as ModuleStatus};
     use crate::lexer::Span;
+    use crate::resolver::phases::imports::resolve_imports;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
 
-    fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    fn make_test_module(name: &str, defs: Vec<Definition>) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
+        module.definitions = defs;
+        module
+    }
+
+    fn make_test_module_with_imports(
+        name: &str,
+        imports: Vec<(&str, &str)>,
+        defs: Vec<Definition>,
+    ) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
+        module.imports = imports
+            .into_iter()
+            .map(|(from_mod, sym)| {
+                Import::new(
+                    Symbol::from_name(from_mod),
+                    Symbol::from_name(sym),
+                    Span::SYNTHETIC,
+                )
+            })
+            .collect();
         module.definitions = defs;
         module
     }
@@ -503,24 +540,26 @@ mod tests {
 
     #[test]
     fn test_user_type_creation() {
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: Some("Test type".into()),
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         assert!(ctx.lookup_type("MyString").is_some());
@@ -530,24 +569,26 @@ mod tests {
     fn test_type_inheritance_parent_pointer() {
         // MyString ::= DisplayString
         // DisplayString is a built-in TC based on OCTET STRING
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: Some("Test type".into()),
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         // Check parent pointer is set
@@ -565,24 +606,26 @@ mod tests {
     fn test_type_inheritance_base_type() {
         // MyString ::= DisplayString
         // DisplayString is based on OCTET STRING, so MyString should have OctetString base
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: Some("Test type".into()),
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
@@ -599,24 +642,26 @@ mod tests {
     #[test]
     fn test_type_chain() {
         // MyString ::= DisplayString (which is based on OCTET STRING)
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");
@@ -637,38 +682,40 @@ mod tests {
     #[test]
     fn test_multi_level_inheritance() {
         // Create: MyString2 ::= MyString ::= DisplayString
-        let typedef1 = HirTypeDef {
+        let typedef1 = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: Some("255a".into()),
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let typedef2 = HirTypeDef {
+        let typedef2 = TypeDef {
             name: Symbol::from_name("MyString2"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("MyString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("MyString")),
             display_hint: None, // No hint - should inherit from MyString
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
+            vec![("SNMPv2-TC", "DisplayString")],
             vec![
-                HirDefinition::TypeDef(typedef1),
-                HirDefinition::TypeDef(typedef2),
+                Definition::TypeDef(typedef1),
+                Definition::TypeDef(typedef2),
             ],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         let my_string2_id = ctx
@@ -705,11 +752,11 @@ mod tests {
     #[test]
     fn test_sequence_base_type() {
         // SEQUENCE types should have BaseType::Sequence
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("IfEntry"),
-            syntax: HirTypeSyntax::Sequence(vec![]),
+            syntax: TypeSyntax::Sequence(vec![]),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: false,
@@ -718,7 +765,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -742,11 +789,11 @@ mod tests {
     #[test]
     fn test_octet_string_syntax_parent_linking() {
         // PhysAddress-like TC: SYNTAX OCTET STRING (no constraint)
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("TestPhysAddress"),
-            syntax: HirTypeSyntax::OctetString,
+            syntax: TypeSyntax::OctetString,
             display_hint: Some("1x:".into()),
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
@@ -755,7 +802,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -782,17 +829,17 @@ mod tests {
     fn test_constrained_octet_string_parent_linking() {
         use alloc::boxed::Box;
         // DisplayString-like TC: SYNTAX OCTET STRING (SIZE (0..255))
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("TestDisplayString"),
-            syntax: HirTypeSyntax::Constrained {
-                base: Box::new(HirTypeSyntax::OctetString),
-                constraint: HirConstraint::Size(vec![HirRange {
-                    min: HirRangeValue::Unsigned(0),
-                    max: Some(HirRangeValue::Unsigned(255)),
+            syntax: TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::OctetString),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(255)),
                 }]),
             },
             display_hint: Some("255a".into()),
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
@@ -801,7 +848,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -827,11 +874,11 @@ mod tests {
     #[test]
     fn test_object_identifier_syntax_parent_linking() {
         // AutonomousType-like TC: SYNTAX OBJECT IDENTIFIER
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("TestAutonomousType"),
-            syntax: HirTypeSyntax::ObjectIdentifier,
+            syntax: TypeSyntax::ObjectIdentifier,
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
@@ -840,7 +887,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -866,14 +913,14 @@ mod tests {
     #[test]
     fn test_integer_enum_syntax_parent_linking() {
         // TruthValue-like TC: SYNTAX INTEGER { true(1), false(2) }
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("TestTruthValue"),
-            syntax: HirTypeSyntax::IntegerEnum(vec![
+            syntax: TypeSyntax::IntegerEnum(vec![
                 NamedNumber::new(Symbol::from_name("true"), 1),
                 NamedNumber::new(Symbol::from_name("false"), 2),
             ]),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
@@ -882,7 +929,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -908,14 +955,14 @@ mod tests {
     #[test]
     fn test_bits_syntax_parent_linking() {
         // BITS-based type: SYNTAX BITS { flag1(0), flag2(1) }
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("TestBitsType"),
-            syntax: HirTypeSyntax::Bits(vec![
+            syntax: TypeSyntax::Bits(vec![
                 NamedBit::new(Symbol::from_name("flag1"), 0),
                 NamedBit::new(Symbol::from_name("flag2"), 1),
             ]),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
@@ -924,7 +971,7 @@ mod tests {
 
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -1009,24 +1056,26 @@ mod tests {
     #[test]
     fn test_full_type_chain_includes_primitive() {
         // MyString -> DisplayString -> OCTET STRING
-        let typedef = HirTypeDef {
+        let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
             display_hint: None,
-            status: HirStatus::Current,
+            status: ModuleStatus::Current,
             description: None,
             reference: None,
             is_textual_convention: true,
             span: Span::new(0, 0),
         };
 
-        let modules = vec![make_test_module(
+        let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
-            vec![HirDefinition::TypeDef(typedef)],
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![Definition::TypeDef(typedef)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
         register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
         resolve_types(&mut ctx);
 
         let my_string_id = ctx.lookup_type("MyString").expect("MyString should exist");

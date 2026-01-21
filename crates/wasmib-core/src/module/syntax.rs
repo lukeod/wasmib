@@ -1,11 +1,11 @@
-//! HIR type syntax and OID types.
+//! Type syntax and OID types.
 
 use super::types::Symbol;
 use crate::lexer::Span;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-// === Named types for tuple-based HIR types ===
+// === Named types for tuple-based types ===
 //
 // These provide clearer field names than raw tuples like `(Symbol, i64)`.
 
@@ -55,13 +55,13 @@ pub struct SequenceField {
     /// The name of the field (e.g., "ifIndex", "ifDescr").
     pub name: Symbol,
     /// The type of the field.
-    pub syntax: HirTypeSyntax,
+    pub syntax: TypeSyntax,
 }
 
 impl SequenceField {
     /// Create a new sequence field.
     #[must_use]
-    pub fn new(name: Symbol, syntax: HirTypeSyntax) -> Self {
+    pub fn new(name: Symbol, syntax: TypeSyntax) -> Self {
         Self { name, syntax }
     }
 }
@@ -70,24 +70,24 @@ impl SequenceField {
 ///
 /// Keeps OID components as symbols; resolution happens in the resolver.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HirOidAssignment {
+pub struct OidAssignment {
     /// OID components.
-    pub components: Vec<HirOidComponent>,
+    pub components: Vec<OidComponent>,
     /// Source span for diagnostics.
     pub span: Span,
 }
 
-impl HirOidAssignment {
+impl OidAssignment {
     /// Create a new OID assignment.
     #[must_use]
-    pub fn new(components: Vec<HirOidComponent>, span: Span) -> Self {
+    pub fn new(components: Vec<OidComponent>, span: Span) -> Self {
         Self { components, span }
     }
 }
 
 /// A component of an OID assignment.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HirOidComponent {
+pub enum OidComponent {
     /// Just a name reference: `internet`, `ifEntry`
     Name(Symbol),
     /// Just a number: `1`, `31`
@@ -117,7 +117,7 @@ pub enum HirOidComponent {
     },
 }
 
-impl HirOidComponent {
+impl OidComponent {
     /// Get the numeric value if this component has one.
     #[must_use]
     pub fn number(&self) -> Option<u32> {
@@ -153,11 +153,11 @@ impl HirOidComponent {
     }
 }
 
-/// HIR type syntax.
+/// Type syntax.
 ///
-/// Normalized type representation with symbol references (not resolved).
+/// Type representation with symbol references (not resolved).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HirTypeSyntax {
+pub enum TypeSyntax {
     /// Reference to another type: `Integer32`, `DisplayString`
     TypeRef(Symbol),
 
@@ -170,9 +170,9 @@ pub enum HirTypeSyntax {
     /// Constrained type: `OCTET STRING (SIZE (0..255))`
     Constrained {
         /// Base type.
-        base: Box<HirTypeSyntax>,
+        base: Box<TypeSyntax>,
         /// Constraint.
-        constraint: HirConstraint,
+        constraint: Constraint,
     },
 
     /// SEQUENCE OF `entry_type` (for tables): `SEQUENCE OF IfEntry`
@@ -188,7 +188,7 @@ pub enum HirTypeSyntax {
     ObjectIdentifier,
 }
 
-impl HirTypeSyntax {
+impl TypeSyntax {
     /// Get the base type name if this is a simple type reference.
     #[must_use]
     pub fn type_name(&self) -> Option<&Symbol> {
@@ -213,28 +213,28 @@ impl HirTypeSyntax {
 
 /// Type constraint.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HirConstraint {
+pub enum Constraint {
     /// SIZE constraint: `(SIZE (0..255))`
-    Size(Vec<HirRange>),
+    Size(Vec<Range>),
     /// Value range constraint: `(0..65535)`
-    Range(Vec<HirRange>),
+    Range(Vec<Range>),
 }
 
 /// A range in a constraint.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HirRange {
+pub struct Range {
     /// Minimum value.
-    pub min: HirRangeValue,
+    pub min: RangeValue,
     /// Maximum value (None for single value).
-    pub max: Option<HirRangeValue>,
+    pub max: Option<RangeValue>,
 }
 
-impl HirRange {
+impl Range {
     /// Create a single-value range with a signed value.
     #[must_use]
     pub fn single_signed(value: i64) -> Self {
         Self {
-            min: HirRangeValue::Signed(value),
+            min: RangeValue::Signed(value),
             max: None,
         }
     }
@@ -243,7 +243,7 @@ impl HirRange {
     #[must_use]
     pub fn single_unsigned(value: u64) -> Self {
         Self {
-            min: HirRangeValue::Unsigned(value),
+            min: RangeValue::Unsigned(value),
             max: None,
         }
     }
@@ -252,8 +252,8 @@ impl HirRange {
     #[must_use]
     pub fn range_signed(min: i64, max: i64) -> Self {
         Self {
-            min: HirRangeValue::Signed(min),
-            max: Some(HirRangeValue::Signed(max)),
+            min: RangeValue::Signed(min),
+            max: Some(RangeValue::Signed(max)),
         }
     }
 
@@ -261,15 +261,15 @@ impl HirRange {
     #[must_use]
     pub fn range_unsigned(min: u64, max: u64) -> Self {
         Self {
-            min: HirRangeValue::Unsigned(min),
-            max: Some(HirRangeValue::Unsigned(max)),
+            min: RangeValue::Unsigned(min),
+            max: Some(RangeValue::Unsigned(max)),
         }
     }
 }
 
 /// A value in a range constraint.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HirRangeValue {
+pub enum RangeValue {
     /// Signed numeric value (for Integer32 ranges, can be negative).
     Signed(i64),
     /// Unsigned numeric value (for Counter64 ranges, large positive values).
@@ -287,7 +287,7 @@ pub enum HirRangeValue {
 /// This is the normalized representation of DEFVAL clause content.
 /// Symbol references are kept unresolved; resolution happens in the semantic phase.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HirDefVal {
+pub enum DefVal {
     /// Integer value: `DEFVAL { 0 }`, `DEFVAL { -1 }`
     Integer(i64),
 
@@ -318,6 +318,6 @@ pub enum HirDefVal {
     OidRef(Symbol),
 
     /// OID value (explicit components): `DEFVAL { { iso 3 6 1 } }`
-    /// Kept as HIR OID components for resolution.
-    OidValue(Vec<HirOidComponent>),
+    /// Kept as OID components for resolution.
+    OidValue(Vec<OidComponent>),
 }

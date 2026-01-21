@@ -1,7 +1,7 @@
 //! Integration tests with real MIB files.
 
-use wasmib_core::ast::Definition;
-use wasmib_core::hir::{self, HirDefinition, SmiLanguage};
+use wasmib_core::ast::Definition as AstDefinition;
+use wasmib_core::module::{self, Definition, SmiLanguage};
 use wasmib_core::lexer::{Lexer, Severity, TokenKind};
 use wasmib_core::parser::Parser;
 
@@ -116,12 +116,12 @@ fn test_parse_if_mib() {
 
     for def in &module.body {
         match def {
-            Definition::ObjectType(_) => object_types += 1,
-            Definition::TextualConvention(_) => textual_conventions += 1,
-            Definition::ValueAssignment(_) => value_assignments += 1,
-            Definition::ModuleIdentity(_) => module_identities += 1,
-            Definition::ObjectGroup(_) => object_groups += 1,
-            Definition::ModuleCompliance(_) => module_compliances += 1,
+            AstDefinition::ObjectType(_) => object_types += 1,
+            AstDefinition::TextualConvention(_) => textual_conventions += 1,
+            AstDefinition::ValueAssignment(_) => value_assignments += 1,
+            AstDefinition::ModuleIdentity(_) => module_identities += 1,
+            AstDefinition::ObjectGroup(_) => object_groups += 1,
+            AstDefinition::ModuleCompliance(_) => module_compliances += 1,
             _ => {}
         }
     }
@@ -239,7 +239,7 @@ fn test_lower_if_mib() {
     let ast_module = parser.parse_module();
 
     // Lower to HIR
-    let hir_module = hir::lower_module(&ast_module);
+    let hir_module = module::lower_module(&ast_module);
 
     // Check module name
     assert_eq!(hir_module.name.name, "IF-MIB");
@@ -275,12 +275,12 @@ fn test_lower_if_mib() {
 
     for def in &hir_module.definitions {
         match def {
-            HirDefinition::ObjectType(_) => object_types += 1,
-            HirDefinition::TypeDef(_) => type_defs += 1,
-            HirDefinition::ValueAssignment(_) => value_assignments += 1,
-            HirDefinition::Notification(_) => notifications += 1,
-            HirDefinition::ModuleIdentity(_) => module_identities += 1,
-            HirDefinition::ObjectGroup(_) => object_groups += 1,
+            Definition::ObjectType(_) => object_types += 1,
+            Definition::TypeDef(_) => type_defs += 1,
+            Definition::ValueAssignment(_) => value_assignments += 1,
+            Definition::Notification(_) => notifications += 1,
+            Definition::ModuleIdentity(_) => module_identities += 1,
+            Definition::ObjectGroup(_) => object_groups += 1,
             _ => {}
         }
     }
@@ -320,67 +320,6 @@ fn test_lower_if_mib() {
         errors.len()
     );
 }
-
-/// Test that `SMIv1` imports get normalized to `SMIv2`.
-#[test]
-fn test_hir_import_normalization() {
-    // Create a minimal SMIv1-style MIB that imports Counter from RFC1155-SMI
-    let source = br"
-TEST-MIB DEFINITIONS ::= BEGIN
-
-IMPORTS
-    Counter
-        FROM RFC1155-SMI
-    DisplayString
-        FROM RFC1213-MIB;
-
-END
-";
-
-    let parser = Parser::new(source);
-    let ast_module = parser.parse_module();
-    let hir_module = hir::lower_module(&ast_module);
-
-    // Should be detected as SMIv1 (no SNMPv2 imports)
-    assert_eq!(
-        hir_module.language,
-        SmiLanguage::Smiv1,
-        "Should be detected as SMIv1"
-    );
-
-    // Counter import should be normalized
-    let counter_import = hir_module
-        .imports
-        .iter()
-        .find(|i| i.symbol.name == "Counter32");
-    assert!(
-        counter_import.is_some(),
-        "Counter should be normalized to Counter32"
-    );
-    if let Some(imp) = counter_import {
-        assert_eq!(
-            imp.module.name, "SNMPv2-SMI",
-            "Counter32 should come from SNMPv2-SMI"
-        );
-    }
-
-    // DisplayString import should be normalized
-    let ds_import = hir_module
-        .imports
-        .iter()
-        .find(|i| i.symbol.name == "DisplayString");
-    assert!(
-        ds_import.is_some(),
-        "DisplayString import should be present"
-    );
-    if let Some(imp) = ds_import {
-        assert_eq!(
-            imp.module.name, "SNMPv2-TC",
-            "DisplayString should come from SNMPv2-TC"
-        );
-    }
-}
-
 /// Test HIR lowering of multiple standard MIBs.
 #[test]
 fn test_lower_standard_mibs() {
@@ -412,7 +351,7 @@ fn test_lower_standard_mibs() {
     for (name, content) in mibs {
         let parser = Parser::new(content);
         let ast_module = parser.parse_module();
-        let hir_module = hir::lower_module(&ast_module);
+        let hir_module = module::lower_module(&ast_module);
 
         println!(
             "{}: {} imports, {} defs, language={}",
@@ -445,7 +384,7 @@ fn test_resolver_snmpv2_mib() {
     let source = include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB");
     let parser = Parser::new(source);
     let ast_module = parser.parse_module();
-    let hir_module = hir::lower_module(&ast_module);
+    let hir_module = module::lower_module(&ast_module);
 
     let resolver = Resolver::new();
     let result = resolver.resolve(vec![hir_module]);
@@ -463,8 +402,8 @@ fn test_resolver_snmpv2_mib() {
         println!("  Diag: {}", diag.message);
     }
 
-    // Should have registered the module (2 base modules + 1 user module)
-    assert_eq!(result.model.module_count(), 3);
+    // Should have registered the module (8 base modules + 1 user module)
+    assert_eq!(result.model.module_count(), 9);
     assert!(result.model.get_module_by_name("SNMPv2-MIB").is_some());
 
     // Should have resolved some nodes (built-ins + module content)
@@ -511,7 +450,7 @@ fn test_resolver_tier1_builtin_only() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = hir::lower_module(&ast_module);
+        let hir_module = module::lower_module(&ast_module);
         println!("{}: {} defs", name, hir_module.definitions.len());
         hir_modules.push(hir_module);
     }
@@ -551,8 +490,8 @@ fn test_resolver_tier1_builtin_only() {
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
-    // Should have all 3 user modules + 2 base modules
-    assert_eq!(result.model.module_count(), 5);
+    // Should have all 3 user modules + 8 base modules
+    assert_eq!(result.model.module_count(), 11);
 
     // Should have many nodes
     assert!(
@@ -599,7 +538,7 @@ fn test_resolver_tier2_basic_deps() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = hir::lower_module(&ast_module);
+        let hir_module = module::lower_module(&ast_module);
         println!(
             "{}: {} defs, {} imports",
             name,
@@ -628,8 +567,8 @@ fn test_resolver_tier2_basic_deps() {
         println!("  Unresolved import: {from}::{sym}");
     }
 
-    // Should have all 4 user modules + 2 base modules
-    assert_eq!(result.model.module_count(), 6);
+    // Should have all 4 user modules + 8 base modules
+    assert_eq!(result.model.module_count(), 12);
 
     // Should have many nodes including IF-MIB content
     assert!(
@@ -686,7 +625,7 @@ fn test_resolver_tier3_complex() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = hir::lower_module(&ast_module);
+        let hir_module = module::lower_module(&ast_module);
         println!("{}: {} defs", name, hir_module.definitions.len());
         hir_modules.push(hir_module);
     }
@@ -715,8 +654,8 @@ fn test_resolver_tier3_complex() {
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
-    // Should have all 7 user modules + 2 base modules
-    assert_eq!(result.model.module_count(), 9);
+    // Should have all 7 user modules + 8 base modules
+    assert_eq!(result.model.module_count(), 15);
 
     // Should have many nodes
     assert!(
@@ -787,7 +726,7 @@ fn test_oid_values_match_libsmi() {
     for source in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        hir_modules.push(hir::lower_module(&ast_module));
+        hir_modules.push(module::lower_module(&ast_module));
     }
 
     let resolver = Resolver::new();

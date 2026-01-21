@@ -6,7 +6,7 @@
 //! Key design: imports from a given source module name are resolved ATOMICALLY.
 //! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
-use crate::hir::HirDefinition;
+use crate::module::Definition;
 use crate::lexer::Span;
 use crate::model::{ModuleId, UnresolvedImportReason};
 use crate::resolver::context::ResolverContext;
@@ -153,7 +153,7 @@ fn extract_last_updated(ctx: &ResolverContext, module_id: ModuleId) -> Option<St
     let hir_module = ctx.hir_modules.get(*hir_idx)?;
 
     for def in &hir_module.definitions {
-        if let HirDefinition::ModuleIdentity(mi) = def
+        if let Definition::ModuleIdentity(mi) = def
             && !mi.last_updated.is_empty()
         {
             return Some(normalize_timestamp(&mi.last_updated));
@@ -313,17 +313,17 @@ fn is_macro_symbol(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{HirImport, HirModule, Symbol};
+    use crate::module::{Import, Module, Symbol};
     use crate::lexer::Span;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
 
-    fn make_test_module_with_imports(name: &str, imports: Vec<(&str, &str)>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    fn make_test_module_with_imports(name: &str, imports: Vec<(&str, &str)>) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.imports = imports
             .into_iter()
             .map(|(m, s)| {
-                HirImport::new(Symbol::from_name(m), Symbol::from_name(s), Span::new(0, 0))
+                Import::new(Symbol::from_name(m), Symbol::from_name(s), Span::new(0, 0))
             })
             .collect();
         module
@@ -377,14 +377,14 @@ mod tests {
     #[test]
     fn test_cross_module_import() {
         // Create two modules where one imports from the other
-        let mut dep_module = HirModule::new(Symbol::from_name("DEP-MIB"), Span::new(0, 0));
+        let mut dep_module = Module::new(Symbol::from_name("DEP-MIB"), Span::new(0, 0));
         dep_module
             .definitions
-            .push(crate::hir::HirDefinition::ValueAssignment(
-                crate::hir::HirValueAssignment {
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
                     name: Symbol::from_name("depNode"),
-                    oid: crate::hir::HirOidAssignment::new(
-                        vec![crate::hir::HirOidComponent::Name(Symbol::from_name(
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
                             "enterprises",
                         ))],
                         Span::new(0, 0),

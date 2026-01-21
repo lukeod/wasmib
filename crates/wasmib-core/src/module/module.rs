@@ -1,29 +1,29 @@
-//! HIR module and import types.
+//! Module and import types.
 
-use super::definition::HirDefinition;
+use super::definition::Definition;
 use super::types::{SmiLanguage, Symbol};
 use crate::lexer::{Diagnostic, Span};
 use alloc::vec::Vec;
 
 /// A normalized MIB module.
 #[derive(Clone, Debug)]
-pub struct HirModule {
+pub struct Module {
     /// Module name.
     pub name: Symbol,
     /// Detected SMI language.
     pub language: SmiLanguage,
-    /// Normalized imports.
-    pub imports: Vec<HirImport>,
-    /// Normalized definitions.
-    pub definitions: Vec<HirDefinition>,
+    /// Imports.
+    pub imports: Vec<Import>,
+    /// Definitions.
+    pub definitions: Vec<Definition>,
     /// Source span for diagnostics.
     pub span: Span,
     /// Lowering diagnostics.
     pub diagnostics: Vec<Diagnostic>,
 }
 
-impl HirModule {
-    /// Create a new HIR module.
+impl Module {
+    /// Create a new module.
     #[must_use]
     pub fn new(name: Symbol, span: Span) -> Self {
         Self {
@@ -50,21 +50,21 @@ impl HirModule {
     }
 }
 
-/// A normalized import.
+/// An import.
 ///
-/// Each import is flattened to individual symbols with normalized module/symbol names.
+/// Each import is flattened to individual symbols.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HirImport {
-    /// Normalized module name (e.g., `SNMPv2-SMI` not `RFC1155-SMI`).
+pub struct Import {
+    /// Module name.
     pub module: Symbol,
-    /// Normalized symbol name (e.g., `Counter32` not `Counter`).
+    /// Symbol name.
     pub symbol: Symbol,
     /// Original source span.
     pub span: Span,
 }
 
-impl HirImport {
-    /// Create a new normalized import.
+impl Import {
+    /// Create a new import.
     #[must_use]
     pub fn new(module: Symbol, symbol: Symbol, span: Span) -> Self {
         Self {

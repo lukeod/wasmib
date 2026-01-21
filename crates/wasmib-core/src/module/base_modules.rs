@@ -1,19 +1,19 @@
 //! Synthetic base modules for SMI definitions.
 //!
-//! This module generates synthetic [`HirModule`]s for the SMI base modules
+//! This module generates synthetic [`Module`]s for the SMI base modules
 //! (SNMPv2-SMI, SNMPv2-TC, SNMPv2-CONF). These contain the built-in types,
 //! OID roots, and textual conventions that the resolver needs.
 //!
 //! # Design
 //!
 //! Rather than hard-coding built-in recognition throughout the resolver,
-//! we generate actual HIR modules that get processed like any user module.
+//! we generate actual modules that get processed like any user module.
 //! This simplifies the resolver by eliminating special-case handling.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! use wasmib_core::hir::base_modules::create_base_modules;
+//! use wasmib_core::module::base_modules::create_base_modules;
 //!
 //! let base_modules = create_base_modules();
 //! let mut all_modules = base_modules;
@@ -29,11 +29,10 @@ use crate::lexer::Span;
 
 use alloc::boxed::Box;
 
-use super::{
-    HirConstraint, HirDefinition, HirModule, HirOidAssignment, HirOidComponent, HirRange,
-    HirRangeValue, HirStatus, HirTypeDef, HirTypeSyntax, HirValueAssignment, NamedNumber,
-    SmiLanguage, Symbol,
-};
+use super::definition::{Definition, TypeDef, ValueAssignment};
+use super::module::Module;
+use super::syntax::{Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax};
+use super::types::{SmiLanguage, Status, Symbol};
 
 /// SMI base modules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -125,13 +124,23 @@ pub fn is_base_module(name: &str) -> bool {
     BaseModule::from_name(name).is_some()
 }
 
-/// Create synthetic HIR modules for all base modules.
+/// Create synthetic modules for all base modules.
 ///
-/// Returns modules in order: SNMPv2-SMI, SNMPv2-TC.
+/// Returns modules in order: SNMPv2-SMI, SNMPv2-TC, SNMPv2-CONF,
+/// RFC1155-SMI, RFC1065-SMI, RFC1213-MIB, RFC-1212, RFC-1215.
 /// These should be prepended to the user module list before resolution.
 #[must_use]
-pub fn create_base_modules() -> Vec<HirModule> {
-    vec![create_snmpv2_smi(), create_snmpv2_tc()]
+pub fn create_base_modules() -> Vec<Module> {
+    vec![
+        create_snmpv2_smi(),
+        create_snmpv2_tc(),
+        create_snmpv2_conf(),
+        create_rfc1155_smi(),
+        create_rfc1065_smi(),
+        create_rfc1213_mib(),
+        create_rfc1212(),
+        create_rfc1215(),
+    ]
 }
 
 /// Create the synthetic SNMPv2-SMI module.
@@ -139,8 +148,8 @@ pub fn create_base_modules() -> Vec<HirModule> {
 /// Contains:
 /// - OID root definitions (iso, internet, enterprises, etc.)
 /// - Base type definitions (Integer32, Counter32, etc.)
-fn create_snmpv2_smi() -> HirModule {
-    let mut module = HirModule::new(Symbol::from_name("SNMPv2-SMI"), Span::SYNTHETIC);
+fn create_snmpv2_smi() -> Module {
+    let mut module = Module::new(Symbol::from_name("SNMPv2-SMI"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv2;
 
     // Add OID root definitions
@@ -155,12 +164,18 @@ fn create_snmpv2_smi() -> HirModule {
 /// Create the synthetic SNMPv2-TC module.
 ///
 /// Contains textual convention definitions (`DisplayString`, `TruthValue`, etc.)
-fn create_snmpv2_tc() -> HirModule {
-    let mut module = HirModule::new(Symbol::from_name("SNMPv2-TC"), Span::SYNTHETIC);
+fn create_snmpv2_tc() -> Module {
+    use super::module::Import;
+
+    let mut module = Module::new(Symbol::from_name("SNMPv2-TC"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv2;
 
     // Add imports from SNMPv2-SMI (for base types used by TCs)
-    // Note: The resolver will handle these through the normal import path
+    module.imports = vec![Import::new(
+        Symbol::from_name("SNMPv2-SMI"),
+        Symbol::from_name("TimeTicks"),
+        Span::SYNTHETIC,
+    )];
 
     // Add textual convention definitions
     module.definitions.extend(create_tc_definitions());
@@ -168,151 +183,386 @@ fn create_snmpv2_tc() -> HirModule {
     module
 }
 
-/// Create OID root definitions as `ValueAssignments`.
-#[allow(clippy::too_many_lines)] // Data-driven definition list
-fn create_oid_definitions() -> Vec<HirDefinition> {
+/// Create the synthetic SNMPv2-CONF module.
+///
+/// Contains only MACRO definitions (OBJECT-GROUP, NOTIFICATION-GROUP, etc.)
+/// No runtime content - just an empty module for import resolution.
+fn create_snmpv2_conf() -> Module {
+    let mut module = Module::new(Symbol::from_name("SNMPv2-CONF"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv2;
+    // No definitions - MACROs only
+    module
+}
+
+/// Create the synthetic RFC1155-SMI module.
+///
+/// SMIv1 base module containing:
+/// - Types: Counter, Gauge, NetworkAddress, IpAddress, TimeTicks, Opaque
+/// - OID roots: internet, directory, mgmt, experimental, private, enterprises
+fn create_rfc1155_smi() -> Module {
+    let mut module = Module::new(Symbol::from_name("RFC1155-SMI"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv1;
+
+    // Add SMIv1 type definitions
+    module.definitions.extend(create_smiv1_type_definitions());
+
+    // Add OID root definitions (subset relevant to SMIv1)
+    module.definitions.extend(create_smiv1_oid_definitions());
+
+    module
+}
+
+/// Create the synthetic RFC1065-SMI module.
+///
+/// Identical to RFC1155-SMI - the original SMIv1 base (predates RFC 1155).
+fn create_rfc1065_smi() -> Module {
+    let mut module = Module::new(Symbol::from_name("RFC1065-SMI"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv1;
+
+    // Same content as RFC1155-SMI
+    module.definitions.extend(create_smiv1_type_definitions());
+    module.definitions.extend(create_smiv1_oid_definitions());
+
+    module
+}
+
+/// Create the synthetic RFC1213-MIB module.
+///
+/// Legacy module containing:
+/// - Types: DisplayString
+/// - OIDs: mib-2
+fn create_rfc1213_mib() -> Module {
+    let mut module = Module::new(Symbol::from_name("RFC1213-MIB"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv1;
+
+    // Add DisplayString type definition
+    module.definitions.push(make_tc(
+        "DisplayString",
+        Some("255a"),
+        constrained_octet_range(0, 255),
+    ));
+
+    // Add mib-2 OID definition
+    module.definitions.push(make_oid_value(
+        "mib-2",
+        vec![
+            OidComponent::Name(Symbol::from_name("mgmt")),
+            OidComponent::Number(1),
+        ],
+    ));
+
+    // Add mgmt for the mib-2 reference to work
+    module.definitions.push(make_oid_value(
+        "mgmt",
+        vec![
+            OidComponent::Name(Symbol::from_name("internet")),
+            OidComponent::Number(2),
+        ],
+    ));
+
+    // Add internet for the mgmt reference to work
+    module.definitions.push(make_oid_value(
+        "internet",
+        vec![
+            OidComponent::Name(Symbol::from_name("dod")),
+            OidComponent::Number(1),
+        ],
+    ));
+
+    // Add dod for the internet reference to work
+    module.definitions.push(make_oid_value(
+        "dod",
+        vec![
+            OidComponent::Name(Symbol::from_name("org")),
+            OidComponent::Number(6),
+        ],
+    ));
+
+    // Add org for the dod reference to work
+    module.definitions.push(make_oid_value(
+        "org",
+        vec![
+            OidComponent::Name(Symbol::from_name("iso")),
+            OidComponent::Number(3),
+        ],
+    ));
+
+    // Add iso as root
+    module
+        .definitions
+        .push(make_oid_value("iso", vec![OidComponent::Number(1)]));
+
+    module
+}
+
+/// Create the synthetic RFC-1212 module.
+///
+/// Contains only OBJECT-TYPE MACRO definition.
+/// No runtime content - just an empty module for import resolution.
+fn create_rfc1212() -> Module {
+    let mut module = Module::new(Symbol::from_name("RFC-1212"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv1;
+    // No definitions - MACRO only
+    module
+}
+
+/// Create the synthetic RFC-1215 module.
+///
+/// Contains only TRAP-TYPE MACRO definition.
+/// No runtime content - just an empty module for import resolution.
+fn create_rfc1215() -> Module {
+    let mut module = Module::new(Symbol::from_name("RFC-1215"), Span::SYNTHETIC);
+    module.language = SmiLanguage::Smiv1;
+    // No definitions - MACRO only
+    module
+}
+
+/// Create SMIv1 type definitions.
+///
+/// These are the types defined in RFC 1155:
+/// - Counter (0..4294967295)
+/// - Gauge (0..4294967295)
+/// - NetworkAddress (OCTET STRING SIZE (4)) - essentially IpAddress
+/// - IpAddress (OCTET STRING SIZE (4))
+/// - TimeTicks (0..4294967295)
+/// - Opaque (OCTET STRING)
+fn create_smiv1_type_definitions() -> Vec<Definition> {
     vec![
-        // ccitt OBJECT IDENTIFIER ::= { 0 }
-        // ITU-T (formerly CCITT) administered subtree
-        make_oid_value("ccitt", vec![HirOidComponent::Number(0)]),
+        // Counter ::= [APPLICATION 1] IMPLICIT INTEGER (0..4294967295)
+        make_typedef("Counter", constrained_uint_range(u64::from(u32::MAX))),
+        // Gauge ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
+        make_typedef("Gauge", constrained_uint_range(u64::from(u32::MAX))),
+        // NetworkAddress ::= CHOICE { internet IpAddress }
+        // In practice, always IpAddress - we model it as OCTET STRING SIZE (4)
+        make_typedef("NetworkAddress", constrained_octet_fixed(4)),
+        // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
+        make_typedef("IpAddress", constrained_octet_fixed(4)),
+        // TimeTicks ::= [APPLICATION 3] IMPLICIT INTEGER (0..4294967295)
+        make_typedef("TimeTicks", constrained_uint_range(u64::from(u32::MAX))),
+        // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
+        make_typedef("Opaque", TypeSyntax::OctetString),
+    ]
+}
+
+/// Create SMIv1 OID root definitions.
+///
+/// These are the OID roots defined in RFC 1155.
+fn create_smiv1_oid_definitions() -> Vec<Definition> {
+    vec![
         // iso OBJECT IDENTIFIER ::= { 1 }
-        make_oid_value("iso", vec![HirOidComponent::Number(1)]),
-        // joint-iso-ccitt OBJECT IDENTIFIER ::= { 2 }
-        // Jointly administered by ISO and ITU-T
-        make_oid_value("joint-iso-ccitt", vec![HirOidComponent::Number(2)]),
+        make_oid_value("iso", vec![OidComponent::Number(1)]),
         // org OBJECT IDENTIFIER ::= { iso 3 }
         make_oid_value(
             "org",
             vec![
-                HirOidComponent::Name(Symbol::from_name("iso")),
-                HirOidComponent::Number(3),
+                OidComponent::Name(Symbol::from_name("iso")),
+                OidComponent::Number(3),
             ],
         ),
         // dod OBJECT IDENTIFIER ::= { org 6 }
         make_oid_value(
             "dod",
             vec![
-                HirOidComponent::Name(Symbol::from_name("org")),
-                HirOidComponent::Number(6),
+                OidComponent::Name(Symbol::from_name("org")),
+                OidComponent::Number(6),
             ],
         ),
         // internet OBJECT IDENTIFIER ::= { dod 1 }
         make_oid_value(
             "internet",
             vec![
-                HirOidComponent::Name(Symbol::from_name("dod")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("dod")),
+                OidComponent::Number(1),
             ],
         ),
         // directory OBJECT IDENTIFIER ::= { internet 1 }
         make_oid_value(
             "directory",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(1),
             ],
         ),
         // mgmt OBJECT IDENTIFIER ::= { internet 2 }
         make_oid_value(
             "mgmt",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(2),
-            ],
-        ),
-        // mib-2 OBJECT IDENTIFIER ::= { mgmt 1 }
-        make_oid_value(
-            "mib-2",
-            vec![
-                HirOidComponent::Name(Symbol::from_name("mgmt")),
-                HirOidComponent::Number(1),
-            ],
-        ),
-        // transmission OBJECT IDENTIFIER ::= { mib-2 10 }
-        make_oid_value(
-            "transmission",
-            vec![
-                HirOidComponent::Name(Symbol::from_name("mib-2")),
-                HirOidComponent::Number(10),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(2),
             ],
         ),
         // experimental OBJECT IDENTIFIER ::= { internet 3 }
         make_oid_value(
             "experimental",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(3),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(3),
             ],
         ),
         // private OBJECT IDENTIFIER ::= { internet 4 }
         make_oid_value(
             "private",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(4),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(4),
             ],
         ),
         // enterprises OBJECT IDENTIFIER ::= { private 1 }
         make_oid_value(
             "enterprises",
             vec![
-                HirOidComponent::Name(Symbol::from_name("private")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("private")),
+                OidComponent::Number(1),
+            ],
+        ),
+    ]
+}
+
+/// Create OID root definitions as `ValueAssignments`.
+#[allow(clippy::too_many_lines)] // Data-driven definition list
+fn create_oid_definitions() -> Vec<Definition> {
+    vec![
+        // ccitt OBJECT IDENTIFIER ::= { 0 }
+        // ITU-T (formerly CCITT) administered subtree
+        make_oid_value("ccitt", vec![OidComponent::Number(0)]),
+        // iso OBJECT IDENTIFIER ::= { 1 }
+        make_oid_value("iso", vec![OidComponent::Number(1)]),
+        // joint-iso-ccitt OBJECT IDENTIFIER ::= { 2 }
+        // Jointly administered by ISO and ITU-T
+        make_oid_value("joint-iso-ccitt", vec![OidComponent::Number(2)]),
+        // org OBJECT IDENTIFIER ::= { iso 3 }
+        make_oid_value(
+            "org",
+            vec![
+                OidComponent::Name(Symbol::from_name("iso")),
+                OidComponent::Number(3),
+            ],
+        ),
+        // dod OBJECT IDENTIFIER ::= { org 6 }
+        make_oid_value(
+            "dod",
+            vec![
+                OidComponent::Name(Symbol::from_name("org")),
+                OidComponent::Number(6),
+            ],
+        ),
+        // internet OBJECT IDENTIFIER ::= { dod 1 }
+        make_oid_value(
+            "internet",
+            vec![
+                OidComponent::Name(Symbol::from_name("dod")),
+                OidComponent::Number(1),
+            ],
+        ),
+        // directory OBJECT IDENTIFIER ::= { internet 1 }
+        make_oid_value(
+            "directory",
+            vec![
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(1),
+            ],
+        ),
+        // mgmt OBJECT IDENTIFIER ::= { internet 2 }
+        make_oid_value(
+            "mgmt",
+            vec![
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(2),
+            ],
+        ),
+        // mib-2 OBJECT IDENTIFIER ::= { mgmt 1 }
+        make_oid_value(
+            "mib-2",
+            vec![
+                OidComponent::Name(Symbol::from_name("mgmt")),
+                OidComponent::Number(1),
+            ],
+        ),
+        // transmission OBJECT IDENTIFIER ::= { mib-2 10 }
+        make_oid_value(
+            "transmission",
+            vec![
+                OidComponent::Name(Symbol::from_name("mib-2")),
+                OidComponent::Number(10),
+            ],
+        ),
+        // experimental OBJECT IDENTIFIER ::= { internet 3 }
+        make_oid_value(
+            "experimental",
+            vec![
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(3),
+            ],
+        ),
+        // private OBJECT IDENTIFIER ::= { internet 4 }
+        make_oid_value(
+            "private",
+            vec![
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(4),
+            ],
+        ),
+        // enterprises OBJECT IDENTIFIER ::= { private 1 }
+        make_oid_value(
+            "enterprises",
+            vec![
+                OidComponent::Name(Symbol::from_name("private")),
+                OidComponent::Number(1),
             ],
         ),
         // security OBJECT IDENTIFIER ::= { internet 5 }
         make_oid_value(
             "security",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(5),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(5),
             ],
         ),
         // snmpV2 OBJECT IDENTIFIER ::= { internet 6 }
         make_oid_value(
             "snmpV2",
             vec![
-                HirOidComponent::Name(Symbol::from_name("internet")),
-                HirOidComponent::Number(6),
+                OidComponent::Name(Symbol::from_name("internet")),
+                OidComponent::Number(6),
             ],
         ),
         // snmpDomains OBJECT IDENTIFIER ::= { snmpV2 1 }
         make_oid_value(
             "snmpDomains",
             vec![
-                HirOidComponent::Name(Symbol::from_name("snmpV2")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("snmpV2")),
+                OidComponent::Number(1),
             ],
         ),
         // snmpProxys OBJECT IDENTIFIER ::= { snmpV2 2 }
         make_oid_value(
             "snmpProxys",
             vec![
-                HirOidComponent::Name(Symbol::from_name("snmpV2")),
-                HirOidComponent::Number(2),
+                OidComponent::Name(Symbol::from_name("snmpV2")),
+                OidComponent::Number(2),
             ],
         ),
         // snmpModules OBJECT IDENTIFIER ::= { snmpV2 3 }
         make_oid_value(
             "snmpModules",
             vec![
-                HirOidComponent::Name(Symbol::from_name("snmpV2")),
-                HirOidComponent::Number(3),
+                OidComponent::Name(Symbol::from_name("snmpV2")),
+                OidComponent::Number(3),
             ],
         ),
         // zeroDotZero OBJECT IDENTIFIER ::= { 0 0 }
         make_oid_value(
             "zeroDotZero",
-            vec![HirOidComponent::Number(0), HirOidComponent::Number(0)],
+            vec![OidComponent::Number(0), OidComponent::Number(0)],
         ),
     ]
 }
 
 /// Create a `ValueAssignment` for an OID definition.
-fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition {
-    HirDefinition::ValueAssignment(HirValueAssignment {
+fn make_oid_value(name: &str, components: Vec<OidComponent>) -> Definition {
+    Definition::ValueAssignment(ValueAssignment {
         name: Symbol::from_name(name),
-        oid: HirOidAssignment::new(components, Span::SYNTHETIC),
+        oid: OidAssignment::new(components, Span::SYNTHETIC),
         span: Span::SYNTHETIC,
     })
 }
@@ -322,56 +572,56 @@ fn make_oid_value(name: &str, components: Vec<HirOidComponent>) -> HirDefinition
 // ============================================================================
 
 /// Create a constrained INTEGER type with a value range.
-fn constrained_int_range(min: HirRangeValue, max: Option<HirRangeValue>) -> HirTypeSyntax {
-    HirTypeSyntax::Constrained {
-        base: Box::new(HirTypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
-        constraint: HirConstraint::Range(vec![HirRange { min, max }]),
+fn constrained_int_range(min: RangeValue, max: Option<RangeValue>) -> TypeSyntax {
+    TypeSyntax::Constrained {
+        base: Box::new(TypeSyntax::TypeRef(Symbol::from_name("INTEGER"))),
+        constraint: Constraint::Range(vec![Range { min, max }]),
     }
 }
 
 /// Create a constrained OCTET STRING type with size constraints.
-fn constrained_octet_size(ranges: Vec<HirRange>) -> HirTypeSyntax {
-    HirTypeSyntax::Constrained {
-        base: Box::new(HirTypeSyntax::OctetString),
-        constraint: HirConstraint::Size(ranges),
+fn constrained_octet_size(ranges: Vec<Range>) -> TypeSyntax {
+    TypeSyntax::Constrained {
+        base: Box::new(TypeSyntax::OctetString),
+        constraint: Constraint::Size(ranges),
     }
 }
 
 /// Create a constrained OCTET STRING with a single fixed size.
-fn constrained_octet_fixed(size: u64) -> HirTypeSyntax {
-    constrained_octet_size(vec![HirRange {
-        min: HirRangeValue::Unsigned(size),
+fn constrained_octet_fixed(size: u64) -> TypeSyntax {
+    constrained_octet_size(vec![Range {
+        min: RangeValue::Unsigned(size),
         max: None,
     }])
 }
 
 /// Create a constrained OCTET STRING with a size range.
-fn constrained_octet_range(min: u64, max: u64) -> HirTypeSyntax {
-    constrained_octet_size(vec![HirRange {
-        min: HirRangeValue::Unsigned(min),
-        max: Some(HirRangeValue::Unsigned(max)),
+fn constrained_octet_range(min: u64, max: u64) -> TypeSyntax {
+    constrained_octet_size(vec![Range {
+        min: RangeValue::Unsigned(min),
+        max: Some(RangeValue::Unsigned(max)),
     }])
 }
 
 /// Create a constrained INTEGER with unsigned range (0..max).
-fn constrained_uint_range(max: u64) -> HirTypeSyntax {
+fn constrained_uint_range(max: u64) -> TypeSyntax {
     constrained_int_range(
-        HirRangeValue::Unsigned(0),
-        Some(HirRangeValue::Unsigned(max)),
+        RangeValue::Unsigned(0),
+        Some(RangeValue::Unsigned(max)),
     )
 }
 
 /// Create base type definitions as `TypeDefs`.
 ///
 /// These are the `SMIv2` base types from RFC 2578.
-fn create_base_type_definitions() -> Vec<HirDefinition> {
+fn create_base_type_definitions() -> Vec<Definition> {
     vec![
         // Integer32 ::= INTEGER (-2147483648..2147483647)
         make_typedef(
             "Integer32",
             constrained_int_range(
-                HirRangeValue::Signed(i64::from(i32::MIN)),
-                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+                RangeValue::Signed(i64::from(i32::MIN)),
+                Some(RangeValue::Signed(i64::from(i32::MAX))),
             ),
         ),
         // Counter32 ::= [APPLICATION 1] IMPLICIT INTEGER (0..4294967295)
@@ -387,17 +637,17 @@ fn create_base_type_definitions() -> Vec<HirDefinition> {
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
         make_typedef("IpAddress", constrained_octet_fixed(4)),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
-        make_typedef("Opaque", HirTypeSyntax::OctetString),
+        make_typedef("Opaque", TypeSyntax::OctetString),
     ]
 }
 
 /// Create a `TypeDef` for a base type definition.
-fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
-    HirDefinition::TypeDef(HirTypeDef {
+fn make_typedef(name: &str, syntax: TypeSyntax) -> Definition {
+    Definition::TypeDef(TypeDef {
         name: Symbol::from_name(name),
         syntax,
         display_hint: None,
-        status: HirStatus::Current,
+        status: Status::Current,
         description: None,
         reference: None,
         is_textual_convention: false,
@@ -408,7 +658,7 @@ fn make_typedef(name: &str, syntax: HirTypeSyntax) -> HirDefinition {
 /// Create textual convention definitions as `TypeDefs`.
 ///
 /// These are from SNMPv2-TC (RFC 2579).
-fn create_tc_definitions() -> Vec<HirDefinition> {
+fn create_tc_definitions() -> Vec<Definition> {
     vec![
         // DisplayString ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "255a"
@@ -421,7 +671,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         // PhysAddress ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "1x:"
         //     SYNTAX OCTET STRING
-        make_tc("PhysAddress", Some("1x:"), HirTypeSyntax::OctetString),
+        make_tc("PhysAddress", Some("1x:"), TypeSyntax::OctetString),
         // MacAddress ::= TEXTUAL-CONVENTION
         //     DISPLAY-HINT "1x:"
         //     SYNTAX OCTET STRING (SIZE (6))
@@ -461,7 +711,7 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
         make_tc(
             "TimeStamp",
             None,
-            HirTypeSyntax::TypeRef(Symbol::from_name("TimeTicks")),
+            TypeSyntax::TypeRef(Symbol::from_name("TimeTicks")),
         ),
         // TimeInterval ::= TEXTUAL-CONVENTION
         //     SYNTAX INTEGER (0..2147483647)
@@ -469,8 +719,8 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             "TimeInterval",
             None,
             constrained_int_range(
-                HirRangeValue::Unsigned(0),
-                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+                RangeValue::Unsigned(0),
+                Some(RangeValue::Signed(i64::from(i32::MAX))),
             ),
         ),
         // DateAndTime ::= TEXTUAL-CONVENTION
@@ -480,12 +730,12 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             "DateAndTime",
             Some("2d-1d-1d,1d:1d:1d.1d,1a1d:1d"),
             constrained_octet_size(vec![
-                HirRange {
-                    min: HirRangeValue::Unsigned(8),
+                Range {
+                    min: RangeValue::Unsigned(8),
                     max: None,
                 },
-                HirRange {
-                    min: HirRangeValue::Unsigned(11),
+                Range {
+                    min: RangeValue::Unsigned(11),
                     max: None,
                 },
             ]),
@@ -496,25 +746,25 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
             "TestAndIncr",
             None,
             constrained_int_range(
-                HirRangeValue::Unsigned(0),
-                Some(HirRangeValue::Signed(i64::from(i32::MAX))),
+                RangeValue::Unsigned(0),
+                Some(RangeValue::Signed(i64::from(i32::MAX))),
             ),
         ),
         // AutonomousType ::= TEXTUAL-CONVENTION
         //     SYNTAX OBJECT IDENTIFIER
-        make_tc("AutonomousType", None, HirTypeSyntax::ObjectIdentifier),
+        make_tc("AutonomousType", None, TypeSyntax::ObjectIdentifier),
         // InstancePointer ::= TEXTUAL-CONVENTION (obsolete)
         //     SYNTAX OBJECT IDENTIFIER
-        make_tc_obsolete("InstancePointer", None, HirTypeSyntax::ObjectIdentifier),
+        make_tc_obsolete("InstancePointer", None, TypeSyntax::ObjectIdentifier),
         // VariablePointer ::= TEXTUAL-CONVENTION
         //     SYNTAX OBJECT IDENTIFIER
-        make_tc("VariablePointer", None, HirTypeSyntax::ObjectIdentifier),
+        make_tc("VariablePointer", None, TypeSyntax::ObjectIdentifier),
         // RowPointer ::= TEXTUAL-CONVENTION
         //     SYNTAX OBJECT IDENTIFIER
-        make_tc("RowPointer", None, HirTypeSyntax::ObjectIdentifier),
+        make_tc("RowPointer", None, TypeSyntax::ObjectIdentifier),
         // TDomain ::= TEXTUAL-CONVENTION
         //     SYNTAX OBJECT IDENTIFIER
-        make_tc("TDomain", None, HirTypeSyntax::ObjectIdentifier),
+        make_tc("TDomain", None, TypeSyntax::ObjectIdentifier),
         // TAddress ::= TEXTUAL-CONVENTION
         //     SYNTAX OCTET STRING (SIZE (1..255))
         make_tc("TAddress", None, constrained_octet_range(1, 255)),
@@ -522,12 +772,12 @@ fn create_tc_definitions() -> Vec<HirDefinition> {
 }
 
 /// Create a `TypeDef` for a textual convention.
-fn make_tc(name: &str, display_hint: Option<&str>, syntax: HirTypeSyntax) -> HirDefinition {
-    HirDefinition::TypeDef(HirTypeDef {
+fn make_tc(name: &str, display_hint: Option<&str>, syntax: TypeSyntax) -> Definition {
+    Definition::TypeDef(TypeDef {
         name: Symbol::from_name(name),
         syntax,
         display_hint: display_hint.map(String::from),
-        status: HirStatus::Current,
+        status: Status::Current,
         description: None,
         reference: None,
         is_textual_convention: true,
@@ -539,13 +789,13 @@ fn make_tc(name: &str, display_hint: Option<&str>, syntax: HirTypeSyntax) -> Hir
 fn make_tc_obsolete(
     name: &str,
     display_hint: Option<&str>,
-    syntax: HirTypeSyntax,
-) -> HirDefinition {
-    HirDefinition::TypeDef(HirTypeDef {
+    syntax: TypeSyntax,
+) -> Definition {
+    Definition::TypeDef(TypeDef {
         name: Symbol::from_name(name),
         syntax,
         display_hint: display_hint.map(String::from),
-        status: HirStatus::Obsolete,
+        status: Status::Obsolete,
         description: None,
         reference: None,
         is_textual_convention: true,
@@ -554,17 +804,17 @@ fn make_tc_obsolete(
 }
 
 /// Create a `TypeDef` for a textual convention with enumerated values.
-fn make_tc_with_enum(name: &str, values: &[(&str, i64)]) -> HirDefinition {
+fn make_tc_with_enum(name: &str, values: &[(&str, i64)]) -> Definition {
     let enum_values: Vec<NamedNumber> = values
         .iter()
         .map(|(n, v)| NamedNumber::new(Symbol::from_name(n), *v))
         .collect();
 
-    HirDefinition::TypeDef(HirTypeDef {
+    Definition::TypeDef(TypeDef {
         name: Symbol::from_name(name),
-        syntax: HirTypeSyntax::IntegerEnum(enum_values),
+        syntax: TypeSyntax::IntegerEnum(enum_values),
         display_hint: None,
-        status: HirStatus::Current,
+        status: Status::Current,
         description: None,
         reference: None,
         is_textual_convention: true,
@@ -601,9 +851,15 @@ mod tests {
     #[test]
     fn test_create_base_modules() {
         let modules = create_base_modules();
-        assert_eq!(modules.len(), 2);
+        assert_eq!(modules.len(), 8);
         assert_eq!(modules[0].name.name, "SNMPv2-SMI");
         assert_eq!(modules[1].name.name, "SNMPv2-TC");
+        assert_eq!(modules[2].name.name, "SNMPv2-CONF");
+        assert_eq!(modules[3].name.name, "RFC1155-SMI");
+        assert_eq!(modules[4].name.name, "RFC1065-SMI");
+        assert_eq!(modules[5].name.name, "RFC1213-MIB");
+        assert_eq!(modules[6].name.name, "RFC-1212");
+        assert_eq!(modules[7].name.name, "RFC-1215");
     }
 
     #[test]
@@ -671,10 +927,10 @@ mod tests {
         // Verify all three X.208 root arcs have correct numeric values
         let find_oid_value = |name: &str| -> Option<u32> {
             module.definitions.iter().find_map(|d| {
-                if let HirDefinition::ValueAssignment(va) = d
+                if let Definition::ValueAssignment(va) = d
                     && va.name.name == name
                     && va.oid.components.len() == 1
-                    && let HirOidComponent::Number(n) = va.oid.components[0]
+                    && let OidComponent::Number(n) = va.oid.components[0]
                 {
                     return Some(n);
                 }
@@ -685,6 +941,55 @@ mod tests {
         assert_eq!(find_oid_value("ccitt"), Some(0));
         assert_eq!(find_oid_value("iso"), Some(1));
         assert_eq!(find_oid_value("joint-iso-ccitt"), Some(2));
+    }
+
+    #[test]
+    fn test_rfc1155_smi_has_types() {
+        let module = create_rfc1155_smi();
+
+        let def_names: Vec<_> = module
+            .definitions
+            .iter()
+            .filter_map(|d| d.name().map(|n| n.name.as_str()))
+            .collect();
+
+        // Check SMIv1 types
+        assert!(def_names.contains(&"Counter"));
+        assert!(def_names.contains(&"Gauge"));
+        assert!(def_names.contains(&"NetworkAddress"));
+        assert!(def_names.contains(&"IpAddress"));
+        assert!(def_names.contains(&"TimeTicks"));
+        assert!(def_names.contains(&"Opaque"));
+
+        // Check OID roots
+        assert!(def_names.contains(&"internet"));
+        assert!(def_names.contains(&"enterprises"));
+    }
+
+    #[test]
+    fn test_rfc1213_mib_has_content() {
+        let module = create_rfc1213_mib();
+
+        let def_names: Vec<_> = module
+            .definitions
+            .iter()
+            .filter_map(|d| d.name().map(|n| n.name.as_str()))
+            .collect();
+
+        assert!(def_names.contains(&"DisplayString"));
+        assert!(def_names.contains(&"mib-2"));
+    }
+
+    #[test]
+    fn test_empty_modules() {
+        // These modules contain only MACROs and should be empty
+        let snmpv2_conf = create_snmpv2_conf();
+        let rfc1212 = create_rfc1212();
+        let rfc1215 = create_rfc1215();
+
+        assert!(snmpv2_conf.definitions.is_empty());
+        assert!(rfc1212.definitions.is_empty());
+        assert!(rfc1215.definitions.is_empty());
     }
 
     #[test]
@@ -699,14 +1004,14 @@ mod tests {
         assert!(enterprises.is_some());
 
         // It should have OID components { private 1 }
-        if let Some(HirDefinition::ValueAssignment(va)) = enterprises {
+        if let Some(Definition::ValueAssignment(va)) = enterprises {
             assert_eq!(va.oid.components.len(), 2);
-            if let HirOidComponent::Name(ref sym) = va.oid.components[0] {
+            if let OidComponent::Name(ref sym) = va.oid.components[0] {
                 assert_eq!(sym.name, "private");
             } else {
                 panic!("Expected Name component");
             }
-            if let HirOidComponent::Number(n) = va.oid.components[1] {
+            if let OidComponent::Number(n) = va.oid.components[1] {
                 assert_eq!(n, 1);
             } else {
                 panic!("Expected Number component");

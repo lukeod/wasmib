@@ -26,7 +26,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 
-use wasmib_core::hir::{lower_module, HirModule};
+use wasmib_core::module::{lower_module, Module};
 use wasmib_core::lexer::{Diagnostic, Severity};
 use wasmib_core::parser::Parser;
 use wasmib_core::resolver::Resolver;
@@ -55,7 +55,7 @@ pub mod error {
 /// We use UnsafeCell because RefCell's const new() doesn't work with Vec in no_std.
 struct WasmState {
     /// Staged HIR modules awaiting resolution.
-    staged_modules: Vec<HirModule>,
+    staged_modules: Vec<Module>,
     /// Accumulated diagnostics from parsing.
     parse_diagnostics: Vec<Diagnostic>,
     /// Accumulated diagnostics from resolution.

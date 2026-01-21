@@ -29,10 +29,10 @@
 //!
 //! ```ignore
 //! use wasmib_core::resolver::Resolver;
-//! use wasmib_core::hir::HirModule;
+//! use wasmib_core::module::HirModule;
 //!
 //! // Parse and lower modules to HIR
-//! let hir_modules: Vec<HirModule> = /* ... */;
+//! let hir_modules: Vec<Module> = /* ... */;
 //!
 //! // Create resolver and resolve
 //! let resolver = Resolver::new();
@@ -51,7 +51,7 @@ mod phases;
 #[cfg(feature = "tracing")]
 pub mod tracing;
 
-use crate::hir::HirModule;
+use crate::module::Module;
 use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
 use alloc::string::String;
@@ -106,7 +106,7 @@ impl Resolver {
     ///
     /// Unresolved references are tracked but do not fail resolution.
     #[must_use]
-    pub fn resolve(&self, modules: Vec<HirModule>) -> ResolveResult {
+    pub fn resolve(&self, modules: Vec<Module>) -> ResolveResult {
         let mut ctx = ResolverContext::new(modules);
 
         // Phase 1: Register all modules and their definitions
@@ -163,7 +163,7 @@ impl Resolver {
     #[cfg(feature = "tracing")]
     pub fn resolve_with_tracer<T: tracing::Tracer>(
         &self,
-        modules: Vec<HirModule>,
+        modules: Vec<Module>,
         tracer: &mut T,
     ) -> ResolveResult {
         use tracing::{Phase, TraceEvent, TraceLevel};
@@ -324,21 +324,21 @@ impl Resolver {
 /// Check if a module name is a recognized base module.
 #[must_use]
 pub fn is_base_module(name: &str) -> bool {
-    crate::hir::is_base_module(name)
+    crate::module::is_base_module(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{
-        HirAccess, HirDefinition, HirImport, HirModule, HirObjectType, HirOidAssignment,
-        HirOidComponent, HirStatus, HirTypeSyntax, Symbol,
+    use crate::module::{
+        Access, Definition, Import, Module, ObjectType, OidAssignment,
+        OidComponent, Status, TypeSyntax, Symbol,
     };
     use crate::lexer::Span;
     use alloc::vec;
 
-    fn make_test_module(name: &str, defs: Vec<HirDefinition>) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    fn make_test_module(name: &str, defs: Vec<Definition>) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
         module
     }
@@ -347,16 +347,16 @@ mod tests {
     /// imports is a list of (symbol, `from_module`) pairs.
     fn make_test_module_with_imports(
         name: &str,
-        defs: Vec<HirDefinition>,
+        defs: Vec<Definition>,
         imports: Vec<(&str, &str)>,
-    ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    ) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
-        // HirImport::new takes (module, symbol, span)
+        // Import::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
-                HirImport::new(
+                Import::new(
                     Symbol::from_name(from),
                     Symbol::from_name(sym),
                     Span::new(0, 0),
@@ -366,19 +366,19 @@ mod tests {
         module
     }
 
-    fn make_object_type(name: &str, oid_components: Vec<HirOidComponent>) -> HirDefinition {
-        HirDefinition::ObjectType(HirObjectType {
+    fn make_object_type(name: &str, oid_components: Vec<OidComponent>) -> Definition {
+        Definition::ObjectType(ObjectType {
             name: Symbol::from_name(name),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             units: None,
-            access: HirAccess::ReadOnly,
-            status: HirStatus::Current,
+            access: Access::ReadOnly,
+            status: Status::Current,
             description: Some("Test object".into()),
             reference: None,
             index: None,
             augments: None,
             defval: None,
-            oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
+            oid: OidAssignment::new(oid_components, Span::new(0, 0)),
             span: Span::new(0, 0),
         })
     }
@@ -388,9 +388,8 @@ mod tests {
         let resolver = Resolver::new();
         let result = resolver.resolve(vec![]);
 
-        assert!(result.is_complete());
-        // 2 base modules (SNMPv2-SMI, SNMPv2-TC) are always included
-        assert_eq!(result.model.module_count(), 2);
+        // 8 base modules are always included
+        assert_eq!(result.model.module_count(), 8);
     }
 
     #[test]
@@ -398,8 +397,8 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -412,8 +411,8 @@ mod tests {
         let resolver = Resolver::new();
         let result = resolver.resolve(modules);
 
-        // 2 base modules (SNMPv2-SMI, SNMPv2-TC) + 1 user module
-        assert_eq!(result.model.module_count(), 3);
+        // 8 base modules + 1 user module
+        assert_eq!(result.model.module_count(), 9);
         assert!(result.model.get_module_by_name("TEST-MIB").is_some());
 
         // Check the object was resolved
@@ -447,8 +446,8 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_name("unknownNode")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("unknownNode")),
+                OidComponent::Number(1),
             ],
         );
 

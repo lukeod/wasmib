@@ -5,11 +5,11 @@
 //! # Memory Optimization
 //!
 //! This phase uses index references instead of cloning HIR objects.
-//! Instead of `Vec<(ModuleId, HirObjectType)>` which clones the entire struct
+//! Instead of `Vec<(ModuleId, ObjectType)>` which clones the entire struct
 //! including `Option<String>` fields, we use `Vec<HirRef>` which stores only
 //! indices and accesses the data through the context.
 
-use crate::hir::{HirDefVal, HirDefinition, HirNotification, HirObjectType, HirTypeSyntax};
+use crate::module::{DefVal as ModuleDefVal, Definition, Notification, ObjectType, TypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
     Access, DefVal, IndexItem, IndexSpec, ModuleId, NodeId, NodeKind, ResolvedNotification,
@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 
 /// Reference to a HIR definition by indices.
 ///
-/// This avoids cloning entire `HirObjectType` or `HirNotification` structs,
+/// This avoids cloning entire `ObjectType` or `Notification` structs,
 /// significantly reducing peak memory when processing large MIB corpora.
 #[derive(Clone, Copy)]
 struct HirRef {
@@ -102,7 +102,7 @@ fn collect_object_type_refs(ctx: &ResolverContext) -> Vec<HirRef> {
                         .iter()
                         .enumerate()
                         .filter_map(move |(def_idx, def)| {
-                            if matches!(def, HirDefinition::ObjectType(_)) {
+                            if matches!(def, Definition::ObjectType(_)) {
                                 Some(HirRef {
                                     module_id,
                                     hir_idx,
@@ -118,12 +118,12 @@ fn collect_object_type_refs(ctx: &ResolverContext) -> Vec<HirRef> {
 }
 
 /// Get an OBJECT-TYPE from a reference.
-fn get_object_type<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a HirObjectType> {
+fn get_object_type<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a ObjectType> {
     ctx.hir_modules
         .get(r.hir_idx)
         .and_then(|m| m.definitions.get(r.def_idx))
         .and_then(|def| {
-            if let HirDefinition::ObjectType(obj) = def {
+            if let Definition::ObjectType(obj) = def {
                 Some(obj)
             } else {
                 None
@@ -145,7 +145,7 @@ fn collect_notification_refs(ctx: &ResolverContext) -> Vec<HirRef> {
                         .iter()
                         .enumerate()
                         .filter_map(move |(def_idx, def)| {
-                            if matches!(def, HirDefinition::Notification(_)) {
+                            if matches!(def, Definition::Notification(_)) {
                                 Some(HirRef {
                                     module_id,
                                     hir_idx,
@@ -161,12 +161,12 @@ fn collect_notification_refs(ctx: &ResolverContext) -> Vec<HirRef> {
 }
 
 /// Get a NOTIFICATION from a reference.
-fn get_notification<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a HirNotification> {
+fn get_notification<'a>(ctx: &'a ResolverContext, r: &HirRef) -> Option<&'a Notification> {
     ctx.hir_modules
         .get(r.hir_idx)
         .and_then(|m| m.definitions.get(r.def_idx))
         .and_then(|def| {
-            if let HirDefinition::Notification(n) = def {
+            if let Definition::Notification(n) = def {
                 Some(n)
             } else {
                 None
@@ -224,7 +224,7 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                         .iter()
                         .enumerate()
                         .filter_map(move |(def_idx, def)| {
-                            if let HirDefinition::ObjectType(obj) = def
+                            if let Definition::ObjectType(obj) = def
                                 && (obj.index.is_some() || obj.augments.is_some())
                             {
                                 return Some(HirRef {
@@ -295,8 +295,8 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
 struct TableData {
     name: alloc::string::String,
     span: Span,
-    index: Option<Vec<crate::hir::HirIndexItem>>,
-    augments: Option<crate::hir::Symbol>,
+    index: Option<Vec<crate::module::IndexItem>>,
+    augments: Option<crate::module::Symbol>,
 }
 
 /// Create `ResolvedObject` entries for all OBJECT-TYPEs.
@@ -386,7 +386,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         }
 
         // Handle inline enums
-        if let HirTypeSyntax::IntegerEnum(ref enums) = obj_data.syntax {
+        if let TypeSyntax::IntegerEnum(ref enums) = obj_data.syntax {
             let values: Vec<_> = enums
                 .iter()
                 .map(|nn| (nn.value, ctx.intern(&nn.name.name)))
@@ -395,7 +395,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         }
 
         // Handle inline BITS
-        if let HirTypeSyntax::Bits(ref bits) = obj_data.syntax {
+        if let TypeSyntax::Bits(ref bits) = obj_data.syntax {
             let defs: Vec<_> = bits
                 .iter()
                 .map(|nb| (nb.position, ctx.intern(&nb.name.name)))
@@ -422,22 +422,22 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
     }
 }
 
-/// Extracted data from `HirObjectType` to avoid borrow conflicts.
+/// Extracted data from `ObjectType` to avoid borrow conflicts.
 ///
-/// This struct holds a subset of the `HirObjectType` data needed for creating
-/// `ResolvedObject`. It allows us to drop the borrow of the `HirObjectType` early
+/// This struct holds a subset of the `ObjectType` data needed for creating
+/// `ResolvedObject`. It allows us to drop the borrow of the `ObjectType` early
 /// so we can mutate the context.
 struct ObjectData {
     name: alloc::string::String,
-    syntax: HirTypeSyntax,
+    syntax: TypeSyntax,
     units: Option<alloc::string::String>,
-    access: crate::hir::HirAccess,
-    status: crate::hir::HirStatus,
+    access: crate::module::Access,
+    status: crate::module::Status,
     description: Option<alloc::string::String>,
     reference: Option<alloc::string::String>,
-    index: Option<Vec<crate::hir::HirIndexItem>>,
-    augments: Option<crate::hir::Symbol>,
-    defval: Option<HirDefVal>,
+    index: Option<Vec<crate::module::IndexItem>>,
+    augments: Option<crate::module::Symbol>,
+    defval: Option<ModuleDefVal>,
     span: Span,
 }
 
@@ -519,10 +519,10 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
 /// Extracted data for notification processing.
 struct NotificationData {
     name: alloc::string::String,
-    status: crate::hir::HirStatus,
+    status: crate::module::Status,
     description: Option<alloc::string::String>,
     reference: Option<alloc::string::String>,
-    objects: Vec<crate::hir::Symbol>,
+    objects: Vec<crate::module::Symbol>,
     span: Span,
 }
 
@@ -530,16 +530,21 @@ struct NotificationData {
 ///
 /// Returns `None` if the type reference couldn't be resolved, and records
 /// the unresolved type in `UnresolvedReferences`.
+///
+/// For `TypeRef` syntax, uses module-scoped lookup to respect import declarations.
+/// This ensures that when multiple modules define the same type name (e.g., `DisplayString`),
+/// objects get assigned the type from the module they explicitly imported from.
 fn resolve_type_syntax(
     ctx: &mut ResolverContext,
-    syntax: &HirTypeSyntax,
+    syntax: &TypeSyntax,
     module_id: crate::model::ModuleId,
     object_name: &str,
     span: Span,
 ) -> Option<crate::model::TypeId> {
     match syntax {
-        HirTypeSyntax::TypeRef(name) => {
-            if let Some(type_id) = ctx.lookup_type(&name.name) {
+        TypeSyntax::TypeRef(name) => {
+            // Use module-scoped lookup to respect import declarations
+            if let Some(type_id) = ctx.lookup_type_for_module(module_id, &name.name) {
                 Some(type_id)
             } else {
                 // Record the unresolved type reference
@@ -547,20 +552,20 @@ fn resolve_type_syntax(
                 None
             }
         }
-        HirTypeSyntax::Constrained { base, .. } => {
+        TypeSyntax::Constrained { base, .. } => {
             resolve_type_syntax(ctx, base, module_id, object_name, span)
         }
-        HirTypeSyntax::IntegerEnum(_) => {
+        TypeSyntax::IntegerEnum(_) => {
             // INTEGER with enum values - base type is Integer32
             ctx.lookup_type("Integer32")
         }
-        HirTypeSyntax::Bits(_) => {
+        TypeSyntax::Bits(_) => {
             // BITS type
             ctx.lookup_type("BITS")
         }
-        HirTypeSyntax::OctetString => ctx.lookup_type("OCTET STRING"),
-        HirTypeSyntax::ObjectIdentifier => ctx.lookup_type("OBJECT IDENTIFIER"),
-        HirTypeSyntax::SequenceOf(_) | HirTypeSyntax::Sequence(_) => {
+        TypeSyntax::OctetString => ctx.lookup_type("OCTET STRING"),
+        TypeSyntax::ObjectIdentifier => ctx.lookup_type("OBJECT IDENTIFIER"),
+        TypeSyntax::SequenceOf(_) | TypeSyntax::Sequence(_) => {
             // Table/row types - these don't have a meaningful "type" in the SNMP sense
             // They're structural, not data types. Return None as there's no appropriate type.
             // (Tables and rows are identified by NodeKind, not by their type_id)
@@ -569,17 +574,17 @@ fn resolve_type_syntax(
     }
 }
 
-/// Convert `HirDefVal` to resolved `DefVal`.
-fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: ModuleId) -> DefVal {
+/// Convert `ModuleDefVal` to resolved `DefVal`.
+fn convert_defval(ctx: &mut ResolverContext, defval: &ModuleDefVal, module_id: ModuleId) -> DefVal {
     match defval {
-        HirDefVal::Integer(n) => DefVal::Integer(*n),
-        HirDefVal::Unsigned(n) => DefVal::Unsigned(*n),
-        HirDefVal::String(s) => DefVal::String(ctx.intern(s)),
-        HirDefVal::HexString(s) => DefVal::HexString(s.clone()),
-        HirDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
-        HirDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
-        HirDefVal::Bits(syms) => DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect()),
-        HirDefVal::OidRef(sym) => {
+        ModuleDefVal::Integer(n) => DefVal::Integer(*n),
+        ModuleDefVal::Unsigned(n) => DefVal::Unsigned(*n),
+        ModuleDefVal::String(s) => DefVal::String(ctx.intern(s)),
+        ModuleDefVal::HexString(s) => DefVal::HexString(s.clone()),
+        ModuleDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
+        ModuleDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
+        ModuleDefVal::Bits(syms) => DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect()),
+        ModuleDefVal::OidRef(sym) => {
             // Try to resolve the OID reference
             let resolved_node = ctx.lookup_node_for_module(module_id, &sym.name);
             DefVal::OidRef {
@@ -591,7 +596,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: Modu
                 },
             }
         }
-        HirDefVal::OidValue(components) => {
+        ModuleDefVal::OidValue(components) => {
             // Try to resolve the OID value by looking up the first component
             // This is a best-effort resolution
             if let Some(first) = components.first()
@@ -621,58 +626,61 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &HirDefVal, module_id: Modu
     }
 }
 
-fn hir_access_to_access(access: crate::hir::HirAccess) -> Access {
+fn hir_access_to_access(access: crate::module::Access) -> Access {
     match access {
-        crate::hir::HirAccess::ReadOnly => Access::ReadOnly,
-        crate::hir::HirAccess::ReadWrite => Access::ReadWrite,
-        crate::hir::HirAccess::ReadCreate => Access::ReadCreate,
-        crate::hir::HirAccess::NotAccessible => Access::NotAccessible,
-        crate::hir::HirAccess::AccessibleForNotify => Access::AccessibleForNotify,
-        crate::hir::HirAccess::WriteOnly => Access::WriteOnly,
+        crate::module::Access::ReadOnly => Access::ReadOnly,
+        crate::module::Access::ReadWrite => Access::ReadWrite,
+        crate::module::Access::ReadCreate => Access::ReadCreate,
+        crate::module::Access::NotAccessible => Access::NotAccessible,
+        crate::module::Access::AccessibleForNotify => Access::AccessibleForNotify,
+        crate::module::Access::WriteOnly => Access::WriteOnly,
     }
 }
 
-fn hir_status_to_status(status: crate::hir::HirStatus) -> Status {
+fn hir_status_to_status(status: crate::module::Status) -> Status {
     match status {
-        crate::hir::HirStatus::Current => Status::Current,
-        crate::hir::HirStatus::Deprecated => Status::Deprecated,
-        crate::hir::HirStatus::Obsolete => Status::Obsolete,
+        crate::module::Status::Current => Status::Current,
+        crate::module::Status::Deprecated => Status::Deprecated,
+        crate::module::Status::Obsolete => Status::Obsolete,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::hir::{
-        HirAccess, HirDefinition, HirImport, HirIndexItem, HirModule, HirNotification,
-        HirObjectType, HirOidAssignment, HirOidComponent, HirStatus, HirTypeSyntax, NamedBit,
-        Symbol,
+    use crate::model::{NodeKind, Status as ModelStatus};
+    use crate::module::{
+        Access, Constraint, Definition, Import, IndexItem, Module,
+        Notification, ObjectType, OidAssignment, OidComponent, Range,
+        RangeValue, Status, TypeDef, TypeSyntax, NamedBit, Symbol,
     };
+    use crate::resolver::context::ResolverContext;
+    use alloc::boxed::Box;
     use crate::lexer::Span;
     use crate::resolver::phases::{
         imports::resolve_imports, oids::resolve_oids, registration::register_modules,
         types::resolve_types,
     };
+    use super::analyze_semantics;
     use alloc::vec;
 
     fn make_object_type(
         name: &str,
-        syntax: HirTypeSyntax,
-        oid_components: Vec<HirOidComponent>,
-        index: Option<Vec<HirIndexItem>>,
-    ) -> HirDefinition {
-        HirDefinition::ObjectType(HirObjectType {
+        syntax: TypeSyntax,
+        oid_components: Vec<OidComponent>,
+        index: Option<Vec<IndexItem>>,
+    ) -> Definition {
+        Definition::ObjectType(ObjectType {
             name: Symbol::from_name(name),
             syntax,
             units: None,
-            access: HirAccess::ReadOnly,
-            status: HirStatus::Current,
+            access: Access::ReadOnly,
+            status: Status::Current,
             description: Some("Test object".into()),
             reference: None,
             index,
             augments: None,
             defval: None,
-            oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
+            oid: OidAssignment::new(oid_components, Span::new(0, 0)),
             span: Span::new(0, 0),
         })
     }
@@ -681,16 +689,16 @@ mod tests {
     /// imports is a list of (symbol, `from_module`) pairs.
     fn make_test_module_with_imports(
         name: &str,
-        defs: Vec<HirDefinition>,
+        defs: Vec<Definition>,
         imports: Vec<(&str, &str)>,
-    ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    ) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
-        // HirImport::new takes (module, symbol, span)
+        // Import::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
-                HirImport::new(
+                Import::new(
                     Symbol::from_name(from),
                     Symbol::from_name(sym),
                     Span::new(0, 0),
@@ -704,10 +712,10 @@ mod tests {
     fn test_table_inference() {
         let table = make_object_type(
             "testTable",
-            HirTypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
+            TypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -737,12 +745,12 @@ mod tests {
     fn test_row_inference() {
         let row = make_object_type(
             "testEntry",
-            HirTypeSyntax::TypeRef(Symbol::from_name("TestEntry")),
+            TypeSyntax::TypeRef(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
-            Some(vec![HirIndexItem::new(
+            Some(vec![IndexItem::new(
                 Symbol::from_name("testIndex"),
                 false,
             )]),
@@ -773,10 +781,10 @@ mod tests {
     fn test_resolved_object_creation() {
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -803,10 +811,10 @@ mod tests {
         // Create an object with a reference to a non-existent type
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("NonExistentType")),
+            TypeSyntax::TypeRef(Symbol::from_name("NonExistentType")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -843,10 +851,10 @@ mod tests {
         // Create an object with a reference to a non-existent type
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("FakeType")),
+            TypeSyntax::TypeRef(Symbol::from_name("FakeType")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -882,10 +890,10 @@ mod tests {
         // Create an object with a valid type reference
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -893,7 +901,7 @@ mod tests {
         let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
             vec![obj],
-            vec![("enterprises", "SNMPv2-SMI")],
+            vec![("enterprises", "SNMPv2-SMI"), ("Integer32", "SNMPv2-SMI")],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -919,10 +927,10 @@ mod tests {
         // SEQUENCE OF types (tables) have no meaningful type_id
         let table = make_object_type(
             "testTable",
-            HirTypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
+            TypeSyntax::SequenceOf(Symbol::from_name("TestEntry")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -956,13 +964,13 @@ mod tests {
         // BITS with inline definitions should have a type_id
         let obj = make_object_type(
             "testBits",
-            HirTypeSyntax::Bits(vec![
+            TypeSyntax::Bits(vec![
                 NamedBit::new(Symbol::from_name("flag1"), 0),
                 NamedBit::new(Symbol::from_name("flag2"), 1),
             ]),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -995,16 +1003,16 @@ mod tests {
     fn make_notification(
         name: &str,
         objects: Vec<&str>,
-        oid_components: Vec<HirOidComponent>,
-    ) -> HirDefinition {
-        HirDefinition::Notification(HirNotification {
+        oid_components: Vec<OidComponent>,
+    ) -> Definition {
+        Definition::Notification(Notification {
             name: Symbol::from_name(name),
             objects: objects.into_iter().map(Symbol::from_name).collect(),
-            status: HirStatus::Current,
+            status: Status::Current,
             description: Some("Test notification".into()),
             reference: Some("RFC-TEST".into()),
             trap_info: None,
-            oid: Some(HirOidAssignment::new(oid_components, Span::new(0, 0))),
+            oid: Some(OidAssignment::new(oid_components, Span::new(0, 0))),
             span: Span::new(0, 0),
         })
     }
@@ -1015,8 +1023,8 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -1043,7 +1051,7 @@ mod tests {
         assert!(notif.is_some());
         let notif = notif.unwrap();
         assert_eq!(ctx.model.get_str(notif.name), "testNotification");
-        assert_eq!(notif.status, Status::Current);
+        assert_eq!(notif.status, ModelStatus::Current);
         assert!(notif.description.is_some());
         assert!(notif.reference.is_some());
     }
@@ -1053,10 +1061,10 @@ mod tests {
         // Create an object that the notification references
         let obj = make_object_type(
             "testObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -1066,8 +1074,8 @@ mod tests {
             "testNotification",
             vec!["testObject"],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(2),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(2),
             ],
         );
 
@@ -1104,8 +1112,8 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -1134,8 +1142,8 @@ mod tests {
             "testNotification",
             vec![],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -1171,8 +1179,8 @@ mod tests {
             "testNotification",
             vec!["nonExistentObject"],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -1216,10 +1224,10 @@ mod tests {
         // Create one object that exists
         let obj = make_object_type(
             "existingObject",
-            HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
             None,
         );
@@ -1229,8 +1237,8 @@ mod tests {
             "testNotification",
             vec!["existingObject", "missingObject"],
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(2),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(2),
             ],
         );
 
@@ -1264,6 +1272,162 @@ mod tests {
         assert_eq!(
             ctx.model.get_str(unresolved.notification_objects[0].object),
             "missingObject"
+        );
+    }
+
+    // ============================================================
+    // Tests for module-scoped type resolution (issue: type resolution ignores import source)
+    // ============================================================
+
+    /// Create a type definition for testing.
+    fn make_typedef(name: &str, syntax: TypeSyntax, hint: Option<&str>) -> Definition {
+        Definition::TypeDef(TypeDef {
+            name: Symbol::from_name(name),
+            syntax,
+            display_hint: hint.map(|s| s.into()),
+            status: Status::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        })
+    }
+
+    #[test]
+    fn test_type_resolution_respects_imports() {
+        // This test verifies that when multiple modules define the same type name,
+        // objects get assigned the type from the module they explicitly imported from.
+        //
+        // Setup:
+        // - TC-A defines "MyDisplayString" with hint "255a"
+        // - TC-B defines "MyDisplayString" with hint "1x:" (different)
+        // - USER-MIB imports MyDisplayString FROM TC-A
+        // - USER-MIB has an object using MyDisplayString
+        //
+        // Expected: Object's type should be TC-A::MyDisplayString (with hint "255a")
+
+        // TC-A: defines MyDisplayString with hint "255a"
+        let tc_a_typedef = make_typedef(
+            "MyDisplayString",
+            TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::OctetString),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(255)),
+                }]),
+            },
+            Some("255a"),
+        );
+        let tc_a = make_test_module_with_imports("TC-A", vec![tc_a_typedef], vec![]);
+
+        // TC-B: defines MyDisplayString with hint "1x:" (different)
+        let tc_b_typedef = make_typedef(
+            "MyDisplayString",
+            TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::OctetString),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(255)),
+                }]),
+            },
+            Some("1x:"),
+        );
+        let tc_b = make_test_module_with_imports("TC-B", vec![tc_b_typedef], vec![]);
+
+        // USER-MIB: imports MyDisplayString from TC-A, uses it for an object
+        let obj = make_object_type(
+            "testObject",
+            TypeSyntax::TypeRef(Symbol::from_name("MyDisplayString")),
+            vec![
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
+            ],
+            None,
+        );
+        let user_mib = make_test_module_with_imports(
+            "USER-MIB",
+            vec![obj],
+            vec![
+                ("enterprises", "SNMPv2-SMI"),
+                ("MyDisplayString", "TC-A"), // Explicitly import from TC-A
+            ],
+        );
+
+        // Order matters: TC-B loaded after TC-A would overwrite global index
+        // if we weren't using module-scoped type lookup
+        let modules = vec![tc_a, tc_b, user_mib];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Get the object and verify its type
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap())
+            .expect("object should exist");
+        let type_id = obj.type_id.expect("object should have a type_id");
+        let resolved_type = ctx.model.get_type(type_id).expect("type should exist");
+
+        // The type should be from TC-A (with hint "255a"), not TC-B (with hint "1x:")
+        let hint = resolved_type.hint.map(|h| ctx.model.get_str(h));
+        assert_eq!(
+            hint,
+            Some("255a"),
+            "Object should use TC-A::MyDisplayString (hint='255a'), not TC-B (hint='1x:')"
+        );
+
+        // Also verify the type's module
+        let type_module = ctx.model.get_module(resolved_type.module).unwrap();
+        assert_eq!(
+            ctx.model.get_str(type_module.name),
+            "TC-A",
+            "Type should be from TC-A module"
+        );
+    }
+
+    #[test]
+    fn test_asn1_primitives_resolve_implicitly() {
+        // Verify that ASN.1 primitive types (INTEGER, OCTET STRING, etc.)
+        // resolve without explicit import - they're language-level constructs
+        let obj = make_object_type(
+            "testObject",
+            TypeSyntax::TypeRef(Symbol::from_name("INTEGER")),
+            vec![
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
+            ],
+            None,
+        );
+        let user_mib = make_test_module_with_imports(
+            "USER-MIB",
+            vec![obj],
+            vec![
+                ("enterprises", "SNMPv2-SMI"),
+                // No explicit import of INTEGER - it's an ASN.1 primitive
+            ],
+        );
+
+        let modules = vec![user_mib];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+        resolve_oids(&mut ctx);
+        analyze_semantics(&mut ctx);
+
+        // Get the object and verify its type resolved
+        let obj = ctx
+            .model
+            .get_object(crate::model::ObjectId::from_raw(1).unwrap())
+            .expect("object should exist");
+        assert!(
+            obj.type_id.is_some(),
+            "INTEGER should resolve as ASN.1 primitive"
         );
     }
 }

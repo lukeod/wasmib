@@ -1,0 +1,17 @@
+RFC-1215 DEFINITIONS ::= BEGIN
+
+TRAP-TYPE MACRO ::=
+BEGIN
+    TYPE NOTATION ::= "ENTERPRISE" value
+                      VarPart
+                      DescrPart
+                      ReferPart
+    VALUE NOTATION ::= value (VALUE INTEGER)
+    VarPart ::= "VARIABLES" "{" VarTypes "}" | empty
+    VarTypes ::= VarType | VarTypes "," VarType
+    VarType ::= value (vartype ObjectName)
+    DescrPart ::= "DESCRIPTION" value | empty
+    ReferPart ::= "REFERENCE" value | empty
+END
+
+END

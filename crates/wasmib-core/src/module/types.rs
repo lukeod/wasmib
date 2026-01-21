@@ -1,4 +1,4 @@
-//! Core HIR types.
+//! Core module types.
 
 use crate::ast::Ident;
 use alloc::string::String;
@@ -6,7 +6,7 @@ use core::fmt;
 
 /// SMI language version.
 ///
-/// Detected from imports during HIR lowering:
+/// Detected from imports during lowering:
 /// - `SMIv2` if imports from SNMPv2-SMI, SNMPv2-TC, or SNMPv2-CONF
 /// - `SMIv1` otherwise (default)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -135,7 +135,7 @@ impl From<&Ident> for Symbol {
 ///
 /// Unifies `SMIv1` `ACCESS` and `SMIv2` `MAX-ACCESS` into a single representation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum HirAccess {
+pub enum Access {
     /// Object is read-only.
     ReadOnly,
     /// Object is read-write.
@@ -150,7 +150,7 @@ pub enum HirAccess {
     WriteOnly,
 }
 
-impl fmt::Display for HirAccess {
+impl fmt::Display for Access {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ReadOnly => write!(f, "read-only"),
@@ -163,7 +163,7 @@ impl fmt::Display for HirAccess {
     }
 }
 
-impl HirAccess {
+impl Access {
     /// Convert to u8 for compact serialization.
     #[must_use]
     pub const fn as_u8(&self) -> u8 {
@@ -198,7 +198,7 @@ impl HirAccess {
 /// - `mandatory` → `Current`
 /// - `optional` → `Deprecated` (with implicit note)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum HirStatus {
+pub enum Status {
     /// Object is current and valid.
     #[default]
     Current,
@@ -208,7 +208,7 @@ pub enum HirStatus {
     Obsolete,
 }
 
-impl fmt::Display for HirStatus {
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Current => write!(f, "current"),
@@ -218,7 +218,7 @@ impl fmt::Display for HirStatus {
     }
 }
 
-impl HirStatus {
+impl Status {
     /// Convert to u8 for compact serialization.
     #[must_use]
     pub const fn as_u8(&self) -> u8 {

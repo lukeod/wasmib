@@ -2,7 +2,7 @@
 //!
 //! Build the complete OID tree, extracting implicit nodes from inline OID assignments.
 
-use crate::hir::{HirDefinition, HirOidAssignment, HirOidComponent};
+use crate::module::{Definition, OidAssignment, OidComponent};
 use crate::model::{ModuleId, NodeDefinition, NodeId, NodeKind, Oid, OidNode};
 use crate::resolver::context::ResolverContext;
 use alloc::string::ToString;
@@ -125,17 +125,17 @@ fn is_first_component_resolvable<TR: OidTracer>(
 ) -> bool {
     let oid = def.oid(ctx);
     match oid.components.first() {
-        Some(HirOidComponent::Name(sym)) => {
+        Some(OidComponent::Name(sym)) => {
             let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
             tracer.trace_lookup(def.module_id, def.def_name(ctx), &sym.name, found);
             found
         }
         Some(
-            HirOidComponent::NamedNumber { .. }
-            | HirOidComponent::QualifiedNamedNumber { .. }
-            | HirOidComponent::Number(_),
+            OidComponent::NamedNumber { .. }
+            | OidComponent::QualifiedNamedNumber { .. }
+            | OidComponent::Number(_),
         ) => true, // Named/bare numbers create or extend nodes
-        Some(HirOidComponent::QualifiedName { module, name }) => {
+        Some(OidComponent::QualifiedName { module, name }) => {
             // Qualified name: use cross-module lookup
             ctx.lookup_node_in_module(&module.name, &name.name)
                 .is_some()
@@ -208,11 +208,11 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
                 let first_component = oid.components.first().cloned();
 
                 match first_component {
-                    Some(HirOidComponent::Name(sym)) => {
+                    Some(OidComponent::Name(sym)) => {
                         tracer.trace_unresolved(&def_name, &sym.name);
                         ctx.record_unresolved_oid(def.module_id, &def_name, &sym.name, oid_span);
                     }
-                    Some(HirOidComponent::QualifiedName { module, name }) => {
+                    Some(OidComponent::QualifiedName { module, name }) => {
                         let qualified_name = alloc::format!("{}.{}", module.name, name.name);
                         tracer.trace_unresolved(&def_name, &qualified_name);
                         ctx.record_unresolved_oid(
@@ -332,19 +332,19 @@ impl OidDefinition {
     }
 
     /// Get the OID assignment from HIR.
-    fn oid<'a>(&self, ctx: &'a ResolverContext) -> &'a HirOidAssignment {
+    fn oid<'a>(&self, ctx: &'a ResolverContext) -> &'a OidAssignment {
         let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
         match def {
-            HirDefinition::ObjectType(d) => &d.oid,
-            HirDefinition::ModuleIdentity(d) => &d.oid,
-            HirDefinition::ObjectIdentity(d) => &d.oid,
-            HirDefinition::Notification(d) => d.oid.as_ref().expect("notification has OID"),
-            HirDefinition::ValueAssignment(d) => &d.oid,
-            HirDefinition::ObjectGroup(d) => &d.oid,
-            HirDefinition::NotificationGroup(d) => &d.oid,
-            HirDefinition::ModuleCompliance(d) => &d.oid,
-            HirDefinition::AgentCapabilities(d) => &d.oid,
-            HirDefinition::TypeDef(_) => panic!("TypeDef has no OID"),
+            Definition::ObjectType(d) => &d.oid,
+            Definition::ModuleIdentity(d) => &d.oid,
+            Definition::ObjectIdentity(d) => &d.oid,
+            Definition::Notification(d) => d.oid.as_ref().expect("notification has OID"),
+            Definition::ValueAssignment(d) => &d.oid,
+            Definition::ObjectGroup(d) => &d.oid,
+            Definition::NotificationGroup(d) => &d.oid,
+            Definition::ModuleCompliance(d) => &d.oid,
+            Definition::AgentCapabilities(d) => &d.oid,
+            Definition::TypeDef(_) => panic!("TypeDef has no OID"),
         }
     }
 }
@@ -368,7 +368,7 @@ impl TrapTypeDefinition {
     /// Get the trap info from HIR (enterprise name and trap number).
     fn trap_info<'a>(&self, ctx: &'a ResolverContext) -> (&'a str, u32, crate::lexer::Span) {
         let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
-        if let HirDefinition::Notification(d) = def
+        if let Definition::Notification(d) = def
             && let Some(ref trap_info) = d.trap_info
         {
             return (&trap_info.enterprise.name, trap_info.trap_number, d.span);
@@ -406,10 +406,10 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
         let module = &ctx.hir_modules[hir_idx];
         for (def_idx, def) in module.definitions.iter().enumerate() {
             let kind = match def {
-                HirDefinition::ObjectType(_) => DefinitionKind::ObjectType,
-                HirDefinition::ModuleIdentity(_) => DefinitionKind::ModuleIdentity,
-                HirDefinition::ObjectIdentity(_) => DefinitionKind::ObjectIdentity,
-                HirDefinition::Notification(d) => {
+                Definition::ObjectType(_) => DefinitionKind::ObjectType,
+                Definition::ModuleIdentity(_) => DefinitionKind::ModuleIdentity,
+                Definition::ObjectIdentity(_) => DefinitionKind::ObjectIdentity,
+                Definition::Notification(d) => {
                     if d.oid.is_some() {
                         // NOTIFICATION-TYPE with explicit OID
                         DefinitionKind::Notification
@@ -425,12 +425,12 @@ fn collect_oid_definitions(ctx: &ResolverContext) -> CollectedDefinitions {
                         continue;
                     }
                 }
-                HirDefinition::ValueAssignment(_) => DefinitionKind::ValueAssignment,
-                HirDefinition::ObjectGroup(_) => DefinitionKind::ObjectGroup,
-                HirDefinition::NotificationGroup(_) => DefinitionKind::NotificationGroup,
-                HirDefinition::ModuleCompliance(_) => DefinitionKind::ModuleCompliance,
-                HirDefinition::AgentCapabilities(_) => DefinitionKind::AgentCapabilities,
-                HirDefinition::TypeDef(_) => continue,
+                Definition::ValueAssignment(_) => DefinitionKind::ValueAssignment,
+                Definition::ObjectGroup(_) => DefinitionKind::ObjectGroup,
+                Definition::NotificationGroup(_) => DefinitionKind::NotificationGroup,
+                Definition::ModuleCompliance(_) => DefinitionKind::ModuleCompliance,
+                Definition::AgentCapabilities(_) => DefinitionKind::AgentCapabilities,
+                Definition::TypeDef(_) => continue,
             };
 
             oid_defs.push(OidDefinition {
@@ -472,7 +472,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
         let is_last = comp_idx == num_components - 1;
 
         match component {
-            HirOidComponent::Name(sym) => {
+            OidComponent::Name(sym) => {
                 // Look up by name using module-scoped lookup
                 let found = lookup_node_scoped(ctx, module_id, &sym.name);
                 tracer.trace_lookup(module_id, &def_name, &sym.name, found.is_some());
@@ -489,7 +489,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     return false;
                 }
             }
-            HirOidComponent::Number(arc) => {
+            OidComponent::Number(arc) => {
                 // Extend from current node
                 current_oid = current_oid.child(*arc);
 
@@ -513,7 +513,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     current_node = Some(new_id);
                 }
             }
-            HirOidComponent::NamedNumber { name, number } => {
+            OidComponent::NamedNumber { name, number } => {
                 // First try to look up the name
                 if let Some(node_id) = lookup_node_scoped(ctx, module_id, &name.name) {
                     current_node = Some(node_id);
@@ -567,7 +567,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     ctx.register_module_node_symbol(module_id, name_id, node_id);
                 }
             }
-            HirOidComponent::QualifiedName {
+            OidComponent::QualifiedName {
                 module: qual_module,
                 name,
             } => {
@@ -585,7 +585,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     return false;
                 }
             }
-            HirOidComponent::QualifiedNamedNumber {
+            OidComponent::QualifiedNamedNumber {
                 module: qual_module,
                 name,
                 number,
@@ -693,28 +693,28 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{
-        HirAccess, HirDefinition, HirImport, HirModule, HirObjectType, HirOidAssignment,
-        HirOidComponent, HirStatus, HirTypeSyntax, Symbol,
+    use crate::module::{
+        Access, Definition, Import, Module, ObjectType, OidAssignment,
+        OidComponent, Status, TypeSyntax, Symbol,
     };
     use crate::lexer::Span;
     use crate::resolver::phases::imports::resolve_imports;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
 
-    fn make_object_type(name: &str, oid_components: Vec<HirOidComponent>) -> HirDefinition {
-        HirDefinition::ObjectType(HirObjectType {
+    fn make_object_type(name: &str, oid_components: Vec<OidComponent>) -> Definition {
+        Definition::ObjectType(ObjectType {
             name: Symbol::from_name(name),
-            syntax: HirTypeSyntax::TypeRef(Symbol::from_name("Integer32")),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("Integer32")),
             units: None,
-            access: HirAccess::ReadOnly,
-            status: HirStatus::Current,
+            access: Access::ReadOnly,
+            status: Status::Current,
             description: None,
             reference: None,
             index: None,
             augments: None,
             defval: None,
-            oid: HirOidAssignment::new(oid_components, Span::new(0, 0)),
+            oid: OidAssignment::new(oid_components, Span::new(0, 0)),
             span: Span::new(0, 0),
         })
     }
@@ -723,16 +723,16 @@ mod tests {
     /// imports is a list of (symbol, `from_module`) pairs.
     fn make_test_module_with_imports(
         name: &str,
-        defs: Vec<HirDefinition>,
+        defs: Vec<Definition>,
         imports: Vec<(&str, &str)>,
-    ) -> HirModule {
-        let mut module = HirModule::new(Symbol::from_name(name), Span::new(0, 0));
+    ) -> Module {
+        let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.definitions = defs;
-        // HirImport::new takes (module, symbol, span)
+        // Import::new takes (module, symbol, span)
         module.imports = imports
             .into_iter()
             .map(|(sym, from)| {
-                HirImport::new(
+                Import::new(
                     Symbol::from_name(from),
                     Symbol::from_name(sym),
                     Span::new(0, 0),
@@ -747,8 +747,8 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_name("enterprises")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("enterprises")),
+                OidComponent::Number(1),
             ],
         );
 
@@ -787,19 +787,19 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::NamedNumber {
+                OidComponent::NamedNumber {
                     name: Symbol::from_name("iso"),
                     number: 1,
                 },
-                HirOidComponent::NamedNumber {
+                OidComponent::NamedNumber {
                     name: Symbol::from_name("org"),
                     number: 3,
                 },
-                HirOidComponent::Number(999),
+                OidComponent::Number(999),
             ],
         );
 
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -829,13 +829,13 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::Name(Symbol::from_name("unknownNode")),
-                HirOidComponent::Number(1),
+                OidComponent::Name(Symbol::from_name("unknownNode")),
+                OidComponent::Number(1),
             ],
         );
 
         // Module doesn't import unknownNode, so it should be unresolved
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -854,16 +854,16 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::QualifiedName {
+                OidComponent::QualifiedName {
                     module: Symbol::from_name("SNMPv2-SMI"),
                     name: Symbol::from_name("enterprises"),
                 },
-                HirOidComponent::Number(1),
+                OidComponent::Number(1),
             ],
         );
 
         // Module does NOT import enterprises, but uses qualified syntax
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -894,17 +894,17 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::QualifiedNamedNumber {
+                OidComponent::QualifiedNamedNumber {
                     module: Symbol::from_name("SNMPv2-SMI"),
                     name: Symbol::from_name("enterprises"),
                     number: 1, // enterprises is at 1.3.6.1.4.1
                 },
-                HirOidComponent::Number(42),
+                OidComponent::Number(42),
             ],
         );
 
         // Module does NOT import enterprises, but uses qualified syntax
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -935,15 +935,15 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::QualifiedName {
+                OidComponent::QualifiedName {
                     module: Symbol::from_name("NONEXISTENT-MIB"),
                     name: Symbol::from_name("unknownNode"),
                 },
-                HirOidComponent::Number(1),
+                OidComponent::Number(1),
             ],
         );
 
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);
@@ -964,15 +964,15 @@ mod tests {
         let obj = make_object_type(
             "testObject",
             vec![
-                HirOidComponent::NamedNumber {
+                OidComponent::NamedNumber {
                     name: Symbol::from_name("intermediate"),
                     number: 99,
                 },
-                HirOidComponent::Number(1),
+                OidComponent::Number(1),
             ],
         );
 
-        let mut module = HirModule::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
         module.definitions = vec![obj];
         let modules = vec![module];
         let mut ctx = ResolverContext::new(modules);

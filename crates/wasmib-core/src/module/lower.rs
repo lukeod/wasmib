@@ -1,35 +1,30 @@
-//! AST to HIR lowering.
+//! AST to module lowering.
 //!
-//! Transforms parsed AST into normalized HIR representation.
+//! Transforms parsed AST into module representation.
 //! This module handles:
 //! - Language detection from imports
-//! - Import normalization
-//! - Type normalization
-//! - Status normalization
 //! - Unification of SMIv1/SMIv2 forms
 
 use super::definition::{
-    HirAgentCapabilities, HirComplianceGroup, HirComplianceModule, HirComplianceObject,
-    HirDefinition, HirIndexItem, HirModuleCompliance, HirModuleIdentity, HirNotification,
-    HirNotificationGroup, HirNotificationVariation, HirObjectGroup, HirObjectIdentity,
-    HirObjectType, HirObjectVariation, HirRevision, HirSupportsModule, HirTrapInfo, HirTypeDef,
-    HirValueAssignment,
+    AgentCapabilities, ComplianceGroup, ComplianceModule, ComplianceObject, Definition, IndexItem,
+    ModuleCompliance, ModuleIdentity, Notification, NotificationGroup, NotificationVariation,
+    ObjectGroup, ObjectIdentity, ObjectType, ObjectVariation, Revision, SupportsModule, TrapInfo,
+    TypeDef, ValueAssignment,
 };
-use super::module::{HirImport, HirModule};
-use super::normalize::{is_smiv2_base_module, normalize_import, normalize_type_name};
+use super::module::{Import, Module};
 use super::syntax::{
-    HirConstraint, HirDefVal, HirOidAssignment, HirOidComponent, HirRange, HirRangeValue,
-    HirTypeSyntax, NamedBit, NamedNumber, SequenceField,
+    Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,
+    SequenceField, TypeSyntax,
 };
-use super::types::{HirAccess, HirStatus, SmiLanguage, Symbol};
+use super::types::{Access, SmiLanguage, Status, Symbol};
 use crate::ast::{
-    self, AccessValue, Constraint, DefValClause, DefValContent, Definition, IndexClause, Module,
-    OidComponent, RangeValue, StatusValue, TypeSyntax,
+    self, AccessValue, DefValClause, DefValContent, IndexClause, RangeValue as AstRangeValue,
+    StatusValue,
 };
 use crate::lexer::Diagnostic;
 use alloc::vec::Vec;
 
-/// Context for HIR lowering.
+/// Context for lowering.
 ///
 /// Tracks state during the lowering process.
 #[derive(Debug, Default)]
@@ -53,11 +48,21 @@ impl LoweringContext {
     }
 }
 
-/// Lower an AST module to HIR.
+/// Check if a module name is an `SMIv2` base module.
 ///
-/// This is the main entry point for HIR lowering. It:
+/// These modules indicate the MIB is using `SMIv2` syntax.
+fn is_smiv2_base_module(module: &str) -> bool {
+    matches!(
+        module,
+        "SNMPv2-SMI" | "SNMPv2-TC" | "SNMPv2-CONF" | "SNMPv2-MIB"
+    )
+}
+
+/// Lower an AST module.
+///
+/// This is the main entry point for lowering. It:
 /// 1. Detects the SMI language from imports
-/// 2. Normalizes imports
+/// 2. Lowers imports
 /// 3. Lowers each definition
 ///
 /// # Arguments
@@ -66,39 +71,39 @@ impl LoweringContext {
 ///
 /// # Returns
 ///
-/// A normalized HIR module with diagnostics.
+/// A module with diagnostics.
 #[must_use]
-pub fn lower_module(ast_module: &Module) -> HirModule {
+pub fn lower_module(ast_module: &ast::Module) -> Module {
     let mut ctx = LoweringContext::new();
 
-    // Create HIR module
-    let mut hir_module = HirModule::new(Symbol::from(&ast_module.name), ast_module.span);
+    // Create module
+    let mut module = Module::new(Symbol::from(&ast_module.name), ast_module.span);
 
     // Lower imports and detect language
-    hir_module.imports = lower_imports(&ast_module.imports, &mut ctx);
-    hir_module.language = ctx.language;
+    module.imports = lower_imports(&ast_module.imports, &mut ctx);
+    module.language = ctx.language;
 
     // Lower definitions
     for def in &ast_module.body {
-        if let Some(hir_def) = lower_definition(def, &ctx) {
-            hir_module.definitions.push(hir_def);
+        if let Some(lowered_def) = lower_definition(def, &ctx) {
+            module.definitions.push(lowered_def);
         }
     }
 
     // Collect diagnostics from AST and lowering
-    hir_module.diagnostics.clone_from(&ast_module.diagnostics);
-    hir_module.diagnostics.extend(ctx.diagnostics);
+    module.diagnostics.clone_from(&ast_module.diagnostics);
+    module.diagnostics.extend(ctx.diagnostics);
 
-    hir_module
+    module
 }
 
-/// Lower import clauses to HIR imports.
+/// Lower import clauses.
 ///
 /// Also detects SMI language from imports.
 fn lower_imports(
     import_clauses: &[ast::ImportClause],
     ctx: &mut LoweringContext,
-) -> Vec<HirImport> {
+) -> Vec<Import> {
     let mut imports = Vec::new();
 
     for clause in import_clauses {
@@ -109,12 +114,11 @@ fn lower_imports(
             ctx.language = SmiLanguage::Smiv2;
         }
 
-        // Flatten and normalize each symbol
+        // Flatten each symbol
         for symbol in &clause.symbols {
-            let normalized = normalize_import(from_module, &symbol.name);
-            imports.push(HirImport::new(
-                normalized.module,
-                normalized.symbol,
+            imports.push(Import::new(
+                Symbol::from_name(from_module),
+                Symbol::from(symbol.name.as_str()),
                 clause.span,
             ));
         }
@@ -128,48 +132,48 @@ fn lower_imports(
     imports
 }
 
-/// Lower a single definition to HIR.
+/// Lower a single definition.
 ///
 /// Returns `None` for definitions that are filtered out (MACRO, Error).
-fn lower_definition(def: &Definition, ctx: &LoweringContext) -> Option<HirDefinition> {
+fn lower_definition(def: &ast::Definition, ctx: &LoweringContext) -> Option<Definition> {
     match def {
-        Definition::ObjectType(d) => Some(HirDefinition::ObjectType(lower_object_type(d, ctx))),
-        Definition::ModuleIdentity(d) => {
-            Some(HirDefinition::ModuleIdentity(lower_module_identity(d)))
+        ast::Definition::ObjectType(d) => Some(Definition::ObjectType(lower_object_type(d, ctx))),
+        ast::Definition::ModuleIdentity(d) => {
+            Some(Definition::ModuleIdentity(lower_module_identity(d)))
         }
-        Definition::ObjectIdentity(d) => {
-            Some(HirDefinition::ObjectIdentity(lower_object_identity(d)))
+        ast::Definition::ObjectIdentity(d) => {
+            Some(Definition::ObjectIdentity(lower_object_identity(d)))
         }
-        Definition::NotificationType(d) => {
-            Some(HirDefinition::Notification(lower_notification_type(d)))
+        ast::Definition::NotificationType(d) => {
+            Some(Definition::Notification(lower_notification_type(d)))
         }
-        Definition::TrapType(d) => Some(HirDefinition::Notification(lower_trap_type(d))),
-        Definition::TextualConvention(d) => {
-            Some(HirDefinition::TypeDef(lower_textual_convention(d)))
+        ast::Definition::TrapType(d) => Some(Definition::Notification(lower_trap_type(d))),
+        ast::Definition::TextualConvention(d) => {
+            Some(Definition::TypeDef(lower_textual_convention(d)))
         }
-        Definition::TypeAssignment(d) => Some(HirDefinition::TypeDef(lower_type_assignment(d))),
-        Definition::ValueAssignment(d) => {
-            Some(HirDefinition::ValueAssignment(lower_value_assignment(d)))
+        ast::Definition::TypeAssignment(d) => Some(Definition::TypeDef(lower_type_assignment(d))),
+        ast::Definition::ValueAssignment(d) => {
+            Some(Definition::ValueAssignment(lower_value_assignment(d)))
         }
-        Definition::ObjectGroup(d) => Some(HirDefinition::ObjectGroup(lower_object_group(d))),
-        Definition::NotificationGroup(d) => Some(HirDefinition::NotificationGroup(
+        ast::Definition::ObjectGroup(d) => Some(Definition::ObjectGroup(lower_object_group(d))),
+        ast::Definition::NotificationGroup(d) => Some(Definition::NotificationGroup(
             lower_notification_group(d),
         )),
-        Definition::ModuleCompliance(d) => {
-            Some(HirDefinition::ModuleCompliance(lower_module_compliance(d)))
+        ast::Definition::ModuleCompliance(d) => {
+            Some(Definition::ModuleCompliance(lower_module_compliance(d)))
         }
-        Definition::AgentCapabilities(d) => Some(HirDefinition::AgentCapabilities(
+        ast::Definition::AgentCapabilities(d) => Some(Definition::AgentCapabilities(
             lower_agent_capabilities(d),
         )),
         // Filter out non-semantic definitions
-        Definition::MacroDefinition(_) | Definition::Error(_) => None,
+        ast::Definition::MacroDefinition(_) | ast::Definition::Error(_) => None,
     }
 }
 
 // === Definition lowering functions ===
 
-fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObjectType {
-    HirObjectType {
+fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> ObjectType {
+    ObjectType {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         units: def.units.as_ref().map(|u| u.value.clone()),
@@ -177,7 +181,7 @@ fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObj
         status: def
             .status
             .as_ref()
-            .map_or(HirStatus::Current, |s| lower_status(s.value)),
+            .map_or(Status::Current, |s| lower_status(s.value)),
         description: def.description.as_ref().map(|d| d.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
         index: lower_index_clause(def.index.as_ref()),
@@ -188,40 +192,40 @@ fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> HirObj
     }
 }
 
-/// Lower a DEFVAL clause from AST to HIR.
-fn lower_defval(clause: &DefValClause) -> HirDefVal {
+/// Lower a DEFVAL clause from AST.
+fn lower_defval(clause: &DefValClause) -> DefVal {
     lower_defval_content(&clause.value)
 }
 
-/// Lower `DefValContent` from AST to `HirDefVal`.
-fn lower_defval_content(content: &DefValContent) -> HirDefVal {
+/// Lower `DefValContent` from AST.
+fn lower_defval_content(content: &DefValContent) -> DefVal {
     match content {
-        DefValContent::Integer(n) => HirDefVal::Integer(*n),
-        DefValContent::Unsigned(n) => HirDefVal::Unsigned(*n),
-        DefValContent::String(qs) => HirDefVal::String(qs.value.clone()),
+        DefValContent::Integer(n) => DefVal::Integer(*n),
+        DefValContent::Unsigned(n) => DefVal::Unsigned(*n),
+        DefValContent::String(qs) => DefVal::String(qs.value.clone()),
         DefValContent::Identifier(ident) => {
             // Could be enum label or OID reference - we can't distinguish
             // until semantic analysis, so treat as Enum (most common case)
-            HirDefVal::Enum(Symbol::from(ident))
+            DefVal::Enum(Symbol::from(ident))
         }
         DefValContent::Bits { labels, .. } => {
-            HirDefVal::Bits(labels.iter().map(Symbol::from).collect())
+            DefVal::Bits(labels.iter().map(Symbol::from).collect())
         }
-        DefValContent::HexString { content, .. } => HirDefVal::HexString(content.clone()),
-        DefValContent::BinaryString { content, .. } => HirDefVal::BinaryString(content.clone()),
+        DefValContent::HexString { content, .. } => DefVal::HexString(content.clone()),
+        DefValContent::BinaryString { content, .. } => DefVal::BinaryString(content.clone()),
         DefValContent::ObjectIdentifier { components, .. } => {
-            HirDefVal::OidValue(lower_oid_components(components))
+            DefVal::OidValue(lower_oid_components(components))
         }
     }
 }
 
-/// Lower OID components from AST to HIR OID components.
-fn lower_oid_components(components: &[OidComponent]) -> Vec<HirOidComponent> {
+/// Lower OID components from AST.
+fn lower_oid_components(components: &[ast::OidComponent]) -> Vec<OidComponent> {
     components.iter().map(lower_oid_component).collect()
 }
 
-fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
-    HirModuleIdentity {
+fn lower_module_identity(def: &ast::ModuleIdentityDef) -> ModuleIdentity {
+    ModuleIdentity {
         name: Symbol::from(&def.name),
         last_updated: def.last_updated.value.clone(),
         organization: def.organization.value.clone(),
@@ -230,7 +234,7 @@ fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
         revisions: def
             .revisions
             .iter()
-            .map(|r| HirRevision {
+            .map(|r| Revision {
                 date: r.date.value.clone(),
                 description: r.description.value.clone(),
             })
@@ -240,8 +244,8 @@ fn lower_module_identity(def: &ast::ModuleIdentityDef) -> HirModuleIdentity {
     }
 }
 
-fn lower_object_identity(def: &ast::ObjectIdentityDef) -> HirObjectIdentity {
-    HirObjectIdentity {
+fn lower_object_identity(def: &ast::ObjectIdentityDef) -> ObjectIdentity {
+    ObjectIdentity {
         name: Symbol::from(&def.name),
         status: lower_status(def.status.value),
         description: def.description.value.clone(),
@@ -251,8 +255,8 @@ fn lower_object_identity(def: &ast::ObjectIdentityDef) -> HirObjectIdentity {
     }
 }
 
-fn lower_notification_type(def: &ast::NotificationTypeDef) -> HirNotification {
-    HirNotification {
+fn lower_notification_type(def: &ast::NotificationTypeDef) -> Notification {
+    Notification {
         name: Symbol::from(&def.name),
         objects: def.objects.iter().map(Symbol::from).collect(),
         status: lower_status(def.status.value),
@@ -264,14 +268,14 @@ fn lower_notification_type(def: &ast::NotificationTypeDef) -> HirNotification {
     }
 }
 
-fn lower_trap_type(def: &ast::TrapTypeDef) -> HirNotification {
-    HirNotification {
+fn lower_trap_type(def: &ast::TrapTypeDef) -> Notification {
+    Notification {
         name: Symbol::from(&def.name),
         objects: def.variables.iter().map(Symbol::from).collect(),
-        status: HirStatus::Current, // TRAP-TYPE doesn't have STATUS
+        status: Status::Current, // TRAP-TYPE doesn't have STATUS
         description: def.description.as_ref().map(|d| d.value.clone()),
         reference: def.reference.as_ref().map(|r| r.value.clone()),
-        trap_info: Some(HirTrapInfo {
+        trap_info: Some(TrapInfo {
             enterprise: Symbol::from(&def.enterprise),
             trap_number: def.trap_number,
         }),
@@ -280,8 +284,8 @@ fn lower_trap_type(def: &ast::TrapTypeDef) -> HirNotification {
     }
 }
 
-fn lower_textual_convention(def: &ast::TextualConventionDef) -> HirTypeDef {
-    HirTypeDef {
+fn lower_textual_convention(def: &ast::TextualConventionDef) -> TypeDef {
+    TypeDef {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
         display_hint: def.display_hint.as_ref().map(|h| h.value.clone()),
@@ -293,12 +297,12 @@ fn lower_textual_convention(def: &ast::TextualConventionDef) -> HirTypeDef {
     }
 }
 
-fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> HirTypeDef {
-    HirTypeDef {
+fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> TypeDef {
+    TypeDef {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax),
         display_hint: None,
-        status: HirStatus::Current,
+        status: Status::Current,
         description: None,
         reference: None,
         is_textual_convention: false,
@@ -306,16 +310,16 @@ fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> HirTypeDef {
     }
 }
 
-fn lower_value_assignment(def: &ast::ValueAssignmentDef) -> HirValueAssignment {
-    HirValueAssignment {
+fn lower_value_assignment(def: &ast::ValueAssignmentDef) -> ValueAssignment {
+    ValueAssignment {
         name: Symbol::from(&def.name),
         oid: lower_oid_assignment(&def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_object_group(def: &ast::ObjectGroupDef) -> HirObjectGroup {
-    HirObjectGroup {
+fn lower_object_group(def: &ast::ObjectGroupDef) -> ObjectGroup {
+    ObjectGroup {
         name: Symbol::from(&def.name),
         objects: def.objects.iter().map(Symbol::from).collect(),
         status: lower_status(def.status.value),
@@ -326,8 +330,8 @@ fn lower_object_group(def: &ast::ObjectGroupDef) -> HirObjectGroup {
     }
 }
 
-fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationGroup {
-    HirNotificationGroup {
+fn lower_notification_group(def: &ast::NotificationGroupDef) -> NotificationGroup {
+    NotificationGroup {
         name: Symbol::from(&def.name),
         notifications: def.notifications.iter().map(Symbol::from).collect(),
         status: lower_status(def.status.value),
@@ -338,8 +342,8 @@ fn lower_notification_group(def: &ast::NotificationGroupDef) -> HirNotificationG
     }
 }
 
-fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleCompliance {
-    HirModuleCompliance {
+fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> ModuleCompliance {
+    ModuleCompliance {
         name: Symbol::from(&def.name),
         status: lower_status(def.status.value),
         description: def.description.value.clone(),
@@ -350,9 +354,9 @@ fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> HirModuleComplianc
     }
 }
 
-/// Lower a compliance MODULE clause to HIR.
-fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
-    HirComplianceModule {
+/// Lower a compliance MODULE clause.
+fn lower_compliance_module(m: &ast::ComplianceModule) -> ComplianceModule {
+    ComplianceModule {
         module_name: m.module_name.as_ref().map(Symbol::from),
         mandatory_groups: m.mandatory_groups.iter().map(Symbol::from).collect(),
         groups: m
@@ -374,17 +378,17 @@ fn lower_compliance_module(m: &ast::ComplianceModule) -> HirComplianceModule {
     }
 }
 
-/// Lower a compliance GROUP clause to HIR.
-fn lower_compliance_group(g: &ast::ComplianceGroup) -> HirComplianceGroup {
-    HirComplianceGroup {
+/// Lower a compliance GROUP clause.
+fn lower_compliance_group(g: &ast::ComplianceGroup) -> ComplianceGroup {
+    ComplianceGroup {
         group: Symbol::from(&g.group),
         description: g.description.value.clone(),
     }
 }
 
-/// Lower a compliance OBJECT clause to HIR.
-fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
-    HirComplianceObject {
+/// Lower a compliance OBJECT clause.
+fn lower_compliance_object(o: &ast::ComplianceObject) -> ComplianceObject {
+    ComplianceObject {
         object: Symbol::from(&o.object),
         syntax: o.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
         write_syntax: o
@@ -396,8 +400,8 @@ fn lower_compliance_object(o: &ast::ComplianceObject) -> HirComplianceObject {
     }
 }
 
-fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> HirAgentCapabilities {
-    HirAgentCapabilities {
+fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> AgentCapabilities {
+    AgentCapabilities {
         name: Symbol::from(&def.name),
         product_release: def.product_release.value.clone(),
         status: lower_status(def.status.value),
@@ -409,7 +413,7 @@ fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> HirAgentCapabili
     }
 }
 
-fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
+fn lower_supports_module(module: &ast::SupportsModule) -> SupportsModule {
     let mut object_variations = Vec::new();
     let mut notification_variations = Vec::new();
 
@@ -424,7 +428,7 @@ fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
         }
     }
 
-    HirSupportsModule {
+    SupportsModule {
         module_name: Symbol::from(&module.module_name),
         includes: module.includes.iter().map(Symbol::from).collect(),
         object_variations,
@@ -432,8 +436,8 @@ fn lower_supports_module(module: &ast::SupportsModule) -> HirSupportsModule {
     }
 }
 
-fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
-    HirObjectVariation {
+fn lower_object_variation(v: &ast::ObjectVariation) -> ObjectVariation {
+    ObjectVariation {
         object: Symbol::from(&v.object),
         syntax: v.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
         write_syntax: v
@@ -450,8 +454,8 @@ fn lower_object_variation(v: &ast::ObjectVariation) -> HirObjectVariation {
     }
 }
 
-fn lower_notification_variation(v: &ast::NotificationVariation) -> HirNotificationVariation {
-    HirNotificationVariation {
+fn lower_notification_variation(v: &ast::NotificationVariation) -> NotificationVariation {
+    NotificationVariation {
         notification: Symbol::from(&v.notification),
         access: v.access.as_ref().map(|a| lower_access(a.value)),
         description: v.description.value.clone(),
@@ -460,21 +464,19 @@ fn lower_notification_variation(v: &ast::NotificationVariation) -> HirNotificati
 
 // === Helper lowering functions ===
 
-/// Lower AST type syntax to HIR type syntax with normalization.
-fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
+/// Lower AST type syntax.
+fn lower_type_syntax(syntax: &ast::TypeSyntax) -> TypeSyntax {
     match syntax {
-        TypeSyntax::TypeRef(ident) => {
-            // Normalize type name (Counter→Counter32, etc.)
-            let normalized_name = normalize_type_name(&ident.name);
-            HirTypeSyntax::TypeRef(Symbol::from_name(normalized_name))
+        ast::TypeSyntax::TypeRef(ident) => {
+            TypeSyntax::TypeRef(Symbol::from(ident))
         }
-        TypeSyntax::IntegerEnum { named_numbers, .. } => HirTypeSyntax::IntegerEnum(
+        ast::TypeSyntax::IntegerEnum { named_numbers, .. } => TypeSyntax::IntegerEnum(
             named_numbers
                 .iter()
                 .map(|nn| NamedNumber::new(Symbol::from(&nn.name), nn.value))
                 .collect(),
         ),
-        TypeSyntax::Bits { named_bits, .. } => HirTypeSyntax::Bits(
+        ast::TypeSyntax::Bits { named_bits, .. } => TypeSyntax::Bits(
             named_bits
                 .iter()
                 .map(|nb| {
@@ -485,90 +487,90 @@ fn lower_type_syntax(syntax: &TypeSyntax) -> HirTypeSyntax {
                 })
                 .collect(),
         ),
-        TypeSyntax::Constrained {
+        ast::TypeSyntax::Constrained {
             base, constraint, ..
-        } => HirTypeSyntax::Constrained {
+        } => TypeSyntax::Constrained {
             base: alloc::boxed::Box::new(lower_type_syntax(base)),
             constraint: lower_constraint(constraint),
         },
-        TypeSyntax::SequenceOf { entry_type, .. } => {
-            HirTypeSyntax::SequenceOf(Symbol::from(entry_type))
+        ast::TypeSyntax::SequenceOf { entry_type, .. } => {
+            TypeSyntax::SequenceOf(Symbol::from(entry_type))
         }
-        TypeSyntax::Sequence { fields, .. } => HirTypeSyntax::Sequence(
+        ast::TypeSyntax::Sequence { fields, .. } => TypeSyntax::Sequence(
             fields
                 .iter()
                 .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(&f.syntax)))
                 .collect(),
         ),
-        TypeSyntax::OctetString { .. } => HirTypeSyntax::OctetString,
-        TypeSyntax::ObjectIdentifier { .. } => HirTypeSyntax::ObjectIdentifier,
+        ast::TypeSyntax::OctetString { .. } => TypeSyntax::OctetString,
+        ast::TypeSyntax::ObjectIdentifier { .. } => TypeSyntax::ObjectIdentifier,
     }
 }
 
-/// Lower AST constraint to HIR constraint.
-fn lower_constraint(constraint: &Constraint) -> HirConstraint {
+/// Lower AST constraint.
+fn lower_constraint(constraint: &ast::Constraint) -> Constraint {
     match constraint {
-        Constraint::Size { ranges, .. } => {
-            HirConstraint::Size(ranges.iter().map(lower_range).collect())
+        ast::Constraint::Size { ranges, .. } => {
+            Constraint::Size(ranges.iter().map(lower_range).collect())
         }
-        Constraint::Range { ranges, .. } => {
-            HirConstraint::Range(ranges.iter().map(lower_range).collect())
+        ast::Constraint::Range { ranges, .. } => {
+            Constraint::Range(ranges.iter().map(lower_range).collect())
         }
     }
 }
 
-/// Lower AST range to HIR range.
-fn lower_range(range: &ast::Range) -> HirRange {
-    HirRange {
+/// Lower AST range.
+fn lower_range(range: &ast::Range) -> Range {
+    Range {
         min: lower_range_value(&range.min),
         max: range.max.as_ref().map(lower_range_value),
     }
 }
 
-/// Lower AST range value to HIR range value.
-fn lower_range_value(value: &RangeValue) -> HirRangeValue {
+/// Lower AST range value.
+fn lower_range_value(value: &AstRangeValue) -> RangeValue {
     match value {
-        RangeValue::Signed(n) => HirRangeValue::Signed(*n),
-        RangeValue::Unsigned(n) => HirRangeValue::Unsigned(*n),
-        RangeValue::Ident(ident) => {
+        AstRangeValue::Signed(n) => RangeValue::Signed(*n),
+        AstRangeValue::Unsigned(n) => RangeValue::Unsigned(*n),
+        AstRangeValue::Ident(ident) => {
             // Handle MIN/MAX keywords
             match ident.name.as_str() {
-                "MIN" => HirRangeValue::Min,
-                "MAX" => HirRangeValue::Max,
+                "MIN" => RangeValue::Min,
+                "MAX" => RangeValue::Max,
                 // Shouldn't happen, but fallback to unsigned 0
-                _ => HirRangeValue::Unsigned(0),
+                _ => RangeValue::Unsigned(0),
             }
         }
     }
 }
 
-/// Lower AST OID assignment to HIR OID assignment.
-fn lower_oid_assignment(oid: &ast::OidAssignment) -> HirOidAssignment {
-    HirOidAssignment {
+/// Lower AST OID assignment.
+fn lower_oid_assignment(oid: &ast::OidAssignment) -> OidAssignment {
+    OidAssignment {
         components: oid.components.iter().map(lower_oid_component).collect(),
         span: oid.span,
     }
 }
 
-/// Lower AST OID component to HIR OID component.
-fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
+/// Lower AST OID component.
+fn lower_oid_component(comp: &ast::OidComponent) -> OidComponent {
     match comp {
-        OidComponent::Name(ident) => HirOidComponent::Name(Symbol::from(ident)),
-        OidComponent::Number { value, .. } => HirOidComponent::Number(*value),
-        OidComponent::NamedNumber { name, number, .. } => HirOidComponent::NamedNumber {
+        ast::OidComponent::Name(ident) => OidComponent::Name(Symbol::from(ident)),
+        ast::OidComponent::Number { value, .. } => OidComponent::Number(*value),
+        ast::OidComponent::NamedNumber { name, number, .. } => OidComponent::NamedNumber {
             name: Symbol::from(name),
             number: *number,
         },
-        OidComponent::QualifiedName { module, name, .. } => HirOidComponent::QualifiedName {
+        ast::OidComponent::QualifiedName { module, name, .. } => OidComponent::QualifiedName {
             module: Symbol::from(module),
             name: Symbol::from(name),
         },
-        OidComponent::QualifiedNamedNumber {
+        ast::OidComponent::QualifiedNamedNumber {
             module,
             name,
             number,
             ..
-        } => HirOidComponent::QualifiedNamedNumber {
+        } => OidComponent::QualifiedNamedNumber {
             module: Symbol::from(module),
             name: Symbol::from(name),
             number: *number,
@@ -576,35 +578,35 @@ fn lower_oid_component(comp: &OidComponent) -> HirOidComponent {
     }
 }
 
-/// Lower AST access value to HIR access.
-fn lower_access(access: AccessValue) -> HirAccess {
+/// Lower AST access value.
+fn lower_access(access: AccessValue) -> Access {
     match access {
-        AccessValue::ReadOnly | AccessValue::ReportOnly => HirAccess::ReadOnly,
+        AccessValue::ReadOnly | AccessValue::ReportOnly => Access::ReadOnly,
         AccessValue::ReadWrite | AccessValue::Install | AccessValue::InstallNotify => {
-            HirAccess::ReadWrite
+            Access::ReadWrite
         }
-        AccessValue::ReadCreate => HirAccess::ReadCreate,
-        AccessValue::NotAccessible | AccessValue::NotImplemented => HirAccess::NotAccessible,
-        AccessValue::AccessibleForNotify => HirAccess::AccessibleForNotify,
-        AccessValue::WriteOnly => HirAccess::WriteOnly,
+        AccessValue::ReadCreate => Access::ReadCreate,
+        AccessValue::NotAccessible | AccessValue::NotImplemented => Access::NotAccessible,
+        AccessValue::AccessibleForNotify => Access::AccessibleForNotify,
+        AccessValue::WriteOnly => Access::WriteOnly,
     }
 }
 
-/// Lower AST status value to HIR status with normalization.
-fn lower_status(status: StatusValue) -> HirStatus {
+/// Lower AST status value.
+fn lower_status(status: StatusValue) -> Status {
     match status {
-        StatusValue::Current | StatusValue::Mandatory => HirStatus::Current,
-        StatusValue::Deprecated | StatusValue::Optional => HirStatus::Deprecated,
-        StatusValue::Obsolete => HirStatus::Obsolete,
+        StatusValue::Current | StatusValue::Mandatory => Status::Current,
+        StatusValue::Deprecated | StatusValue::Optional => Status::Deprecated,
+        StatusValue::Obsolete => Status::Obsolete,
     }
 }
 
-/// Lower AST index clause to HIR index items.
-fn lower_index_clause(clause: Option<&IndexClause>) -> Option<Vec<HirIndexItem>> {
+/// Lower AST index clause.
+fn lower_index_clause(clause: Option<&IndexClause>) -> Option<Vec<IndexItem>> {
     clause.map(|c| match c {
         IndexClause::Index { indexes, .. } | IndexClause::PibIndex { indexes, .. } => indexes
             .iter()
-            .map(|i| HirIndexItem::new(Symbol::from(&i.object), i.implied))
+            .map(|i| IndexItem::new(Symbol::from(&i.object), i.implied))
             .collect(),
     })
 }
@@ -615,18 +617,18 @@ mod tests {
 
     #[test]
     fn test_lower_access() {
-        assert_eq!(lower_access(AccessValue::ReadOnly), HirAccess::ReadOnly);
-        assert_eq!(lower_access(AccessValue::ReadWrite), HirAccess::ReadWrite);
-        assert_eq!(lower_access(AccessValue::ReadCreate), HirAccess::ReadCreate);
+        assert_eq!(lower_access(AccessValue::ReadOnly), Access::ReadOnly);
+        assert_eq!(lower_access(AccessValue::ReadWrite), Access::ReadWrite);
+        assert_eq!(lower_access(AccessValue::ReadCreate), Access::ReadCreate);
     }
 
     #[test]
     fn test_lower_status() {
-        assert_eq!(lower_status(StatusValue::Current), HirStatus::Current);
-        assert_eq!(lower_status(StatusValue::Deprecated), HirStatus::Deprecated);
-        assert_eq!(lower_status(StatusValue::Obsolete), HirStatus::Obsolete);
+        assert_eq!(lower_status(StatusValue::Current), Status::Current);
+        assert_eq!(lower_status(StatusValue::Deprecated), Status::Deprecated);
+        assert_eq!(lower_status(StatusValue::Obsolete), Status::Obsolete);
         // SMIv1 normalization
-        assert_eq!(lower_status(StatusValue::Mandatory), HirStatus::Current);
-        assert_eq!(lower_status(StatusValue::Optional), HirStatus::Deprecated);
+        assert_eq!(lower_status(StatusValue::Mandatory), Status::Current);
+        assert_eq!(lower_status(StatusValue::Optional), Status::Deprecated);
     }
 }

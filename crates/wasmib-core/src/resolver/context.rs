@@ -6,7 +6,17 @@
 //! Each `StrId` is 4 bytes vs ~24+ bytes for String, significantly reducing
 //! memory when processing large MIB corpora with hundreds of thousands of symbols.
 
-use crate::hir::HirModule;
+use crate::module::Module;
+
+/// Check if a type name is an ASN.1 primitive that doesn't require explicit import.
+///
+/// These are the fundamental ASN.1 types that MIBs use directly without importing.
+fn is_asn1_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "INTEGER" | "OCTET STRING" | "OBJECT IDENTIFIER" | "BITS"
+    )
+}
 use crate::lexer::Span;
 use crate::model::{
     Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedImportReason,
@@ -21,7 +31,7 @@ pub struct ResolverContext {
     /// The model being built.
     pub model: Model,
     /// HIR modules being resolved.
-    pub hir_modules: Vec<HirModule>,
+    pub hir_modules: Vec<Module>,
     /// Module name -> list of `ModuleIds` (handles duplicate module names).
     /// Multiple files may declare the same MODULE-IDENTITY name.
     /// Uses `StrId` keys for memory efficiency.
@@ -39,14 +49,18 @@ pub struct ResolverContext {
     /// Tracks which specific module was chosen for each import.
     /// Uses `StrId` for symbol names for memory efficiency.
     pub module_imports: BTreeMap<(ModuleId, StrId), ModuleId>,
-    /// Symbol name -> `TypeId` mapping for type resolution.
-    /// Uses `StrId` keys for memory efficiency.
-    pub symbol_to_type: BTreeMap<StrId, TypeId>,
+    /// Per-module symbol -> `TypeId` mapping for module-local type definitions.
+    /// Key: (`ModuleId`, `type_name`) -> `TypeId`
+    /// Uses `StrId` for type names for memory efficiency.
+    pub module_symbol_to_type: BTreeMap<(ModuleId, StrId), TypeId>,
+    /// The `ModuleId` for SNMPv2-SMI, used for ASN.1 primitive lookup.
+    /// Set during registration phase when synthetic modules are registered.
+    pub snmpv2_smi_module_id: Option<ModuleId>,
 }
 
 impl ResolverContext {
     /// Create a new resolver context.
-    pub fn new(hir_modules: Vec<HirModule>) -> Self {
+    pub fn new(hir_modules: Vec<Module>) -> Self {
         Self {
             model: Model::new(),
             hir_modules,
@@ -55,7 +69,8 @@ impl ResolverContext {
             hir_index_to_module_id: BTreeMap::new(),
             module_symbol_to_node: BTreeMap::new(),
             module_imports: BTreeMap::new(),
-            symbol_to_type: BTreeMap::new(),
+            module_symbol_to_type: BTreeMap::new(),
+            snmpv2_smi_module_id: None,
         }
     }
 
@@ -157,7 +172,7 @@ impl ResolverContext {
     }
 
     /// Get the HIR module for a `ModuleId`.
-    pub fn get_hir_module(&self, module_id: ModuleId) -> Option<&HirModule> {
+    pub fn get_hir_module(&self, module_id: ModuleId) -> Option<&Module> {
         self.module_id_to_hir_index
             .get(&module_id)
             .and_then(|&idx| self.hir_modules.get(idx))
@@ -170,10 +185,84 @@ impl ResolverContext {
         self.lookup_node_in_module("SNMPv2-SMI", name)
     }
 
-    /// Look up a type by symbol name.
+    /// Look up a type by symbol name in the SNMPv2-SMI module.
+    /// Used for primitive type lookup (INTEGER, OCTET STRING, etc.)
     pub fn lookup_type(&self, name: &str) -> Option<TypeId> {
+        // First try SNMPv2-SMI for primitives
+        if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id {
+            if let Some(type_id) = self.lookup_type_for_module(snmpv2_smi_id, name) {
+                return Some(type_id);
+            }
+        }
+
+        // For non-primitives, search all modules
+        // This is used for convenience (tests, simple lookups)
         let name_id = self.model.strings().find(name)?;
-        self.symbol_to_type.get(&name_id).copied()
+        for &type_id in self.module_symbol_to_type.values() {
+            if let Some(typ) = self.model.get_type(type_id) {
+                if typ.name == name_id {
+                    return Some(type_id);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Look up a type by symbol name in a specific module's scope.
+    /// Order: 1) module-local types, 2) imports (following import chain), 3) global fallback.
+    /// Cycle-safe: returns None if a cyclic import chain is detected.
+    pub fn lookup_type_for_module(&self, module_id: ModuleId, name: &str) -> Option<TypeId> {
+        let name_id = self.model.strings().find(name)?;
+        self.lookup_type_for_module_interned(module_id, name_id)
+    }
+
+    /// Look up a type by interned symbol in a specific module's scope.
+    fn lookup_type_for_module_interned(
+        &self,
+        module_id: ModuleId,
+        name: StrId,
+    ) -> Option<TypeId> {
+        let mut visited = BTreeSet::new();
+        let mut current = module_id;
+
+        loop {
+            // Cycle detection: if we've seen this module before, stop
+            if !visited.insert(current) {
+                break;
+            }
+
+            let key = (current, name);
+
+            // Check module-local type definitions
+            if let Some(&type_id) = self.module_symbol_to_type.get(&key) {
+                return Some(type_id);
+            }
+
+            // Check imports - continue to source module
+            if let Some(&source_module_id) = self.module_imports.get(&key) {
+                current = source_module_id;
+                continue;
+            }
+
+            // No more imports to follow
+            break;
+        }
+
+        // ASN.1 primitives: implicit access without explicit import
+        // Check if this is a primitive (INTEGER, OCTET STRING, OBJECT IDENTIFIER, BITS)
+        // and look it up in SNMPv2-SMI
+        if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id {
+            let name_str = self.model.strings().get(name);
+            if is_asn1_primitive(name_str) {
+                return self
+                    .module_symbol_to_type
+                    .get(&(snmpv2_smi_id, name))
+                    .copied();
+            }
+        }
+
+        None
     }
 
     /// Register a module-scoped symbol -> node mapping.
@@ -187,9 +276,14 @@ impl ResolverContext {
             .insert((module_id, symbol_name), node_id);
     }
 
-    /// Register a symbol -> type mapping.
-    pub fn register_type_symbol(&mut self, name: StrId, type_id: TypeId) {
-        self.symbol_to_type.insert(name, type_id);
+    /// Register a module-scoped symbol -> type mapping.
+    pub fn register_module_type_symbol(
+        &mut self,
+        module_id: ModuleId,
+        name: StrId,
+        type_id: TypeId,
+    ) {
+        self.module_symbol_to_type.insert((module_id, name), type_id);
     }
 
     /// Record an unresolved import with its failure reason.
@@ -289,12 +383,12 @@ impl ResolverContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::{HirModule, Symbol};
+    use crate::module::{Module, Symbol};
     use crate::lexer::Span;
     use crate::model::{OidNode, ResolvedModule};
 
-    fn make_test_module(name: &str) -> HirModule {
-        HirModule::new(Symbol::from_name(name), Span::SYNTHETIC)
+    fn make_test_module(name: &str) -> Module {
+        Module::new(Symbol::from_name(name), Span::SYNTHETIC)
     }
 
     #[test]
