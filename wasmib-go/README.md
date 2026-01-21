@@ -11,17 +11,26 @@ high throughput.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
+│ Go (native)                                                     │
+│                                                                 │
+│  File I/O ─────► Load MIB bytes                                 │
+│  (disk, embed,      │                                           │
+│   network)          │                                           │
+└─────────────────────┼───────────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────────┐
 │ Rust/WASM                                                       │
 │                                                                 │
-│  MIB Sources → Lexer → Parser → Resolver → Model                │
-│                                               │                 │
-│                                               ▼                 │
-│                                    serialize (postcard)         │
-└───────────────────────────────────────────────┬─────────────────┘
-                                                │
-                                    One-time transfer
-                                                │
-┌───────────────────────────────────────────────▼─────────────────┐
+│  MIB bytes → Lexer → Parser → Resolver → Model                  │
+│                                             │                   │
+│                                             ▼                   │
+│                                  serialize (postcard)           │
+└─────────────────────────────────────────────┬───────────────────┘
+                                              │
+                                  One-time transfer
+                                              │
+┌─────────────────────────────────────────────▼───────────────────┐
 │ Go (native)                                                     │
 │                                                                 │
 │  Deserialize → Model (read-only)                                │
@@ -36,15 +45,18 @@ high throughput.
 
 wasmib uses a "serialize to host" pattern:
 
-1. **Rust/WASM** handles the complex work: lexing, parsing, cross-module
-   resolution, OID tree construction, and semantic analysis. This runs once
-   during initialization.
+1. **Go handles all I/O**: reading MIB files from disk, embedded filesystems,
+   or any other source. The raw bytes are passed to WASM for parsing.
 
-2. **The resolved Model is serialized** and transferred to Go as a single
-   blob. This includes the full OID tree, all type definitions, object
-   metadata, and an interned string table.
+2. **Rust/WASM** handles the complex work: lexing, parsing, cross-module
+   resolution, OID tree construction, and semantic analysis. The WASM module
+   has no filesystem access.
 
-3. **Go deserializes into native structs** and builds lookup indices. From
+3. **The resolved Model is serialized** and transferred back to Go as a
+   single blob. This includes the full OID tree, all type definitions,
+   object metadata, and an interned string table.
+
+4. **Go deserializes into native structs** and builds lookup indices. From
    this point on, all queries are pure Go with no WASM calls.
 
 This design enables unlimited concurrent queries from any number of goroutines
