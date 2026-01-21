@@ -321,7 +321,7 @@ func TestTreeWalkFromSubtree(t *testing.T) {
 
 	var count int
 	var tables, rows, columns int
-	model.Walk(model.GetNodeID(interfaces), func(n *Node) bool {
+	model.Walk(interfaces.ID, func(n *Node) bool {
 		count++
 		switch n.Kind {
 		case NodeKindTable:

@@ -102,6 +102,7 @@ func convertNodes(pbNodes []*proto.SerializedNode) []Node {
 	nodes := make([]Node, len(pbNodes))
 	for i, pb := range pbNodes {
 		nodes[i] = Node{
+			ID:          uint32(i + 1), // 1-indexed
 			Subid:       pb.Subid,
 			Parent:      pb.Parent,
 			Children:    pb.Children,

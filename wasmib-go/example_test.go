@@ -127,8 +127,7 @@ func ExampleModel_Walk() {
 	}
 
 	// Walk depth-first and print table/row structure
-	ifID := model.GetNodeID(interfaces)
-	model.Walk(ifID, func(n *wasmib.Node) bool {
+	model.Walk(interfaces.ID, func(n *wasmib.Node) bool {
 		if n.Kind == wasmib.NodeKindTable || n.Kind == wasmib.NodeKindRow {
 			name := ""
 			if len(n.Definitions) > 0 {

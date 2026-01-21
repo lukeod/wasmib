@@ -57,6 +57,7 @@ type Revision struct {
 
 // Node represents a position in the OID tree.
 type Node struct {
+	ID          uint32    // NodeId (1-indexed)
 	Subid       uint32    // Arc value at this position
 	Parent      uint32    // NodeId, 0 = root
 	Children    []uint32  // []NodeId
@@ -532,21 +533,6 @@ func parseOIDString(oid string) []uint32 {
 	return arcs
 }
 
-// GetNodeID returns the ID of a node.
-// Returns 0 if the node is not in this model.
-func (m *Model) GetNodeID(n *Node) uint32 {
-	if n == nil {
-		return 0
-	}
-	// Calculate index from pointer offset
-	for i := range m.nodes {
-		if &m.nodes[i] == n {
-			return uint32(i + 1)
-		}
-	}
-	return 0
-}
-
 // Walk traverses the tree depth-first from a starting node.
 // The callback returns false to stop traversal.
 func (m *Model) Walk(nodeID uint32, fn func(*Node) bool) {
@@ -663,28 +649,23 @@ func (m *Model) buildIndices() {
 	// Build node indices via tree walk
 	for _, rootID := range m.roots {
 		m.Walk(rootID, func(n *Node) bool {
-			nodeID := m.GetNodeID(n)
-			if nodeID == 0 {
-				return true
-			}
-
 			// OID index
 			oid := m.GetOID(n)
 			if oid != "" {
-				m.oidIndex[oid] = nodeID
+				m.oidIndex[oid] = n.ID
 			}
 
 			// Name and qualified name indices
 			for _, def := range n.Definitions {
 				name := m.GetStr(def.Label)
 				if name != "" {
-					m.nameIndex[name] = append(m.nameIndex[name], nodeID)
+					m.nameIndex[name] = append(m.nameIndex[name], n.ID)
 
 					if def.Module > 0 && int(def.Module) <= len(m.modules) {
 						modName := m.GetStr(m.modules[def.Module-1].Name)
 						if modName != "" {
 							qualName := modName + "::" + name
-							m.qualIndex[qualName] = nodeID
+							m.qualIndex[qualName] = n.ID
 						}
 					}
 				}
