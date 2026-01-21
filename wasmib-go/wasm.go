@@ -56,7 +56,7 @@ func NewCompiler(ctx context.Context) (*Compiler, error) {
 
 	module, err := runtime.Instantiate(ctx, wasmBytes)
 	if err != nil {
-		runtime.Close(ctx)
+		_ = runtime.Close(ctx)
 		return nil, fmt.Errorf("instantiating wasm: %w", err)
 	}
 
@@ -78,7 +78,7 @@ func NewCompiler(ctx context.Context) (*Compiler, error) {
 	if c.fnAlloc == nil || c.fnDealloc == nil || c.fnLoadModule == nil ||
 		c.fnResolve == nil || c.fnGetModel == nil || c.fnGetDiagnostics == nil ||
 		c.fnGetError == nil || c.fnReset == nil {
-		runtime.Close(ctx)
+		_ = runtime.Close(ctx)
 		return nil, fmt.Errorf("missing required WASM exports")
 	}
 
@@ -111,18 +111,21 @@ func (c *Compiler) LoadModule(source []byte) error {
 
 	// Write source to WASM memory
 	if !c.module.Memory().Write(ptr, source) {
-		c.fnDealloc.Call(c.ctx, uint64(ptr), uint64(len(source)))
+		// Dealloc errors ignored: we're already returning an error, and memory
+		// will be reclaimed when the WASM instance is closed regardless.
+		_, _ = c.fnDealloc.Call(c.ctx, uint64(ptr), uint64(len(source)))
 		return fmt.Errorf("memory write failed")
 	}
 
 	// Call load_module
 	results, err = c.fnLoadModule.Call(c.ctx, uint64(ptr), uint64(len(source)))
 	if err != nil {
-		c.fnDealloc.Call(c.ctx, uint64(ptr), uint64(len(source)))
+		_, _ = c.fnDealloc.Call(c.ctx, uint64(ptr), uint64(len(source)))
 		return fmt.Errorf("load_module call failed: %w", err)
 	}
 
-	// Deallocate
+	// Deallocate source buffer. Errors ignored: memory will be reclaimed when
+	// the WASM instance is closed, and there's no recovery action available.
 	_, _ = c.fnDealloc.Call(c.ctx, uint64(ptr), uint64(len(source)))
 
 	errCode := uint32(results[0])
@@ -235,14 +238,3 @@ func (c *Compiler) readLengthPrefixedString(ptr uint32) (string, error) {
 	return string(strBytes), nil
 }
 
-// CompilerConfig holds configuration for creating a Compiler.
-type CompilerConfig struct {
-	// Future: add configuration options like memory limits
-}
-
-// NewCompilerWithConfig creates a new WASM compiler with custom configuration.
-func NewCompilerWithConfig(ctx context.Context, config CompilerConfig) (*Compiler, error) {
-	// For now, just use the default constructor
-	// Future: apply configuration options
-	return NewCompiler(ctx)
-}

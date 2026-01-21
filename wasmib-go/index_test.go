@@ -302,7 +302,7 @@ func loadTestIndexModel(t *testing.T) *Model {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testIndexMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)

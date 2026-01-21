@@ -16,7 +16,7 @@ func loadTestCorpus(t *testing.T) *Model {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	// Load all files from testdata/
 	entries, err := os.ReadDir("testdata")
@@ -561,7 +561,7 @@ func setupBenchModel(b *testing.B) *Model {
 	if err != nil {
 		b.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	entries, err := os.ReadDir("testdata")
 	if err != nil {
@@ -773,7 +773,7 @@ func BenchmarkLoadAndResolve(b *testing.B) {
 			_ = compiler.LoadModule(source)
 		}
 		_, err = compiler.Resolve()
-		compiler.Close()
+		_ = compiler.Close()
 		if err != nil {
 			b.Fatal(err)
 		}

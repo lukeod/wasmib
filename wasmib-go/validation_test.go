@@ -147,7 +147,7 @@ func TestValidationAgainstSmidump(t *testing.T) {
 				wasmibKind := mapWasmibKind(node.Kind)
 				if wasmibKind != entry.Kind {
 					// Some flexibility: smidump may classify differently
-					if !(entry.Kind == "node" && (wasmibKind == "scalar" || wasmibKind == "node")) {
+					if entry.Kind != "node" || (wasmibKind != "scalar" && wasmibKind != "node") {
 						mismatches++
 						t.Logf("KIND MISMATCH: %s::%s - smidump=%s wasmib=%s",
 							entry.Module, entry.Name, entry.Kind, wasmibKind)

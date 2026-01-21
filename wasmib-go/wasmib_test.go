@@ -141,7 +141,7 @@ func TestCompilerBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	// Load the test MIB
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
@@ -174,7 +174,7 @@ func TestModelQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -335,7 +335,7 @@ func TestWalkAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -369,7 +369,7 @@ func TestCompilerReset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	// Load and resolve
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
@@ -408,11 +408,11 @@ func BenchmarkLoad(b *testing.B) {
 			b.Fatal(err)
 		}
 		if err := compiler.LoadModule(source); err != nil {
-			compiler.Close()
+			_ = compiler.Close()
 			b.Fatal(err)
 		}
 		_, err = compiler.Resolve()
-		compiler.Close()
+		_ = compiler.Close()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -426,7 +426,7 @@ func BenchmarkQuery(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		b.Fatal(err)
@@ -450,7 +450,7 @@ func TestGetNotificationObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testNotificationMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -510,7 +510,7 @@ func TestGetNotificationObjectsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testNotificationMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -546,7 +546,7 @@ func TestGetNotificationObjectsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -650,7 +650,7 @@ func TestGetIndexObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -705,7 +705,7 @@ func TestGetIndexObjectsNonRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -741,7 +741,7 @@ func TestGetIndexObjectsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -768,7 +768,7 @@ func TestGetAugmentsTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testAugmentsMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -813,7 +813,7 @@ func TestGetAugmentsTargetNoAugments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -849,7 +849,7 @@ func TestGetAugmentsTargetNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -876,7 +876,7 @@ func TestGetParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -917,7 +917,7 @@ func TestGetParentRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -952,7 +952,7 @@ func TestGetParentNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -977,7 +977,7 @@ func TestGetChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -1026,7 +1026,7 @@ func TestGetChildrenLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)
@@ -1057,7 +1057,7 @@ func TestGetChildrenNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCompiler failed: %v", err)
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
 		t.Fatalf("LoadModule failed: %v", err)

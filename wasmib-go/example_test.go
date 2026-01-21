@@ -191,7 +191,7 @@ func ExampleCompiler() {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	// Load modules individually
 	source := []byte(`

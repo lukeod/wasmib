@@ -420,7 +420,7 @@ func FormatValue(m *Model, obj *Object, value any) string {
 		return ""
 	}
 
-	var baseType BaseType = BaseTypeUnknown
+	baseType := BaseTypeUnknown
 	var hint string
 
 	if obj != nil && obj.TypeID != 0 {
@@ -517,10 +517,7 @@ func formatBytesValue(m *Model, obj *Object, baseType BaseType, hint string, val
 		i := 1
 		for i < len(value) {
 			var arc uint32
-			for {
-				if i >= len(value) {
-					break
-				}
+			for i < len(value) {
 				arc = arc<<7 | uint32(value[i]&0x7f)
 				if value[i]&0x80 == 0 {
 					i++

@@ -21,7 +21,7 @@ func Load(ctx context.Context, paths ...string) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	for _, path := range paths {
 		source, err := os.ReadFile(path)
@@ -52,7 +52,7 @@ func LoadBytes(ctx context.Context, sources map[string][]byte) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	for name, source := range sources {
 		if err := compiler.LoadModule(source); err != nil {
@@ -96,7 +96,7 @@ func LoadDirWithOptions(ctx context.Context, dir string, opts LoadDirOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	extSet := make(map[string]bool)
 	for _, ext := range opts.Extensions {
@@ -161,7 +161,7 @@ func LoadFS(ctx context.Context, fsys fs.FS, root string) (*Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer compiler.Close()
+	defer func() { _ = compiler.Close() }()
 
 	err = fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
