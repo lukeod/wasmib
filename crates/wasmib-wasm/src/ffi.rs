@@ -248,7 +248,9 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     let bytes = crate::serialize::to_bytes(&result.model, None);
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = if let Ok(len) = u32::try_from(bytes.len()) { len } else {
+    let len = if let Ok(len) = u32::try_from(bytes.len()) {
+        len
+    } else {
         state.set_error("serialized model too large (exceeds 4GB)");
         return error::INTERNAL_ERROR;
     };
@@ -274,7 +276,9 @@ pub extern "C" fn wasmib_resolve() -> u32 {
 pub extern "C" fn wasmib_get_model() -> *const u8 {
     let state = STATE.get();
 
-    if let Some(bytes) = &state.serialized_model { bytes.as_ptr() } else {
+    if let Some(bytes) = &state.serialized_model {
+        bytes.as_ptr()
+    } else {
         state.set_error("no model available");
         core::ptr::null()
     }
@@ -328,7 +332,9 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     json.push(']');
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = if let Ok(len) = u32::try_from(json.len()) { len } else {
+    let len = if let Ok(len) = u32::try_from(json.len()) {
+        len
+    } else {
         // Diagnostics too large - return empty array
         static EMPTY_ARRAY: &[u8] = b"\x02\x00\x00\x00[]";
         return EMPTY_ARRAY.as_ptr();

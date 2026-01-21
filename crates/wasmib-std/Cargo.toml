@@ -13,6 +13,7 @@ tracing = ["wasmib-core/tracing"]
 dhat-heap = ["dep:dhat"]
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 dhat = { version = "0.3", optional = true }
 wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std", "serde"] }
 wasmib-wasm = { path = "../wasmib-wasm", features = ["std"] }

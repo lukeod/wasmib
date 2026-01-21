@@ -551,10 +551,18 @@ fn serialize_strings(interner: &StringInterner) -> (String, Vec<StringOffset>) {
 fn serialize_module(module: &ResolvedModule) -> SerializedModule {
     SerializedModule {
         r#name: module.name.to_raw(),
-        r#last_updated: module.last_updated.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#contact_info: module.contact_info.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#organization: module.organization.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#description: module.description.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#last_updated: module
+            .last_updated
+            .map_or(0, wasmib_core::model::StrId::to_raw),
+        r#contact_info: module
+            .contact_info
+            .map_or(0, wasmib_core::model::StrId::to_raw),
+        r#organization: module
+            .organization
+            .map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: module
+            .description
+            .map_or(0, wasmib_core::model::StrId::to_raw),
         r#revisions: module.revisions.iter().map(serialize_revision).collect(),
     }
 }
@@ -581,7 +589,9 @@ fn serialize_node_def(def: &wasmib_core::model::NodeDefinition) -> SerializedNod
         r#module: def.module.to_raw(),
         r#label: def.label.to_raw(),
         r#object: def.object.map_or(0, wasmib_core::model::ObjectId::to_raw),
-        r#notification: def.notification.map_or(0, wasmib_core::model::NotificationId::to_raw),
+        r#notification: def
+            .notification
+            .map_or(0, wasmib_core::model::NotificationId::to_raw),
     }
 }
 
@@ -693,7 +703,9 @@ fn serialize_type(typ: &ResolvedType) -> SerializedType {
         r#module: typ.module.to_raw(),
         r#name: typ.name.to_raw(),
         r#base: u32::from(typ.base.as_u8()),
-        r#parent: typ.parent_type.map_or(0, wasmib_core::model::TypeId::to_raw),
+        r#parent: typ
+            .parent_type
+            .map_or(0, wasmib_core::model::TypeId::to_raw),
         r#status: u32::from(typ.status.as_u8()),
         r#is_tc: typ.is_textual_convention,
         r#hint: typ.hint.map_or(0, wasmib_core::model::StrId::to_raw),
@@ -773,7 +785,9 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
         r#module: notif.module.to_raw(),
         r#name: notif.name.to_raw(),
         r#status: u32::from(notif.status.as_u8()),
-        r#description: notif.description.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: notif
+            .description
+            .map_or(0, wasmib_core::model::StrId::to_raw),
         r#reference: notif.reference.map_or(0, wasmib_core::model::StrId::to_raw),
         r#objects: notif.objects.iter().map(|id| id.to_raw()).collect(),
     }

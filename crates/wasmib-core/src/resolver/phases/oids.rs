@@ -548,16 +548,15 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     }
 
                     // Add definition for intermediate named components (matches libsmi behavior)
-                    if !is_last
-                        && let Some(node_id) = current_node {
-                            let node_def = NodeDefinition::new(module_id, name_id);
-                            if let Some(node) = ctx.model.get_node_mut(node_id) {
-                                node.add_definition(node_def);
-                                if node.kind == NodeKind::Internal {
-                                    node.kind = NodeKind::Node;
-                                }
+                    if !is_last && let Some(node_id) = current_node {
+                        let node_def = NodeDefinition::new(module_id, name_id);
+                        if let Some(node) = ctx.model.get_node_mut(node_id) {
+                            node.add_definition(node_def);
+                            if node.kind == NodeKind::Internal {
+                                node.kind = NodeKind::Node;
                             }
                         }
+                    }
                 }
 
                 // Also register the name
@@ -623,16 +622,15 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     }
 
                     // Add definition for intermediate named components (matches libsmi behavior)
-                    if !is_last
-                        && let Some(node_id) = current_node {
-                            let node_def = NodeDefinition::new(module_id, name_id);
-                            if let Some(node) = ctx.model.get_node_mut(node_id) {
-                                node.add_definition(node_def);
-                                if node.kind == NodeKind::Internal {
-                                    node.kind = NodeKind::Node;
-                                }
+                    if !is_last && let Some(node_id) = current_node {
+                        let node_def = NodeDefinition::new(module_id, name_id);
+                        if let Some(node) = ctx.model.get_node_mut(node_id) {
+                            node.add_definition(node_def);
+                            if node.kind == NodeKind::Internal {
+                                node.kind = NodeKind::Node;
                             }
                         }
+                    }
                 }
 
                 // Also register the name for this module's scope

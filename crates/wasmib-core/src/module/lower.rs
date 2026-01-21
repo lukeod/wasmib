@@ -20,7 +20,9 @@ use super::syntax::{
     SequenceField, TypeSyntax,
 };
 use super::types::{Access, SmiLanguage, Status, Symbol};
-use crate::ast::{self, AccessValue, DefValContent, IndexClause, RangeValue as AstRangeValue, StatusValue};
+use crate::ast::{
+    self, AccessValue, DefValContent, IndexClause, RangeValue as AstRangeValue, StatusValue,
+};
 use crate::lexer::Diagnostic;
 use alloc::vec::Vec;
 
@@ -178,7 +180,9 @@ fn lower_object_type(def: ast::ObjectTypeDef, _ctx: &LoweringContext) -> ObjectT
         syntax: lower_type_syntax(def.syntax.syntax),
         units: def.units.map(|u| u.value),
         access: lower_access(def.access.value),
-        status: def.status.map_or(Status::Current, |s| lower_status(s.value)),
+        status: def
+            .status
+            .map_or(Status::Current, |s| lower_status(s.value)),
         description: def.description.map(|d| d.value),
         reference: def.reference.map(|r| r.value),
         index: lower_index_clause(def.index),
@@ -268,7 +272,11 @@ fn lower_notification_type(def: ast::NotificationTypeDef) -> Notification {
 fn lower_trap_type(def: ast::TrapTypeDef) -> Notification {
     Notification {
         name: Symbol::from(&def.name),
-        objects: def.variables.into_iter().map(|v| Symbol::from(&v)).collect(),
+        objects: def
+            .variables
+            .into_iter()
+            .map(|v| Symbol::from(&v))
+            .collect(),
         status: Status::Current, // TRAP-TYPE doesn't have STATUS
         description: def.description.map(|d| d.value),
         reference: def.reference.map(|r| r.value),
@@ -332,7 +340,11 @@ fn lower_object_group(def: ast::ObjectGroupDef) -> ObjectGroup {
 fn lower_notification_group(def: ast::NotificationGroupDef) -> NotificationGroup {
     NotificationGroup {
         name: Symbol::from(&def.name),
-        notifications: def.notifications.into_iter().map(|n| Symbol::from(&n)).collect(),
+        notifications: def
+            .notifications
+            .into_iter()
+            .map(|n| Symbol::from(&n))
+            .collect(),
         status: lower_status(def.status.value),
         description: def.description.value,
         reference: def.reference.map(|r| r.value),
@@ -347,7 +359,11 @@ fn lower_module_compliance(def: ast::ModuleComplianceDef) -> ModuleCompliance {
         status: lower_status(def.status.value),
         description: def.description.value,
         reference: def.reference.map(|r| r.value),
-        modules: def.modules.into_iter().map(lower_compliance_module).collect(),
+        modules: def
+            .modules
+            .into_iter()
+            .map(lower_compliance_module)
+            .collect(),
         oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
@@ -367,7 +383,11 @@ fn lower_compliance_module(m: ast::ComplianceModule) -> ComplianceModule {
 
     ComplianceModule {
         module_name: m.module_name.map(|n| Symbol::from(&n)),
-        mandatory_groups: m.mandatory_groups.into_iter().map(|g| Symbol::from(&g)).collect(),
+        mandatory_groups: m
+            .mandatory_groups
+            .into_iter()
+            .map(|g| Symbol::from(&g))
+            .collect(),
         groups,
         objects,
     }
@@ -399,7 +419,11 @@ fn lower_agent_capabilities(def: ast::AgentCapabilitiesDef) -> AgentCapabilities
         status: lower_status(def.status.value),
         description: def.description.value,
         reference: def.reference.map(|r| r.value),
-        supports: def.supports.into_iter().map(lower_supports_module).collect(),
+        supports: def
+            .supports
+            .into_iter()
+            .map(lower_supports_module)
+            .collect(),
         oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
@@ -422,7 +446,11 @@ fn lower_supports_module(module: ast::SupportsModule) -> SupportsModule {
 
     SupportsModule {
         module_name: Symbol::from(&module.module_name),
-        includes: module.includes.into_iter().map(|i| Symbol::from(&i)).collect(),
+        includes: module
+            .includes
+            .into_iter()
+            .map(|i| Symbol::from(&i))
+            .collect(),
         object_variations,
         notification_variations,
     }
@@ -434,7 +462,9 @@ fn lower_object_variation(v: ast::ObjectVariation) -> ObjectVariation {
         syntax: v.syntax.map(|s| lower_type_syntax(s.syntax)),
         write_syntax: v.write_syntax.map(|s| lower_type_syntax(s.syntax)),
         access: v.access.map(|a| lower_access(a.value)),
-        creation_requires: v.creation_requires.map(|objs| objs.into_iter().map(|o| Symbol::from(&o)).collect()),
+        creation_requires: v
+            .creation_requires
+            .map(|objs| objs.into_iter().map(|o| Symbol::from(&o)).collect()),
         defval: v.defval.map(lower_defval),
         description: v.description.value,
     }
@@ -531,7 +561,11 @@ fn lower_range_value(value: AstRangeValue) -> RangeValue {
 /// Lower AST OID assignment.
 fn lower_oid_assignment(oid: ast::OidAssignment) -> OidAssignment {
     OidAssignment {
-        components: oid.components.into_iter().map(lower_oid_component).collect(),
+        components: oid
+            .components
+            .into_iter()
+            .map(lower_oid_component)
+            .collect(),
         span: oid.span,
     }
 }

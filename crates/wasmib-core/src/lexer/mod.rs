@@ -321,6 +321,38 @@ impl<'src> Lexer<'src> {
         self.next_token()
     }
 
+    /// Check for and consume ---{eol} pattern (libsmi error recovery for odd dashes).
+    ///
+    /// Matches `---\n`, `---\r`, `---\r\n`, or `---{eof}`.
+    /// Returns true if the pattern was found and consumed.
+    fn try_consume_triple_dash_eol(&mut self) -> bool {
+        // Must have --- followed by EOL or EOF
+        if self.peek() != Some(b'-')
+            || self.peek_at(1) != Some(b'-')
+            || self.peek_at(2) != Some(b'-')
+        {
+            return false;
+        }
+
+        match self.peek_at(3) {
+            None | Some(b'\n') | Some(b'\r') => {
+                // Consume the three dashes
+                self.advance();
+                self.advance();
+                self.advance();
+                // Consume newline(s) if present
+                if self.peek() == Some(b'\r') {
+                    self.advance();
+                }
+                if self.peek() == Some(b'\n') {
+                    self.advance();
+                }
+                true
+            }
+            _ => false, // ---- or ---x: not this pattern
+        }
+    }
+
     /// Skip comment body and return the next real token.
     fn skip_comment(&mut self) -> Token {
         // We're already past the initial --
@@ -334,7 +366,6 @@ impl<'src> Lexer<'src> {
                 Some(b'\n' | b'\r') => {
                     // End of line ends comment
                     self.advance();
-                    // Handle \r\n
                     if self.peek() == Some(b'\n') {
                         self.advance();
                     }
@@ -342,46 +373,13 @@ impl<'src> Lexer<'src> {
                     return self.next_token();
                 }
                 Some(b'-') => {
-                    // Check what follows the dash
+                    // Check for ---{eol} special case first
+                    if self.try_consume_triple_dash_eol() {
+                        self.state = LexerState::Normal;
+                        return self.next_token();
+                    }
+                    // Check for -- (regular comment terminator)
                     if self.peek_at(1) == Some(b'-') {
-                        // We have at least --
-                        // Check for ---{eol} special case (libsmi error recovery for odd dashes)
-                        if self.peek_at(2) == Some(b'-') {
-                            // We have ---
-                            match self.peek_at(3) {
-                                None | Some(b'\n') => {
-                                    // ---{eof} or ---\n: consume all and continue
-                                    self.advance(); // first -
-                                    self.advance(); // second -
-                                    self.advance(); // third -
-                                    if self.peek() == Some(b'\n') {
-                                        self.advance();
-                                    }
-                                    self.state = LexerState::Normal;
-                                    return self.next_token();
-                                }
-                                Some(b'\r') => {
-                                    // ---\r or ---\r\n
-                                    self.advance(); // first -
-                                    self.advance(); // second -
-                                    self.advance(); // third -
-                                    self.advance(); // \r
-                                    if self.peek() == Some(b'\n') {
-                                        self.advance();
-                                    }
-                                    self.state = LexerState::Normal;
-                                    return self.next_token();
-                                }
-                                _ => {
-                                    // ---- or ---x: just match -- and exit comment
-                                    self.advance();
-                                    self.advance();
-                                    self.state = LexerState::Normal;
-                                    return self.next_token();
-                                }
-                            }
-                        }
-                        // Just --, end comment normally
                         self.advance();
                         self.advance();
                         self.state = LexerState::Normal;
