@@ -4,6 +4,9 @@
 //! This module handles:
 //! - Language detection from imports
 //! - Unification of SMIv1/SMIv2 forms
+//!
+//! Note: This module takes ownership of AST structures to avoid cloning strings.
+//! The AST is not needed after lowering.
 
 use super::definition::{
     AgentCapabilities, ComplianceGroup, ComplianceModule, ComplianceObject, Definition, IndexItem,
@@ -17,10 +20,7 @@ use super::syntax::{
     SequenceField, TypeSyntax,
 };
 use super::types::{Access, SmiLanguage, Status, Symbol};
-use crate::ast::{
-    self, AccessValue, DefValClause, DefValContent, IndexClause, RangeValue as AstRangeValue,
-    StatusValue,
-};
+use crate::ast::{self, AccessValue, DefValContent, IndexClause, RangeValue as AstRangeValue, StatusValue};
 use crate::lexer::Diagnostic;
 use alloc::vec::Vec;
 
@@ -60,38 +60,41 @@ fn is_smiv2_base_module(module: &str) -> bool {
 
 /// Lower an AST module.
 ///
-/// This is the main entry point for lowering. It:
+/// This is the main entry point for lowering. It takes ownership of the AST
+/// to avoid cloning strings - the AST is not needed after lowering.
+///
+/// It:
 /// 1. Detects the SMI language from imports
 /// 2. Lowers imports
 /// 3. Lowers each definition
 ///
 /// # Arguments
 ///
-/// * `ast_module` - The parsed AST module
+/// * `ast_module` - The parsed AST module (ownership transferred)
 ///
 /// # Returns
 ///
 /// A module with diagnostics.
 #[must_use]
-pub fn lower_module(ast_module: &ast::Module) -> Module {
+pub fn lower_module(ast_module: ast::Module) -> Module {
     let mut ctx = LoweringContext::new();
 
     // Create module
     let mut module = Module::new(Symbol::from(&ast_module.name), ast_module.span);
 
     // Lower imports and detect language
-    module.imports = lower_imports(&ast_module.imports, &mut ctx);
+    module.imports = lower_imports(ast_module.imports, &mut ctx);
     module.language = ctx.language;
 
     // Lower definitions
-    for def in &ast_module.body {
+    for def in ast_module.body {
         if let Some(lowered_def) = lower_definition(def, &ctx) {
             module.definitions.push(lowered_def);
         }
     }
 
-    // Collect diagnostics from AST and lowering
-    module.diagnostics.clone_from(&ast_module.diagnostics);
+    // Move diagnostics from AST
+    module.diagnostics = ast_module.diagnostics;
     module.diagnostics.extend(ctx.diagnostics);
 
     module
@@ -100,7 +103,7 @@ pub fn lower_module(ast_module: &ast::Module) -> Module {
 /// Lower import clauses.
 ///
 /// Also detects SMI language from imports.
-fn lower_imports(import_clauses: &[ast::ImportClause], ctx: &mut LoweringContext) -> Vec<Import> {
+fn lower_imports(import_clauses: Vec<ast::ImportClause>, ctx: &mut LoweringContext) -> Vec<Import> {
     let mut imports = Vec::new();
 
     for clause in import_clauses {
@@ -112,7 +115,7 @@ fn lower_imports(import_clauses: &[ast::ImportClause], ctx: &mut LoweringContext
         }
 
         // Flatten each symbol
-        for symbol in &clause.symbols {
+        for symbol in clause.symbols {
             imports.push(Import::new(
                 Symbol::from_name(from_module),
                 Symbol::from(symbol.name.as_str()),
@@ -132,7 +135,7 @@ fn lower_imports(import_clauses: &[ast::ImportClause], ctx: &mut LoweringContext
 /// Lower a single definition.
 ///
 /// Returns `None` for definitions that are filtered out (MACRO, Error).
-fn lower_definition(def: &ast::Definition, ctx: &LoweringContext) -> Option<Definition> {
+fn lower_definition(def: ast::Definition, ctx: &LoweringContext) -> Option<Definition> {
     match def {
         ast::Definition::ObjectType(d) => Some(Definition::ObjectType(lower_object_type(d, ctx))),
         ast::Definition::ModuleIdentity(d) => {
@@ -169,47 +172,44 @@ fn lower_definition(def: &ast::Definition, ctx: &LoweringContext) -> Option<Defi
 
 // === Definition lowering functions ===
 
-fn lower_object_type(def: &ast::ObjectTypeDef, _ctx: &LoweringContext) -> ObjectType {
+fn lower_object_type(def: ast::ObjectTypeDef, _ctx: &LoweringContext) -> ObjectType {
     ObjectType {
         name: Symbol::from(&def.name),
-        syntax: lower_type_syntax(&def.syntax.syntax),
-        units: def.units.as_ref().map(|u| u.value.clone()),
+        syntax: lower_type_syntax(def.syntax.syntax),
+        units: def.units.map(|u| u.value),
         access: lower_access(def.access.value),
-        status: def
-            .status
-            .as_ref()
-            .map_or(Status::Current, |s| lower_status(s.value)),
-        description: def.description.as_ref().map(|d| d.value.clone()),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        index: lower_index_clause(def.index.as_ref()),
-        augments: def.augments.as_ref().map(|a| Symbol::from(&a.target)),
-        defval: def.defval.as_ref().map(lower_defval),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        status: def.status.map_or(Status::Current, |s| lower_status(s.value)),
+        description: def.description.map(|d| d.value),
+        reference: def.reference.map(|r| r.value),
+        index: lower_index_clause(def.index),
+        augments: def.augments.map(|a| Symbol::from(&a.target)),
+        defval: def.defval.map(lower_defval),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
 /// Lower a DEFVAL clause from AST.
-fn lower_defval(clause: &DefValClause) -> DefVal {
-    lower_defval_content(&clause.value)
+fn lower_defval(clause: ast::DefValClause) -> DefVal {
+    lower_defval_content(clause.value)
 }
 
 /// Lower `DefValContent` from AST.
-fn lower_defval_content(content: &DefValContent) -> DefVal {
+fn lower_defval_content(content: DefValContent) -> DefVal {
     match content {
-        DefValContent::Integer(n) => DefVal::Integer(*n),
-        DefValContent::Unsigned(n) => DefVal::Unsigned(*n),
-        DefValContent::String(qs) => DefVal::String(qs.value.clone()),
+        DefValContent::Integer(n) => DefVal::Integer(n),
+        DefValContent::Unsigned(n) => DefVal::Unsigned(n),
+        DefValContent::String(qs) => DefVal::String(qs.value),
         DefValContent::Identifier(ident) => {
             // Could be enum label or OID reference - we can't distinguish
             // until semantic analysis, so treat as Enum (most common case)
-            DefVal::Enum(Symbol::from(ident))
+            DefVal::Enum(Symbol::from(&ident))
         }
         DefValContent::Bits { labels, .. } => {
-            DefVal::Bits(labels.iter().map(Symbol::from).collect())
+            DefVal::Bits(labels.into_iter().map(|l| Symbol::from(&l)).collect())
         }
-        DefValContent::HexString { content, .. } => DefVal::HexString(content.clone()),
-        DefValContent::BinaryString { content, .. } => DefVal::BinaryString(content.clone()),
+        DefValContent::HexString { content, .. } => DefVal::HexString(content),
+        DefValContent::BinaryString { content, .. } => DefVal::BinaryString(content),
         DefValContent::ObjectIdentifier { components, .. } => {
             DefVal::OidValue(lower_oid_components(components))
         }
@@ -217,61 +217,61 @@ fn lower_defval_content(content: &DefValContent) -> DefVal {
 }
 
 /// Lower OID components from AST.
-fn lower_oid_components(components: &[ast::OidComponent]) -> Vec<OidComponent> {
-    components.iter().map(lower_oid_component).collect()
+fn lower_oid_components(components: Vec<ast::OidComponent>) -> Vec<OidComponent> {
+    components.into_iter().map(lower_oid_component).collect()
 }
 
-fn lower_module_identity(def: &ast::ModuleIdentityDef) -> ModuleIdentity {
+fn lower_module_identity(def: ast::ModuleIdentityDef) -> ModuleIdentity {
     ModuleIdentity {
         name: Symbol::from(&def.name),
-        last_updated: def.last_updated.value.clone(),
-        organization: def.organization.value.clone(),
-        contact_info: def.contact_info.value.clone(),
-        description: def.description.value.clone(),
+        last_updated: def.last_updated.value,
+        organization: def.organization.value,
+        contact_info: def.contact_info.value,
+        description: def.description.value,
         revisions: def
             .revisions
-            .iter()
+            .into_iter()
             .map(|r| Revision {
-                date: r.date.value.clone(),
-                description: r.description.value.clone(),
+                date: r.date.value,
+                description: r.description.value,
             })
             .collect(),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_object_identity(def: &ast::ObjectIdentityDef) -> ObjectIdentity {
+fn lower_object_identity(def: ast::ObjectIdentityDef) -> ObjectIdentity {
     ObjectIdentity {
         name: Symbol::from(&def.name),
         status: lower_status(def.status.value),
-        description: def.description.value.clone(),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        description: def.description.value,
+        reference: def.reference.map(|r| r.value),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_notification_type(def: &ast::NotificationTypeDef) -> Notification {
+fn lower_notification_type(def: ast::NotificationTypeDef) -> Notification {
     Notification {
         name: Symbol::from(&def.name),
-        objects: def.objects.iter().map(Symbol::from).collect(),
+        objects: def.objects.into_iter().map(|o| Symbol::from(&o)).collect(),
         status: lower_status(def.status.value),
-        description: Some(def.description.value.clone()),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
+        description: Some(def.description.value),
+        reference: def.reference.map(|r| r.value),
         trap_info: None,
-        oid: Some(lower_oid_assignment(&def.oid_assignment)),
+        oid: Some(lower_oid_assignment(def.oid_assignment)),
         span: def.span,
     }
 }
 
-fn lower_trap_type(def: &ast::TrapTypeDef) -> Notification {
+fn lower_trap_type(def: ast::TrapTypeDef) -> Notification {
     Notification {
         name: Symbol::from(&def.name),
-        objects: def.variables.iter().map(Symbol::from).collect(),
+        objects: def.variables.into_iter().map(|v| Symbol::from(&v)).collect(),
         status: Status::Current, // TRAP-TYPE doesn't have STATUS
-        description: def.description.as_ref().map(|d| d.value.clone()),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
+        description: def.description.map(|d| d.value),
+        reference: def.reference.map(|r| r.value),
         trap_info: Some(TrapInfo {
             enterprise: Symbol::from(&def.enterprise),
             trap_number: def.trap_number,
@@ -281,24 +281,24 @@ fn lower_trap_type(def: &ast::TrapTypeDef) -> Notification {
     }
 }
 
-fn lower_textual_convention(def: &ast::TextualConventionDef) -> TypeDef {
+fn lower_textual_convention(def: ast::TextualConventionDef) -> TypeDef {
     TypeDef {
         name: Symbol::from(&def.name),
-        syntax: lower_type_syntax(&def.syntax.syntax),
+        syntax: lower_type_syntax(def.syntax.syntax),
         base_type: None, // Derived from syntax during resolution
-        display_hint: def.display_hint.as_ref().map(|h| h.value.clone()),
+        display_hint: def.display_hint.map(|h| h.value),
         status: lower_status(def.status.value),
-        description: Some(def.description.value.clone()),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
+        description: Some(def.description.value),
+        reference: def.reference.map(|r| r.value),
         is_textual_convention: true,
         span: def.span,
     }
 }
 
-fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> TypeDef {
+fn lower_type_assignment(def: ast::TypeAssignmentDef) -> TypeDef {
     TypeDef {
         name: Symbol::from(&def.name),
-        syntax: lower_type_syntax(&def.syntax),
+        syntax: lower_type_syntax(def.syntax),
         base_type: None, // Derived from syntax during resolution
         display_hint: None,
         status: Status::Current,
@@ -309,114 +309,107 @@ fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> TypeDef {
     }
 }
 
-fn lower_value_assignment(def: &ast::ValueAssignmentDef) -> ValueAssignment {
+fn lower_value_assignment(def: ast::ValueAssignmentDef) -> ValueAssignment {
     ValueAssignment {
         name: Symbol::from(&def.name),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_object_group(def: &ast::ObjectGroupDef) -> ObjectGroup {
+fn lower_object_group(def: ast::ObjectGroupDef) -> ObjectGroup {
     ObjectGroup {
         name: Symbol::from(&def.name),
-        objects: def.objects.iter().map(Symbol::from).collect(),
+        objects: def.objects.into_iter().map(|o| Symbol::from(&o)).collect(),
         status: lower_status(def.status.value),
-        description: def.description.value.clone(),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        description: def.description.value,
+        reference: def.reference.map(|r| r.value),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_notification_group(def: &ast::NotificationGroupDef) -> NotificationGroup {
+fn lower_notification_group(def: ast::NotificationGroupDef) -> NotificationGroup {
     NotificationGroup {
         name: Symbol::from(&def.name),
-        notifications: def.notifications.iter().map(Symbol::from).collect(),
+        notifications: def.notifications.into_iter().map(|n| Symbol::from(&n)).collect(),
         status: lower_status(def.status.value),
-        description: def.description.value.clone(),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        description: def.description.value,
+        reference: def.reference.map(|r| r.value),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_module_compliance(def: &ast::ModuleComplianceDef) -> ModuleCompliance {
+fn lower_module_compliance(def: ast::ModuleComplianceDef) -> ModuleCompliance {
     ModuleCompliance {
         name: Symbol::from(&def.name),
         status: lower_status(def.status.value),
-        description: def.description.value.clone(),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        modules: def.modules.iter().map(lower_compliance_module).collect(),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        description: def.description.value,
+        reference: def.reference.map(|r| r.value),
+        modules: def.modules.into_iter().map(lower_compliance_module).collect(),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
 /// Lower a compliance MODULE clause.
-fn lower_compliance_module(m: &ast::ComplianceModule) -> ComplianceModule {
+fn lower_compliance_module(m: ast::ComplianceModule) -> ComplianceModule {
+    let mut groups = Vec::new();
+    let mut objects = Vec::new();
+
+    for c in m.compliances {
+        match c {
+            ast::Compliance::Group(g) => groups.push(lower_compliance_group(g)),
+            ast::Compliance::Object(o) => objects.push(lower_compliance_object(o)),
+        }
+    }
+
     ComplianceModule {
-        module_name: m.module_name.as_ref().map(Symbol::from),
-        mandatory_groups: m.mandatory_groups.iter().map(Symbol::from).collect(),
-        groups: m
-            .compliances
-            .iter()
-            .filter_map(|c| match c {
-                ast::Compliance::Group(g) => Some(lower_compliance_group(g)),
-                ast::Compliance::Object(_) => None,
-            })
-            .collect(),
-        objects: m
-            .compliances
-            .iter()
-            .filter_map(|c| match c {
-                ast::Compliance::Object(o) => Some(lower_compliance_object(o)),
-                ast::Compliance::Group(_) => None,
-            })
-            .collect(),
+        module_name: m.module_name.map(|n| Symbol::from(&n)),
+        mandatory_groups: m.mandatory_groups.into_iter().map(|g| Symbol::from(&g)).collect(),
+        groups,
+        objects,
     }
 }
 
 /// Lower a compliance GROUP clause.
-fn lower_compliance_group(g: &ast::ComplianceGroup) -> ComplianceGroup {
+fn lower_compliance_group(g: ast::ComplianceGroup) -> ComplianceGroup {
     ComplianceGroup {
         group: Symbol::from(&g.group),
-        description: g.description.value.clone(),
+        description: g.description.value,
     }
 }
 
 /// Lower a compliance OBJECT clause.
-fn lower_compliance_object(o: &ast::ComplianceObject) -> ComplianceObject {
+fn lower_compliance_object(o: ast::ComplianceObject) -> ComplianceObject {
     ComplianceObject {
         object: Symbol::from(&o.object),
-        syntax: o.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
-        write_syntax: o
-            .write_syntax
-            .as_ref()
-            .map(|s| lower_type_syntax(&s.syntax)),
-        min_access: o.min_access.as_ref().map(|a| lower_access(a.value)),
-        description: o.description.value.clone(),
+        syntax: o.syntax.map(|s| lower_type_syntax(s.syntax)),
+        write_syntax: o.write_syntax.map(|s| lower_type_syntax(s.syntax)),
+        min_access: o.min_access.map(|a| lower_access(a.value)),
+        description: o.description.value,
     }
 }
 
-fn lower_agent_capabilities(def: &ast::AgentCapabilitiesDef) -> AgentCapabilities {
+fn lower_agent_capabilities(def: ast::AgentCapabilitiesDef) -> AgentCapabilities {
     AgentCapabilities {
         name: Symbol::from(&def.name),
-        product_release: def.product_release.value.clone(),
+        product_release: def.product_release.value,
         status: lower_status(def.status.value),
-        description: def.description.value.clone(),
-        reference: def.reference.as_ref().map(|r| r.value.clone()),
-        supports: def.supports.iter().map(lower_supports_module).collect(),
-        oid: lower_oid_assignment(&def.oid_assignment),
+        description: def.description.value,
+        reference: def.reference.map(|r| r.value),
+        supports: def.supports.into_iter().map(lower_supports_module).collect(),
+        oid: lower_oid_assignment(def.oid_assignment),
         span: def.span,
     }
 }
 
-fn lower_supports_module(module: &ast::SupportsModule) -> SupportsModule {
+fn lower_supports_module(module: ast::SupportsModule) -> SupportsModule {
     let mut object_variations = Vec::new();
     let mut notification_variations = Vec::new();
 
-    for variation in &module.variations {
+    for variation in module.variations {
         match variation {
             ast::Variation::Object(v) => {
                 object_variations.push(lower_object_variation(v));
@@ -429,53 +422,47 @@ fn lower_supports_module(module: &ast::SupportsModule) -> SupportsModule {
 
     SupportsModule {
         module_name: Symbol::from(&module.module_name),
-        includes: module.includes.iter().map(Symbol::from).collect(),
+        includes: module.includes.into_iter().map(|i| Symbol::from(&i)).collect(),
         object_variations,
         notification_variations,
     }
 }
 
-fn lower_object_variation(v: &ast::ObjectVariation) -> ObjectVariation {
+fn lower_object_variation(v: ast::ObjectVariation) -> ObjectVariation {
     ObjectVariation {
         object: Symbol::from(&v.object),
-        syntax: v.syntax.as_ref().map(|s| lower_type_syntax(&s.syntax)),
-        write_syntax: v
-            .write_syntax
-            .as_ref()
-            .map(|s| lower_type_syntax(&s.syntax)),
-        access: v.access.as_ref().map(|a| lower_access(a.value)),
-        creation_requires: v
-            .creation_requires
-            .as_ref()
-            .map(|objs| objs.iter().map(Symbol::from).collect()),
-        defval: v.defval.as_ref().map(lower_defval),
-        description: v.description.value.clone(),
+        syntax: v.syntax.map(|s| lower_type_syntax(s.syntax)),
+        write_syntax: v.write_syntax.map(|s| lower_type_syntax(s.syntax)),
+        access: v.access.map(|a| lower_access(a.value)),
+        creation_requires: v.creation_requires.map(|objs| objs.into_iter().map(|o| Symbol::from(&o)).collect()),
+        defval: v.defval.map(lower_defval),
+        description: v.description.value,
     }
 }
 
-fn lower_notification_variation(v: &ast::NotificationVariation) -> NotificationVariation {
+fn lower_notification_variation(v: ast::NotificationVariation) -> NotificationVariation {
     NotificationVariation {
         notification: Symbol::from(&v.notification),
-        access: v.access.as_ref().map(|a| lower_access(a.value)),
-        description: v.description.value.clone(),
+        access: v.access.map(|a| lower_access(a.value)),
+        description: v.description.value,
     }
 }
 
 // === Helper lowering functions ===
 
 /// Lower AST type syntax.
-fn lower_type_syntax(syntax: &ast::TypeSyntax) -> TypeSyntax {
+fn lower_type_syntax(syntax: ast::TypeSyntax) -> TypeSyntax {
     match syntax {
-        ast::TypeSyntax::TypeRef(ident) => TypeSyntax::TypeRef(Symbol::from(ident)),
+        ast::TypeSyntax::TypeRef(ident) => TypeSyntax::TypeRef(Symbol::from(&ident)),
         ast::TypeSyntax::IntegerEnum { named_numbers, .. } => TypeSyntax::IntegerEnum(
             named_numbers
-                .iter()
+                .into_iter()
                 .map(|nn| NamedNumber::new(Symbol::from(&nn.name), nn.value))
                 .collect(),
         ),
         ast::TypeSyntax::Bits { named_bits, .. } => TypeSyntax::Bits(
             named_bits
-                .iter()
+                .into_iter()
                 .map(|nb| {
                     // BITS positions are small non-negative integers (0-127)
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -487,16 +474,16 @@ fn lower_type_syntax(syntax: &ast::TypeSyntax) -> TypeSyntax {
         ast::TypeSyntax::Constrained {
             base, constraint, ..
         } => TypeSyntax::Constrained {
-            base: alloc::boxed::Box::new(lower_type_syntax(base)),
+            base: alloc::boxed::Box::new(lower_type_syntax(*base)),
             constraint: lower_constraint(constraint),
         },
         ast::TypeSyntax::SequenceOf { entry_type, .. } => {
-            TypeSyntax::SequenceOf(Symbol::from(entry_type))
+            TypeSyntax::SequenceOf(Symbol::from(&entry_type))
         }
         ast::TypeSyntax::Sequence { fields, .. } => TypeSyntax::Sequence(
             fields
-                .iter()
-                .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(&f.syntax)))
+                .into_iter()
+                .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(f.syntax)))
                 .collect(),
         ),
         ast::TypeSyntax::OctetString { .. } => TypeSyntax::OctetString,
@@ -505,30 +492,30 @@ fn lower_type_syntax(syntax: &ast::TypeSyntax) -> TypeSyntax {
 }
 
 /// Lower AST constraint.
-fn lower_constraint(constraint: &ast::Constraint) -> Constraint {
+fn lower_constraint(constraint: ast::Constraint) -> Constraint {
     match constraint {
         ast::Constraint::Size { ranges, .. } => {
-            Constraint::Size(ranges.iter().map(lower_range).collect())
+            Constraint::Size(ranges.into_iter().map(lower_range).collect())
         }
         ast::Constraint::Range { ranges, .. } => {
-            Constraint::Range(ranges.iter().map(lower_range).collect())
+            Constraint::Range(ranges.into_iter().map(lower_range).collect())
         }
     }
 }
 
 /// Lower AST range.
-fn lower_range(range: &ast::Range) -> Range {
+fn lower_range(range: ast::Range) -> Range {
     Range {
-        min: lower_range_value(&range.min),
-        max: range.max.as_ref().map(lower_range_value),
+        min: lower_range_value(range.min),
+        max: range.max.map(lower_range_value),
     }
 }
 
 /// Lower AST range value.
-fn lower_range_value(value: &AstRangeValue) -> RangeValue {
+fn lower_range_value(value: AstRangeValue) -> RangeValue {
     match value {
-        AstRangeValue::Signed(n) => RangeValue::Signed(*n),
-        AstRangeValue::Unsigned(n) => RangeValue::Unsigned(*n),
+        AstRangeValue::Signed(n) => RangeValue::Signed(n),
+        AstRangeValue::Unsigned(n) => RangeValue::Unsigned(n),
         AstRangeValue::Ident(ident) => {
             // Handle MIN/MAX keywords
             match ident.name.as_str() {
@@ -542,25 +529,25 @@ fn lower_range_value(value: &AstRangeValue) -> RangeValue {
 }
 
 /// Lower AST OID assignment.
-fn lower_oid_assignment(oid: &ast::OidAssignment) -> OidAssignment {
+fn lower_oid_assignment(oid: ast::OidAssignment) -> OidAssignment {
     OidAssignment {
-        components: oid.components.iter().map(lower_oid_component).collect(),
+        components: oid.components.into_iter().map(lower_oid_component).collect(),
         span: oid.span,
     }
 }
 
 /// Lower AST OID component.
-fn lower_oid_component(comp: &ast::OidComponent) -> OidComponent {
+fn lower_oid_component(comp: ast::OidComponent) -> OidComponent {
     match comp {
-        ast::OidComponent::Name(ident) => OidComponent::Name(Symbol::from(ident)),
-        ast::OidComponent::Number { value, .. } => OidComponent::Number(*value),
+        ast::OidComponent::Name(ident) => OidComponent::Name(Symbol::from(&ident)),
+        ast::OidComponent::Number { value, .. } => OidComponent::Number(value),
         ast::OidComponent::NamedNumber { name, number, .. } => OidComponent::NamedNumber {
-            name: Symbol::from(name),
-            number: *number,
+            name: Symbol::from(&name),
+            number,
         },
         ast::OidComponent::QualifiedName { module, name, .. } => OidComponent::QualifiedName {
-            module: Symbol::from(module),
-            name: Symbol::from(name),
+            module: Symbol::from(&module),
+            name: Symbol::from(&name),
         },
         ast::OidComponent::QualifiedNamedNumber {
             module,
@@ -568,9 +555,9 @@ fn lower_oid_component(comp: &ast::OidComponent) -> OidComponent {
             number,
             ..
         } => OidComponent::QualifiedNamedNumber {
-            module: Symbol::from(module),
-            name: Symbol::from(name),
-            number: *number,
+            module: Symbol::from(&module),
+            name: Symbol::from(&name),
+            number,
         },
     }
 }
@@ -599,10 +586,10 @@ fn lower_status(status: StatusValue) -> Status {
 }
 
 /// Lower AST index clause.
-fn lower_index_clause(clause: Option<&IndexClause>) -> Option<Vec<IndexItem>> {
+fn lower_index_clause(clause: Option<IndexClause>) -> Option<Vec<IndexItem>> {
     clause.map(|c| match c {
         IndexClause::Index { indexes, .. } | IndexClause::PibIndex { indexes, .. } => indexes
-            .iter()
+            .into_iter()
             .map(|i| IndexItem::new(Symbol::from(&i.object), i.implied))
             .collect(),
     })

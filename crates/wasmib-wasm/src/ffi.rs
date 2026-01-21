@@ -206,7 +206,7 @@ pub extern "C" fn wasmib_load_module(ptr: *const u8, len: u32) -> u32 {
     }
 
     // Lower to HIR
-    let hir = lower_module(&ast);
+    let hir = lower_module(ast);
     state.staged_modules.push(hir);
 
     error::SUCCESS

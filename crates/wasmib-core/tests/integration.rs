@@ -239,7 +239,7 @@ fn test_lower_if_mib() {
     let ast_module = parser.parse_module();
 
     // Lower to HIR
-    let hir_module = module::lower_module(&ast_module);
+    let hir_module = module::lower_module(ast_module);
 
     // Check module name
     assert_eq!(hir_module.name.name, "IF-MIB");
@@ -351,7 +351,7 @@ fn test_lower_standard_mibs() {
     for (name, content) in mibs {
         let parser = Parser::new(content);
         let ast_module = parser.parse_module();
-        let hir_module = module::lower_module(&ast_module);
+        let hir_module = module::lower_module(ast_module);
 
         println!(
             "{}: {} imports, {} defs, language={}",
@@ -384,7 +384,7 @@ fn test_resolver_snmpv2_mib() {
     let source = include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB");
     let parser = Parser::new(source);
     let ast_module = parser.parse_module();
-    let hir_module = module::lower_module(&ast_module);
+    let hir_module = module::lower_module(ast_module);
 
     let resolver = Resolver::new();
     let result = resolver.resolve(vec![hir_module]);
@@ -450,7 +450,7 @@ fn test_resolver_tier1_builtin_only() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = module::lower_module(&ast_module);
+        let hir_module = module::lower_module(ast_module);
         println!("{}: {} defs", name, hir_module.definitions.len());
         hir_modules.push(hir_module);
     }
@@ -538,7 +538,7 @@ fn test_resolver_tier2_basic_deps() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = module::lower_module(&ast_module);
+        let hir_module = module::lower_module(ast_module);
         println!(
             "{}: {} defs, {} imports",
             name,
@@ -625,7 +625,7 @@ fn test_resolver_tier3_complex() {
     for (name, source) in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        let hir_module = module::lower_module(&ast_module);
+        let hir_module = module::lower_module(ast_module);
         println!("{}: {} defs", name, hir_module.definitions.len());
         hir_modules.push(hir_module);
     }
@@ -726,7 +726,7 @@ fn test_oid_values_match_libsmi() {
     for source in files {
         let parser = Parser::new(source);
         let ast_module = parser.parse_module();
-        hir_modules.push(module::lower_module(&ast_module));
+        hir_modules.push(module::lower_module(ast_module));
     }
 
     let resolver = Resolver::new();
