@@ -272,6 +272,27 @@ func (m *Model) GetNotificationByID(id uint32) *Notification {
 	return &m.notifications[id-1]
 }
 
+// GetNotificationObjects returns the objects (varbinds) included in a notification.
+// These are the objects from the OBJECTS clause in NOTIFICATION-TYPE or
+// VARIABLES clause in TRAP-TYPE definitions.
+// Returns nil if the notification is nil, or an empty slice if no objects.
+func (m *Model) GetNotificationObjects(notif *Notification) []*Node {
+	if notif == nil {
+		return nil
+	}
+	if len(notif.Objects) == 0 {
+		return []*Node{}
+	}
+	nodes := make([]*Node, 0, len(notif.Objects))
+	for _, nodeID := range notif.Objects {
+		node := m.GetNode(nodeID)
+		if node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
 // GetEffectiveHint walks the type chain to find a display hint.
 // Returns empty string if no hint found.
 func (m *Model) GetEffectiveHint(typeID uint32) string {

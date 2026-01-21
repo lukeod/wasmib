@@ -76,6 +76,64 @@ testValue OBJECT-TYPE
 END
 `
 
+// MIB with notification for testing OBJECTS clause
+const testNotificationMIB = `
+TEST-NOTIF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+testNotifMIB MODULE-IDENTITY
+    LAST-UPDATED "202401010000Z"
+    ORGANIZATION "Test Organization"
+    CONTACT-INFO "test@example.com"
+    DESCRIPTION  "A test MIB for notification objects"
+    ::= { enterprises 99998 }
+
+testNotifObjects OBJECT IDENTIFIER ::= { testNotifMIB 1 }
+testNotifEvents OBJECT IDENTIFIER ::= { testNotifMIB 2 }
+
+-- Objects that will be referenced in notifications
+notifSeverity OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Severity level of the notification"
+    ::= { testNotifObjects 1 }
+
+notifMessage OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Message associated with the notification"
+    ::= { testNotifObjects 2 }
+
+notifSource OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Source of the notification"
+    ::= { testNotifObjects 3 }
+
+-- Notification with multiple objects
+testEvent NOTIFICATION-TYPE
+    OBJECTS     { notifSeverity, notifMessage, notifSource }
+    STATUS      current
+    DESCRIPTION "A test notification with three objects"
+    ::= { testNotifEvents 1 }
+
+-- Notification with no objects
+testEmptyEvent NOTIFICATION-TYPE
+    STATUS      current
+    DESCRIPTION "A test notification with no objects"
+    ::= { testNotifEvents 2 }
+
+END
+`
+
 func TestCompilerBasic(t *testing.T) {
 	ctx := context.Background()
 
@@ -382,5 +440,126 @@ func BenchmarkQuery(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = model.GetNodesByName("testString")
 		_ = model.GetNodeByQualifiedName("TEST-MIB", "testInteger")
+	}
+}
+
+func TestGetNotificationObjects(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testNotificationMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find the testEvent notification node
+	eventNodes := model.GetNodesByName("testEvent")
+	if len(eventNodes) == 0 {
+		t.Fatal("GetNodesByName('testEvent') returned empty")
+	}
+	eventNode := eventNodes[0]
+
+	if eventNode.Kind != NodeKindNotification {
+		t.Errorf("testEvent kind = %v, want NodeKindNotification", eventNode.Kind)
+	}
+
+	// Get the notification definition
+	notif := model.GetNotification(eventNode)
+	if notif == nil {
+		t.Fatal("GetNotification returned nil for testEvent")
+	}
+
+	// Test GetNotificationObjects
+	objects := model.GetNotificationObjects(notif)
+	if len(objects) != 3 {
+		t.Errorf("GetNotificationObjects returned %d objects, want 3", len(objects))
+	}
+
+	// Verify the objects are the correct ones
+	expectedNames := []string{"notifSeverity", "notifMessage", "notifSource"}
+	for i, node := range objects {
+		if node == nil {
+			t.Errorf("objects[%d] is nil", i)
+			continue
+		}
+		// Get the name from the node definition
+		if len(node.Definitions) == 0 {
+			t.Errorf("objects[%d] has no definitions", i)
+			continue
+		}
+		name := model.GetStr(node.Definitions[0].Label)
+		if name != expectedNames[i] {
+			t.Errorf("objects[%d] name = %q, want %q", i, name, expectedNames[i])
+		}
+	}
+}
+
+func TestGetNotificationObjectsEmpty(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testNotificationMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find the testEmptyEvent notification node (has no objects)
+	eventNodes := model.GetNodesByName("testEmptyEvent")
+	if len(eventNodes) == 0 {
+		t.Fatal("GetNodesByName('testEmptyEvent') returned empty")
+	}
+
+	notif := model.GetNotification(eventNodes[0])
+	if notif == nil {
+		t.Fatal("GetNotification returned nil for testEmptyEvent")
+	}
+
+	// Test GetNotificationObjects returns empty slice for notification with no objects
+	objects := model.GetNotificationObjects(notif)
+	if len(objects) != 0 {
+		t.Errorf("GetNotificationObjects returned %d objects, want 0", len(objects))
+	}
+}
+
+func TestGetNotificationObjectsNil(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Test GetNotificationObjects with nil returns nil
+	objects := model.GetNotificationObjects(nil)
+	if objects != nil {
+		t.Errorf("GetNotificationObjects(nil) returned %v, want nil", objects)
 	}
 }
