@@ -753,16 +753,17 @@ impl Model {
                     .push(node_id);
             }
 
-            // Register OID
-            self.oid_to_node.insert(oid.clone(), node_id);
-
             // Queue children with their OIDs (parent OID + child subid)
+            // Do this first while borrowing oid, then move oid into the map
             for &child_id in &node.children {
                 let child_idx = child_id.to_index();
                 if let Some(child_node) = self.nodes.get(child_idx) {
                     queue.push_back((child_idx, oid.child(child_node.subid)));
                 }
             }
+
+            // Register OID (moved after children to avoid clone)
+            self.oid_to_node.insert(oid, node_id);
         }
     }
 }
