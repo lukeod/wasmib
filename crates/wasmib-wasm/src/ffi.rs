@@ -22,7 +22,6 @@
 //! - All returned data is length-prefixed: `[len: u32 LE][data: u8; len]`
 
 use alloc::alloc::{Layout, alloc, dealloc};
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
@@ -286,14 +285,17 @@ pub extern "C" fn wasmib_get_model() -> *const u8 {
 
 // === Diagnostics ===
 
-/// Get diagnostics as JSON.
+/// Get diagnostics as protobuf.
 ///
-/// Returns pointer to length-prefixed JSON string: `[len: u32 LE][json: u8; len]`
-/// Format: `[{"severity": "error"|"warning", "message": "...", "start": N, "end": N}, ...]`
+/// Returns pointer to length-prefixed protobuf bytes: `[len: u32 LE][data: u8; len]`
+/// The protobuf is a `Diagnostics` message containing a repeated `Diagnostic`.
 ///
 /// The returned pointer is valid until the next `wasmib_reset()` or `wasmib_resolve()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
+    use crate::serialize::{Diagnostic as ProtoDiagnostic, Diagnostics as ProtoDiagnostics};
+    use micropb::MessageEncode;
+
     let state = STATE.get();
 
     // Return cached if available
@@ -301,49 +303,43 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
         return bytes.as_ptr();
     }
 
-    // Build JSON
-    let mut json = String::from("[");
-    let mut first = true;
-
-    // Include both parse and resolve diagnostics
-    for diag in state
+    // Build protobuf Diagnostics message
+    let items: Vec<ProtoDiagnostic> = state
         .parse_diagnostics
         .iter()
         .chain(state.resolve_diagnostics.iter())
-    {
-        if !first {
-            json.push(',');
-        }
-        first = false;
+        .map(|diag| ProtoDiagnostic {
+            r#severity: match diag.severity {
+                Severity::Error => 0,
+                Severity::Warning => 1,
+            },
+            r#message: diag.message.clone(),
+            r#start: diag.span.start,
+            r#end: diag.span.end,
+        })
+        .collect();
 
-        json.push_str("{\"severity\":\"");
-        json.push_str(match diag.severity {
-            Severity::Error => "error",
-            Severity::Warning => "warning",
-        });
-        json.push_str("\",\"message\":\"");
-        escape_json_string(&diag.message, &mut json);
-        json.push_str("\",\"start\":");
-        write_u32(&mut json, diag.span.start);
-        json.push_str(",\"end\":");
-        write_u32(&mut json, diag.span.end);
-        json.push('}');
-    }
-    json.push(']');
+    let diagnostics = ProtoDiagnostics { r#items: items };
+
+    // Encode to protobuf bytes
+    let mut proto_bytes = Vec::new();
+    diagnostics
+        .encode(&mut micropb::PbEncoder::new(&mut proto_bytes))
+        .expect("encoding should not fail");
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = if let Ok(len) = u32::try_from(json.len()) {
+    let len = if let Ok(len) = u32::try_from(proto_bytes.len()) {
         len
     } else {
-        // Diagnostics too large - return empty array
-        static EMPTY_ARRAY: &[u8] = b"\x02\x00\x00\x00[]";
-        return EMPTY_ARRAY.as_ptr();
+        // Diagnostics too large - return empty message
+        static EMPTY_MSG: &[u8] = b"\x00\x00\x00\x00";
+        return EMPTY_MSG.as_ptr();
     };
 
     // Store with length prefix
-    let mut output = Vec::with_capacity(4 + json.len());
+    let mut output = Vec::with_capacity(4 + proto_bytes.len());
     output.extend_from_slice(&len.to_le_bytes());
-    output.extend_from_slice(json.as_bytes());
+    output.extend_from_slice(&proto_bytes);
 
     // Store and return pointer - insert() returns a reference, avoiding unwrap
     state.serialized_diagnostics.insert(output).as_ptr()
@@ -383,77 +379,3 @@ pub extern "C" fn wasmib_reset() {
     STATE.get().reset();
 }
 
-// === Helpers ===
-
-/// Escape a string for JSON output.
-fn escape_json_string(s: &str, out: &mut String) {
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c.is_control() => {
-                out.push_str("\\u");
-                let code = c as u32;
-                for i in (0..4).rev() {
-                    let nibble = ((code >> (i * 4)) & 0xF) as u8;
-                    out.push(if nibble < 10 {
-                        (b'0' + nibble) as char
-                    } else {
-                        (b'a' + nibble - 10) as char
-                    });
-                }
-            }
-            c => out.push(c),
-        }
-    }
-}
-
-/// Write a u32 as decimal to a string.
-fn write_u32(out: &mut String, mut n: u32) {
-    if n == 0 {
-        out.push('0');
-        return;
-    }
-
-    let mut buf = [0u8; 10];
-    let mut i = 10;
-    while n > 0 {
-        i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-    }
-
-    for &b in &buf[i..] {
-        out.push(b as char);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_escape_json_string() {
-        let mut out = String::new();
-        escape_json_string("hello \"world\"\ntest", &mut out);
-        assert_eq!(out, "hello \\\"world\\\"\\ntest");
-    }
-
-    #[test]
-    fn test_write_u32() {
-        let mut out = String::new();
-        write_u32(&mut out, 0);
-        assert_eq!(out, "0");
-
-        out.clear();
-        write_u32(&mut out, 12345);
-        assert_eq!(out, "12345");
-
-        out.clear();
-        write_u32(&mut out, u32::MAX);
-        assert_eq!(out, "4294967295");
-    }
-}

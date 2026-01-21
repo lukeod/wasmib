@@ -357,12 +357,14 @@ if !model.IsComplete() {
         imports, types, oids, indexes, notifs)
 }
 
-// Get detailed diagnostics (JSON)
+// Get detailed diagnostics
 compiler, _ := wasmib.NewCompiler(ctx)
 compiler.LoadModule(source)
 model, _ := compiler.Resolve()
 diags, _ := compiler.GetDiagnostics()
-fmt.Println(diags) // [{"severity":"warning","message":"..."}]
+for _, d := range diags {
+    fmt.Printf("[%s] %s (at %d-%d)\n", d.Severity, d.Message, d.Start, d.End)
+}
 ```
 
 ## Built-in Modules

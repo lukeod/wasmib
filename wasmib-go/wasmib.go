@@ -184,12 +184,34 @@ func LoadFS(ctx context.Context, fsys fs.FS, root string) (*Model, error) {
 	return compiler.Resolve()
 }
 
+// Severity indicates the severity level of a diagnostic.
+type Severity uint32
+
+const (
+	// SeverityError indicates a fatal error.
+	SeverityError Severity = 0
+	// SeverityWarning indicates a non-fatal warning.
+	SeverityWarning Severity = 1
+)
+
+// String returns a human-readable representation of the severity.
+func (s Severity) String() string {
+	switch s {
+	case SeverityError:
+		return "error"
+	case SeverityWarning:
+		return "warning"
+	default:
+		return "unknown"
+	}
+}
+
 // Diagnostic represents a parse or resolution diagnostic.
 type Diagnostic struct {
-	Severity string `json:"severity"` // "error" or "warning"
-	Message  string `json:"message"`
-	Start    uint32 `json:"start"` // Byte offset in source
-	End      uint32 `json:"end"`   // Byte offset in source
+	Severity Severity // Error or warning
+	Message  string   // Human-readable message
+	Start    uint32   // Byte offset in source
+	End      uint32   // Byte offset in source
 }
 
 // MustLoad is like Load but panics on error.

@@ -1261,6 +1261,124 @@ func (x *Range) GetMax() int64 {
 	return 0
 }
 
+// Diagnostic message (error or warning from parsing/resolution).
+type Diagnostic struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Severity: 0=error, 1=warning.
+	Severity uint32 `protobuf:"varint,1,opt,name=severity,proto3" json:"severity,omitempty"`
+	// Human-readable message.
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Byte offset in source (start).
+	Start uint32 `protobuf:"varint,3,opt,name=start,proto3" json:"start,omitempty"`
+	// Byte offset in source (end).
+	End           uint32 `protobuf:"varint,4,opt,name=end,proto3" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Diagnostic) Reset() {
+	*x = Diagnostic{}
+	mi := &file_proto_wasmib_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Diagnostic) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Diagnostic) ProtoMessage() {}
+
+func (x *Diagnostic) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Diagnostic.ProtoReflect.Descriptor instead.
+func (*Diagnostic) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *Diagnostic) GetSeverity() uint32 {
+	if x != nil {
+		return x.Severity
+	}
+	return 0
+}
+
+func (x *Diagnostic) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *Diagnostic) GetStart() uint32 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *Diagnostic) GetEnd() uint32 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
+// Collection of diagnostics.
+type Diagnostics struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*Diagnostic          `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Diagnostics) Reset() {
+	*x = Diagnostics{}
+	mi := &file_proto_wasmib_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Diagnostics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Diagnostics) ProtoMessage() {}
+
+func (x *Diagnostics) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Diagnostics.ProtoReflect.Descriptor instead.
+func (*Diagnostics) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *Diagnostics) GetItems() []*Diagnostic {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
 // Serialized notification definition.
 type SerializedNotification struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1284,7 +1402,7 @@ type SerializedNotification struct {
 
 func (x *SerializedNotification) Reset() {
 	*x = SerializedNotification{}
-	mi := &file_proto_wasmib_proto_msgTypes[15]
+	mi := &file_proto_wasmib_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1296,7 +1414,7 @@ func (x *SerializedNotification) String() string {
 func (*SerializedNotification) ProtoMessage() {}
 
 func (x *SerializedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[15]
+	mi := &file_proto_wasmib_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1309,7 +1427,7 @@ func (x *SerializedNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedNotification.ProtoReflect.Descriptor instead.
 func (*SerializedNotification) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{15}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SerializedNotification) GetNode() uint32 {
@@ -1475,7 +1593,15 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x06ranges\x18\x01 \x03(\v2\r.wasmib.RangeR\x06ranges\"+\n" +
 	"\x05Range\x12\x10\n" +
 	"\x03min\x18\x01 \x01(\x03R\x03min\x12\x10\n" +
-	"\x03max\x18\x02 \x01(\x03R\x03max\"\xca\x01\n" +
+	"\x03max\x18\x02 \x01(\x03R\x03max\"j\n" +
+	"\n" +
+	"Diagnostic\x12\x1a\n" +
+	"\bseverity\x18\x01 \x01(\rR\bseverity\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x14\n" +
+	"\x05start\x18\x03 \x01(\rR\x05start\x12\x10\n" +
+	"\x03end\x18\x04 \x01(\rR\x03end\"7\n" +
+	"\vDiagnostics\x12(\n" +
+	"\x05items\x18\x01 \x03(\v2\x12.wasmib.DiagnosticR\x05items\"\xca\x01\n" +
 	"\x16SerializedNotification\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\rR\x04node\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\rR\x06module\x12\x12\n" +
@@ -1497,7 +1623,7 @@ func file_proto_wasmib_proto_rawDescGZIP() []byte {
 	return file_proto_wasmib_proto_rawDescData
 }
 
-var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_proto_wasmib_proto_goTypes = []any{
 	(*SerializedModel)(nil),        // 0: wasmib.SerializedModel
 	(*StringOffset)(nil),           // 1: wasmib.StringOffset
@@ -1514,7 +1640,9 @@ var file_proto_wasmib_proto_goTypes = []any{
 	(*BitDef)(nil),                 // 12: wasmib.BitDef
 	(*SerializedConstraint)(nil),   // 13: wasmib.SerializedConstraint
 	(*Range)(nil),                  // 14: wasmib.Range
-	(*SerializedNotification)(nil), // 15: wasmib.SerializedNotification
+	(*Diagnostic)(nil),             // 15: wasmib.Diagnostic
+	(*Diagnostics)(nil),            // 16: wasmib.Diagnostics
+	(*SerializedNotification)(nil), // 17: wasmib.SerializedNotification
 }
 var file_proto_wasmib_proto_depIdxs = []int32{
 	1,  // 0: wasmib.SerializedModel.strings_offsets:type_name -> wasmib.StringOffset
@@ -1522,7 +1650,7 @@ var file_proto_wasmib_proto_depIdxs = []int32{
 	4,  // 2: wasmib.SerializedModel.nodes:type_name -> wasmib.SerializedNode
 	10, // 3: wasmib.SerializedModel.types:type_name -> wasmib.SerializedType
 	6,  // 4: wasmib.SerializedModel.objects:type_name -> wasmib.SerializedObject
-	15, // 5: wasmib.SerializedModel.notifications:type_name -> wasmib.SerializedNotification
+	17, // 5: wasmib.SerializedModel.notifications:type_name -> wasmib.SerializedNotification
 	3,  // 6: wasmib.SerializedModule.revisions:type_name -> wasmib.SerializedRevision
 	5,  // 7: wasmib.SerializedNode.definitions:type_name -> wasmib.SerializedNodeDef
 	7,  // 8: wasmib.SerializedObject.index:type_name -> wasmib.SerializedIndex
@@ -1535,11 +1663,12 @@ var file_proto_wasmib_proto_depIdxs = []int32{
 	11, // 15: wasmib.SerializedType.enum_values:type_name -> wasmib.EnumValue
 	12, // 16: wasmib.SerializedType.bit_defs:type_name -> wasmib.BitDef
 	14, // 17: wasmib.SerializedConstraint.ranges:type_name -> wasmib.Range
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	15, // 18: wasmib.Diagnostics.items:type_name -> wasmib.Diagnostic
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_proto_wasmib_proto_init() }
@@ -1556,7 +1685,7 @@ func file_proto_wasmib_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_wasmib_proto_rawDesc), len(file_proto_wasmib_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

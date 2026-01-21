@@ -220,6 +220,23 @@ message Range {
   int64 max = 2;
 }
 
+// Diagnostic message (error or warning from parsing/resolution).
+message Diagnostic {
+  // Severity: 0=error, 1=warning.
+  uint32 severity = 1;
+  // Human-readable message.
+  string message = 2;
+  // Byte offset in source (start).
+  uint32 start = 3;
+  // Byte offset in source (end).
+  uint32 end = 4;
+}
+
+// Collection of diagnostics.
+message Diagnostics {
+  repeated Diagnostic items = 1;
+}
+
 // Serialized notification definition.
 message SerializedNotification {
   // Node in OID tree (NodeId).

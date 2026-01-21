@@ -3,7 +3,7 @@
 # Builds all Rust crates, the WASM module, and the Go bindings.
 
 .PHONY: all build build-rust build-wasm build-go copy-wasm test test-rust test-go clean
-.PHONY: check-deps check-rust check-wasm-target check-go
+.PHONY: check-deps check-rust check-wasm-target check-go check-protoc proto
 
 # Paths
 WASM_TARGET := target/wasm32-unknown-unknown/release/wasmib_wasm.wasm
@@ -39,8 +39,15 @@ check-go:
 		exit 1; \
 	}
 
+check-protoc:
+	@command -v protoc >/dev/null 2>&1 || { \
+		echo "$(RED)Error: protoc not found$(NC)"; \
+		echo "Install protobuf compiler from: https://grpc.io/docs/protoc-installation/"; \
+		exit 1; \
+	}
+
 # Check all dependencies
-check-deps: check-rust check-wasm-target check-go
+check-deps: check-rust check-wasm-target check-go check-protoc
 	@echo "$(GREEN)All dependencies installed$(NC)"
 
 # Default target: build everything
@@ -63,8 +70,13 @@ copy-wasm: build-wasm
 	cp $(WASM_TARGET) $(GO_WASM_PATH)
 	@echo "Copied WASM to $(GO_WASM_PATH)"
 
+# Generate Go protobuf code
+proto: check-protoc
+	protoc --go_out=wasmib-go --go_opt=module=github.com/lukeod/wasmib/wasmib-go proto/wasmib.proto
+	@echo "Generated Go protobuf code"
+
 # Build Go project
-build-go: check-go copy-wasm
+build-go: check-go copy-wasm proto
 	cd wasmib-go && go build ./...
 
 # Run all tests
@@ -114,6 +126,7 @@ help:
 	@echo "  make build-rust   Build Rust crates (native)"
 	@echo "  make build-wasm   Build WASM module"
 	@echo "  make build-go     Build Go project"
+	@echo "  make proto        Regenerate Go protobuf code"
 	@echo "  make wasm         Quick rebuild WASM and copy"
 	@echo ""
 	@echo "  make test         Run all tests"

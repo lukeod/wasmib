@@ -6,8 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	wasmibpb "github.com/lukeod/wasmib/wasmib-go/proto"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"google.golang.org/protobuf/proto"
 )
 
 //go:embed embed/wasmib.wasm
@@ -184,21 +186,55 @@ func (c *Compiler) Resolve() (*Model, error) {
 }
 
 // GetDiagnostics returns any diagnostics (warnings/errors) from parsing and resolution.
-//
-// The returned JSON is an array of diagnostic objects:
-// [{"severity": "error"|"warning", "message": "...", "start": N, "end": N}, ...]
-func (c *Compiler) GetDiagnostics() (string, error) {
+func (c *Compiler) GetDiagnostics() ([]Diagnostic, error) {
 	results, err := c.fnGetDiagnostics.Call(c.ctx)
 	if err != nil {
-		return "", fmt.Errorf("get_diagnostics call failed: %w", err)
+		return nil, fmt.Errorf("get_diagnostics call failed: %w", err)
 	}
 
 	ptr := uint32(results[0])
 	if ptr == 0 {
-		return "[]", nil // No diagnostics
+		return nil, nil // No diagnostics
 	}
 
-	return c.readLengthPrefixedString(ptr)
+	// Read length-prefixed protobuf data
+	lenBytes, ok := c.module.Memory().Read(ptr, 4)
+	if !ok {
+		return nil, fmt.Errorf("failed to read diagnostics length")
+	}
+	dataLen := binary.LittleEndian.Uint32(lenBytes)
+
+	if dataLen == 0 {
+		return nil, nil
+	}
+
+	protoBytes, ok := c.module.Memory().Read(ptr+4, dataLen)
+	if !ok {
+		return nil, fmt.Errorf("failed to read diagnostics data")
+	}
+
+	// Make a copy since WASM memory may be invalidated
+	protoBytesCopy := make([]byte, len(protoBytes))
+	copy(protoBytesCopy, protoBytes)
+
+	// Decode protobuf
+	var diagnostics wasmibpb.Diagnostics
+	if err := proto.Unmarshal(protoBytesCopy, &diagnostics); err != nil {
+		return nil, fmt.Errorf("failed to decode diagnostics: %w", err)
+	}
+
+	// Convert to Go types
+	result := make([]Diagnostic, len(diagnostics.Items))
+	for i, d := range diagnostics.Items {
+		result[i] = Diagnostic{
+			Severity: Severity(d.Severity),
+			Message:  d.Message,
+			Start:    d.Start,
+			End:      d.End,
+		}
+	}
+
+	return result, nil
 }
 
 // Reset clears the staging area and model.
