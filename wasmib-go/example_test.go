@@ -270,3 +270,69 @@ func ExampleModel_IsComplete() {
 	// Output:
 	// Missing imports: 2, Missing types: 1, Missing OIDs: 2
 }
+
+func ExampleModel_GetIndexObjects() {
+	ctx := context.Background()
+	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")
+
+	// Get the ifEntry row
+	ifEntry := model.GetNodeByQualifiedName("IF-MIB", "ifEntry")
+	obj := model.GetObject(ifEntry)
+	if obj == nil {
+		return
+	}
+
+	// Get index column(s) for this row
+	indexes := model.GetIndexObjects(obj)
+	for _, idx := range indexes {
+		if len(idx.Definitions) > 0 {
+			name := model.GetStr(idx.Definitions[0].Label)
+			fmt.Printf("Index: %s\n", name)
+		}
+	}
+	// Output:
+	// Index: ifIndex
+}
+
+func ExampleModel_GetParent() {
+	ctx := context.Background()
+	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")
+
+	// Get ifIndex and navigate to its parent
+	ifIndex := model.GetNodeByQualifiedName("IF-MIB", "ifIndex")
+	parent := model.GetParent(ifIndex)
+	if parent != nil && len(parent.Definitions) > 0 {
+		name := model.GetStr(parent.Definitions[0].Label)
+		fmt.Printf("Parent of ifIndex: %s (%s)\n", name, parent.Kind)
+	}
+	// Output:
+	// Parent of ifIndex: ifEntry (row)
+}
+
+func ExampleModel_GetChildren() {
+	ctx := context.Background()
+	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")
+
+	// Get ifEntry and list its children (columns)
+	ifEntry := model.GetNodeByQualifiedName("IF-MIB", "ifEntry")
+	children := model.GetChildren(ifEntry)
+	fmt.Printf("ifEntry has %d columns\n", len(children))
+
+	// Print first few column names
+	for i, child := range children {
+		if i >= 3 {
+			fmt.Println("...")
+			break
+		}
+		if len(child.Definitions) > 0 {
+			name := model.GetStr(child.Definitions[0].Label)
+			fmt.Printf("  %s\n", name)
+		}
+	}
+	// Output:
+	// ifEntry has 22 columns
+	//   ifIndex
+	//   ifDescr
+	//   ifType
+	// ...
+}
