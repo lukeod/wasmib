@@ -199,8 +199,8 @@ fn create_snmpv2_conf() -> Module {
 
 /// Create the synthetic RFC1155-SMI module.
 ///
-/// SMIv1 base module containing:
-/// - Types: Counter, Gauge, NetworkAddress, IpAddress, TimeTicks, Opaque
+/// `SMIv1` base module containing:
+/// - Types: Counter, Gauge, `NetworkAddress`, `IpAddress`, `TimeTicks`, Opaque
 /// - OID roots: internet, directory, mgmt, experimental, private, enterprises
 fn create_rfc1155_smi() -> Module {
     let mut module = Module::new(Symbol::from_name("RFC1155-SMI"), Span::SYNTHETIC);
@@ -217,7 +217,7 @@ fn create_rfc1155_smi() -> Module {
 
 /// Create the synthetic RFC1065-SMI module.
 ///
-/// Identical to RFC1155-SMI - the original SMIv1 base (predates RFC 1155).
+/// Identical to RFC1155-SMI - the original `SMIv1` base (predates RFC 1155).
 fn create_rfc1065_smi() -> Module {
     let mut module = Module::new(Symbol::from_name("RFC1065-SMI"), Span::SYNTHETIC);
     module.language = SmiLanguage::Smiv1;
@@ -232,7 +232,7 @@ fn create_rfc1065_smi() -> Module {
 /// Create the synthetic RFC1213-MIB module.
 ///
 /// Legacy module containing:
-/// - Types: DisplayString
+/// - Types: `DisplayString`
 /// - OIDs: mib-2
 fn create_rfc1213_mib() -> Module {
     let mut module = Module::new(Symbol::from_name("RFC1213-MIB"), Span::SYNTHETIC);
@@ -320,14 +320,14 @@ fn create_rfc1215() -> Module {
     module
 }
 
-/// Create SMIv1 type definitions.
+/// Create `SMIv1` type definitions.
 ///
 /// These are the types defined in RFC 1155:
 /// - Counter (0..4294967295)
 /// - Gauge (0..4294967295)
-/// - NetworkAddress (OCTET STRING SIZE (4)) - essentially IpAddress
-/// - IpAddress (OCTET STRING SIZE (4))
-/// - TimeTicks (0..4294967295)
+/// - `NetworkAddress` (OCTET STRING SIZE (4)) - essentially `IpAddress`
+/// - `IpAddress` (OCTET STRING SIZE (4))
+/// - `TimeTicks` (0..4294967295)
 /// - Opaque (OCTET STRING)
 fn create_smiv1_type_definitions() -> Vec<Definition> {
     vec![
@@ -363,7 +363,7 @@ fn create_smiv1_type_definitions() -> Vec<Definition> {
     ]
 }
 
-/// Create SMIv1 OID root definitions.
+/// Create `SMIv1` OID root definitions.
 ///
 /// These are the OID roots defined in RFC 1155.
 fn create_smiv1_oid_definitions() -> Vec<Definition> {

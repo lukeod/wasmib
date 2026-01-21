@@ -189,21 +189,19 @@ impl ResolverContext {
     /// Used for primitive type lookup (INTEGER, OCTET STRING, etc.)
     pub fn lookup_type(&self, name: &str) -> Option<TypeId> {
         // First try SNMPv2-SMI for primitives
-        if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id {
-            if let Some(type_id) = self.lookup_type_for_module(snmpv2_smi_id, name) {
+        if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id
+            && let Some(type_id) = self.lookup_type_for_module(snmpv2_smi_id, name) {
                 return Some(type_id);
             }
-        }
 
         // For non-primitives, search all modules
         // This is used for convenience (tests, simple lookups)
         let name_id = self.model.strings().find(name)?;
         for &type_id in self.module_symbol_to_type.values() {
-            if let Some(typ) = self.model.get_type(type_id) {
-                if typ.name == name_id {
+            if let Some(typ) = self.model.get_type(type_id)
+                && typ.name == name_id {
                     return Some(type_id);
                 }
-            }
         }
 
         None

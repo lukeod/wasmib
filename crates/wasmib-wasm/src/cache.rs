@@ -132,7 +132,7 @@ pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, CacheError> {
     serialize::get_fingerprint(bytes).map_err(|_| CacheError::DeserializationFailed)
 }
 
-/// Re-export SCHEMA_VERSION for downstream consumers.
+/// Re-export `SCHEMA_VERSION` for downstream consumers.
 pub use crate::serialize::SCHEMA_VERSION as VERSION;
 
 #[cfg(test)]

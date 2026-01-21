@@ -61,8 +61,8 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     ctx.register_module_type_symbol(module_id, name, type_id);
 }
 
-/// Extracted type definition data needed for creating ResolvedType.
-/// This is smaller than a full TypeDef clone (no span, no reference field).
+/// Extracted type definition data needed for creating `ResolvedType`.
+/// This is smaller than a full `TypeDef` clone (no span, no reference field).
 struct TypeDefData {
     module_idx: usize,
     name: String,
@@ -228,9 +228,9 @@ struct TypeResolutionTask {
     span: crate::lexer::Span,
 }
 
-/// Resolve TypeRef parent pointers using multi-pass iteration.
+/// Resolve `TypeRef` parent pointers using multi-pass iteration.
 ///
-/// Collects all types with TypeRef syntax and iteratively attempts to link
+/// Collects all types with `TypeRef` syntax and iteratively attempts to link
 /// their parent pointers. Types that reference forward-declared types will
 /// be resolved in subsequent passes.
 fn resolve_typeref_parents_multipass(ctx: &mut ResolverContext) {

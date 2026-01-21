@@ -300,12 +300,11 @@ impl StringInterner {
         if let Some(&last_offset) = offsets.last() {
             let start = last_offset as usize;
             if start < data.len() {
-                if let Some(s) = data.get(start..) {
-                    if s.len() < DEDUP_THRESHOLD {
-                        let hash = hash_str(s);
-                        if let Some(id) = StrId::from_index(offsets.len() - 1) {
-                            dedup.entry(hash).or_insert_with(Vec::new).push(id);
-                        }
+                let s = &data[start..];
+                if s.len() < DEDUP_THRESHOLD {
+                    let hash = hash_str(s);
+                    if let Some(id) = StrId::from_index(offsets.len() - 1) {
+                        dedup.entry(hash).or_insert_with(Vec::new).push(id);
                     }
                 }
             }

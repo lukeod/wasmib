@@ -98,14 +98,14 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
     SerializedModel {
         r#version: SCHEMA_VERSION,
         r#fingerprint: fingerprint.map_or_else(Vec::new, |fp| fp.to_vec()),
-        r#strings_data: strings_data,
-        r#strings_offsets: strings_offsets,
-        r#modules: modules,
-        r#nodes: nodes,
-        r#types: types,
-        r#objects: objects,
-        r#notifications: notifications,
-        r#roots: roots,
+        strings_data,
+        strings_offsets,
+        modules,
+        nodes,
+        types,
+        objects,
+        notifications,
+        roots,
         r#unresolved_imports: unresolved.imports.len() as u32,
         r#unresolved_types: unresolved.types.len() as u32,
         r#unresolved_oids: unresolved.oids.len() as u32,
@@ -139,11 +139,11 @@ pub enum DecodeError {
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ProtobufDecode(e) => write!(f, "protobuf decode error: {:?}", e),
+            Self::ProtobufDecode(e) => write!(f, "protobuf decode error: {e:?}"),
             Self::InvalidEnumValue { field, value } => {
-                write!(f, "invalid enum value {} for field {}", value, field)
+                write!(f, "invalid enum value {value} for field {field}")
             }
-            Self::InvalidId { field } => write!(f, "invalid zero ID for field {}", field),
+            Self::InvalidId { field } => write!(f, "invalid zero ID for field {field}"),
         }
     }
 }
@@ -197,7 +197,7 @@ pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, DecodeError> {
     }
 }
 
-/// Convert a SerializedModel to a Model.
+/// Convert a `SerializedModel` to a Model.
 fn to_model(msg: SerializedModel) -> Result<Model, DecodeError> {
     // 1. Reconstruct string interner offsets
     // The StringOffset messages have (start, end) pairs for each string.
@@ -551,10 +551,10 @@ fn serialize_strings(interner: &StringInterner) -> (String, Vec<StringOffset>) {
 fn serialize_module(module: &ResolvedModule) -> SerializedModule {
     SerializedModule {
         r#name: module.name.to_raw(),
-        r#last_updated: module.last_updated.map_or(0, |id| id.to_raw()),
-        r#contact_info: module.contact_info.map_or(0, |id| id.to_raw()),
-        r#organization: module.organization.map_or(0, |id| id.to_raw()),
-        r#description: module.description.map_or(0, |id| id.to_raw()),
+        r#last_updated: module.last_updated.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#contact_info: module.contact_info.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#organization: module.organization.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: module.description.map_or(0, wasmib_core::model::StrId::to_raw),
         r#revisions: module.revisions.iter().map(serialize_revision).collect(),
     }
 }
@@ -569,7 +569,7 @@ fn serialize_revision(rev: &Revision) -> SerializedRevision {
 fn serialize_node(node: &OidNode) -> SerializedNode {
     SerializedNode {
         r#subid: node.subid,
-        r#parent: node.parent.map_or(0, |id| id.to_raw()),
+        r#parent: node.parent.map_or(0, wasmib_core::model::NodeId::to_raw),
         r#children: node.children.iter().map(|id| id.to_raw()).collect(),
         r#kind: u32::from(node.kind.as_u8()),
         r#definitions: node.definitions.iter().map(serialize_node_def).collect(),
@@ -580,8 +580,8 @@ fn serialize_node_def(def: &wasmib_core::model::NodeDefinition) -> SerializedNod
     SerializedNodeDef {
         r#module: def.module.to_raw(),
         r#label: def.label.to_raw(),
-        r#object: def.object.map_or(0, |id| id.to_raw()),
-        r#notification: def.notification.map_or(0, |id| id.to_raw()),
+        r#object: def.object.map_or(0, wasmib_core::model::ObjectId::to_raw),
+        r#notification: def.notification.map_or(0, wasmib_core::model::NotificationId::to_raw),
     }
 }
 
@@ -590,13 +590,13 @@ fn serialize_object(obj: &ResolvedObject, model: &Model) -> SerializedObject {
         r#node: obj.node.to_raw(),
         r#module: obj.module.to_raw(),
         r#name: obj.name.to_raw(),
-        r#type_id: obj.type_id.map_or(0, |id| id.to_raw()),
+        r#type_id: obj.type_id.map_or(0, wasmib_core::model::TypeId::to_raw),
         r#access: u32::from(obj.access.as_u8()),
         r#status: u32::from(obj.status.as_u8()),
-        r#description: obj.description.map_or(0, |id| id.to_raw()),
-        r#units: obj.units.map_or(0, |id| id.to_raw()),
-        r#reference: obj.reference.map_or(0, |id| id.to_raw()),
-        r#augments: obj.augments.map_or(0, |id| id.to_raw()),
+        r#description: obj.description.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#units: obj.units.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#reference: obj.reference.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#augments: obj.augments.map_or(0, wasmib_core::model::NodeId::to_raw),
         r#inline_enum: obj.inline_enum.as_ref().map_or_else(Vec::new, |e| {
             e.values
                 .iter()
@@ -693,11 +693,11 @@ fn serialize_type(typ: &ResolvedType) -> SerializedType {
         r#module: typ.module.to_raw(),
         r#name: typ.name.to_raw(),
         r#base: u32::from(typ.base.as_u8()),
-        r#parent: typ.parent_type.map_or(0, |id| id.to_raw()),
+        r#parent: typ.parent_type.map_or(0, wasmib_core::model::TypeId::to_raw),
         r#status: u32::from(typ.status.as_u8()),
         r#is_tc: typ.is_textual_convention,
-        r#hint: typ.hint.map_or(0, |id| id.to_raw()),
-        r#description: typ.description.map_or(0, |id| id.to_raw()),
+        r#hint: typ.hint.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: typ.description.map_or(0, wasmib_core::model::StrId::to_raw),
         r#enum_values: typ.enum_values.as_ref().map_or_else(Vec::new, |e| {
             e.values
                 .iter()
@@ -773,8 +773,8 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
         r#module: notif.module.to_raw(),
         r#name: notif.name.to_raw(),
         r#status: u32::from(notif.status.as_u8()),
-        r#description: notif.description.map_or(0, |id| id.to_raw()),
-        r#reference: notif.reference.map_or(0, |id| id.to_raw()),
+        r#description: notif.description.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#reference: notif.reference.map_or(0, wasmib_core::model::StrId::to_raw),
         r#objects: notif.objects.iter().map(|id| id.to_raw()).collect(),
     }
 }

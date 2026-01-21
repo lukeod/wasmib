@@ -247,7 +247,7 @@ pub struct TypeDef {
     /// Explicit base type override.
     ///
     /// For most types, the base type is derived from `syntax`. However, some
-    /// SMI base types like IpAddress are syntactically `OCTET STRING (SIZE 4)`
+    /// SMI base types like `IpAddress` are syntactically `OCTET STRING (SIZE 4)`
     /// but have distinct semantic base types (for index encoding, etc.).
     /// This field allows synthetic base modules to specify the correct base type.
     pub base_type: Option<BaseType>,

@@ -51,7 +51,7 @@ pub mod error {
 /// Global state for the WASM module.
 ///
 /// SAFETY: WASM is single-threaded, so no synchronization needed.
-/// We use UnsafeCell because RefCell's const new() doesn't work with Vec in no_std.
+/// We use `UnsafeCell` because `RefCell`'s const `new()` doesn't work with Vec in `no_std`.
 struct WasmState {
     /// Staged HIR modules awaiting resolution.
     staged_modules: Vec<Module>,
@@ -59,7 +59,7 @@ struct WasmState {
     parse_diagnostics: Vec<Diagnostic>,
     /// Accumulated diagnostics from resolution.
     resolve_diagnostics: Vec<Diagnostic>,
-    /// Serialized model bytes (cached after wasmib_get_model call).
+    /// Serialized model bytes (cached after `wasmib_get_model` call).
     serialized_model: Option<Vec<u8>>,
     /// Serialized diagnostics JSON (cached).
     serialized_diagnostics: Option<Vec<u8>>,
@@ -248,12 +248,9 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     let bytes = crate::serialize::to_bytes(&result.model, None);
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = match u32::try_from(bytes.len()) {
-        Ok(len) => len,
-        Err(_) => {
-            state.set_error("serialized model too large (exceeds 4GB)");
-            return error::INTERNAL_ERROR;
-        }
+    let len = if let Ok(len) = u32::try_from(bytes.len()) { len } else {
+        state.set_error("serialized model too large (exceeds 4GB)");
+        return error::INTERNAL_ERROR;
     };
 
     // Store with length prefix
@@ -277,12 +274,9 @@ pub extern "C" fn wasmib_resolve() -> u32 {
 pub extern "C" fn wasmib_get_model() -> *const u8 {
     let state = STATE.get();
 
-    match &state.serialized_model {
-        Some(bytes) => bytes.as_ptr(),
-        None => {
-            state.set_error("no model available");
-            core::ptr::null()
-        }
+    if let Some(bytes) = &state.serialized_model { bytes.as_ptr() } else {
+        state.set_error("no model available");
+        core::ptr::null()
     }
 }
 
@@ -334,13 +328,10 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     json.push(']');
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = match u32::try_from(json.len()) {
-        Ok(len) => len,
-        Err(_) => {
-            // Diagnostics too large - return empty array
-            static EMPTY_ARRAY: &[u8] = b"\x02\x00\x00\x00[]";
-            return EMPTY_ARRAY.as_ptr();
-        }
+    let len = if let Ok(len) = u32::try_from(json.len()) { len } else {
+        // Diagnostics too large - return empty array
+        static EMPTY_ARRAY: &[u8] = b"\x02\x00\x00\x00[]";
+        return EMPTY_ARRAY.as_ptr();
     };
 
     // Store with length prefix
