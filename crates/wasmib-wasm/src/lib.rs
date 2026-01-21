@@ -29,6 +29,7 @@ use core::sync::atomic::AtomicBool;
 pub(crate) static PANICKED: AtomicBool = AtomicBool::new(false);
 
 pub mod cache;
+#[allow(unsafe_code)]
 pub mod ffi;
 pub mod serialize;
 
