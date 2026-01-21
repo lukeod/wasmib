@@ -563,3 +563,514 @@ func TestGetNotificationObjectsNil(t *testing.T) {
 		t.Errorf("GetNotificationObjects(nil) returned %v, want nil", objects)
 	}
 }
+
+// MIB with AUGMENTS for testing
+const testAugmentsMIB = `
+TEST-AUGMENTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+testAugmentsMIB MODULE-IDENTITY
+    LAST-UPDATED "202401010000Z"
+    ORGANIZATION "Test Organization"
+    CONTACT-INFO "test@example.com"
+    DESCRIPTION  "A test MIB for AUGMENTS"
+    ::= { enterprises 99997 }
+
+testAugObjects OBJECT IDENTIFIER ::= { testAugmentsMIB 1 }
+
+-- Base table
+baseTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF BaseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Base table"
+    ::= { testAugObjects 1 }
+
+baseEntry OBJECT-TYPE
+    SYNTAX      BaseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Base table entry"
+    INDEX       { baseIndex }
+    ::= { baseTable 1 }
+
+BaseEntry ::= SEQUENCE {
+    baseIndex   Integer32,
+    baseValue   DisplayString
+}
+
+baseIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..100)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Base table index"
+    ::= { baseEntry 1 }
+
+baseValue OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Base table value"
+    ::= { baseEntry 2 }
+
+-- Augmenting table
+augmentEntry OBJECT-TYPE
+    SYNTAX      AugmentEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Augments baseEntry with extra columns"
+    AUGMENTS    { baseEntry }
+    ::= { testAugObjects 2 }
+
+AugmentEntry ::= SEQUENCE {
+    augmentExtra DisplayString
+}
+
+augmentExtra OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Extra column added via AUGMENTS"
+    ::= { augmentEntry 1 }
+
+END
+`
+
+// === Tests for GetIndexObjects ===
+
+func TestGetIndexObjects(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find the testEntry row
+	rowNodes := model.GetNodesByName("testEntry")
+	if len(rowNodes) == 0 {
+		t.Fatal("GetNodesByName('testEntry') returned empty")
+	}
+	rowNode := rowNodes[0]
+
+	if rowNode.Kind != NodeKindRow {
+		t.Errorf("testEntry kind = %v, want NodeKindRow", rowNode.Kind)
+	}
+
+	// Get the object definition
+	obj := model.GetObject(rowNode)
+	if obj == nil {
+		t.Fatal("GetObject returned nil for testEntry")
+	}
+
+	// Test GetIndexObjects
+	indexObjects := model.GetIndexObjects(obj)
+	if len(indexObjects) != 1 {
+		t.Fatalf("GetIndexObjects returned %d objects, want 1", len(indexObjects))
+	}
+
+	// Verify the index object is testIndex
+	indexNode := indexObjects[0]
+	if indexNode == nil {
+		t.Fatal("indexObjects[0] is nil")
+	}
+	if len(indexNode.Definitions) == 0 {
+		t.Fatal("indexNode has no definitions")
+	}
+	name := model.GetStr(indexNode.Definitions[0].Label)
+	if name != "testIndex" {
+		t.Errorf("index object name = %q, want %q", name, "testIndex")
+	}
+}
+
+func TestGetIndexObjectsNonRow(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find a scalar object (not a row)
+	scalarNodes := model.GetNodesByName("testString")
+	if len(scalarNodes) == 0 {
+		t.Fatal("GetNodesByName('testString') returned empty")
+	}
+
+	obj := model.GetObject(scalarNodes[0])
+	if obj == nil {
+		t.Fatal("GetObject returned nil for testString")
+	}
+
+	// GetIndexObjects should return nil for non-row objects
+	indexObjects := model.GetIndexObjects(obj)
+	if indexObjects != nil {
+		t.Errorf("GetIndexObjects for scalar returned %v, want nil", indexObjects)
+	}
+}
+
+func TestGetIndexObjectsNil(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// GetIndexObjects with nil should return nil
+	indexObjects := model.GetIndexObjects(nil)
+	if indexObjects != nil {
+		t.Errorf("GetIndexObjects(nil) returned %v, want nil", indexObjects)
+	}
+}
+
+// === Tests for GetAugmentsTarget ===
+
+func TestGetAugmentsTarget(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testAugmentsMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find the augmentEntry row
+	augNodes := model.GetNodesByName("augmentEntry")
+	if len(augNodes) == 0 {
+		t.Fatal("GetNodesByName('augmentEntry') returned empty")
+	}
+
+	obj := model.GetObject(augNodes[0])
+	if obj == nil {
+		t.Fatal("GetObject returned nil for augmentEntry")
+	}
+
+	// Test GetAugmentsTarget
+	target := model.GetAugmentsTarget(obj)
+	if target == nil {
+		t.Fatal("GetAugmentsTarget returned nil")
+	}
+
+	// Verify the target is baseEntry
+	if len(target.Definitions) == 0 {
+		t.Fatal("target has no definitions")
+	}
+	name := model.GetStr(target.Definitions[0].Label)
+	if name != "baseEntry" {
+		t.Errorf("augments target name = %q, want %q", name, "baseEntry")
+	}
+}
+
+func TestGetAugmentsTargetNoAugments(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find a row that doesn't use AUGMENTS
+	rowNodes := model.GetNodesByName("testEntry")
+	if len(rowNodes) == 0 {
+		t.Fatal("GetNodesByName('testEntry') returned empty")
+	}
+
+	obj := model.GetObject(rowNodes[0])
+	if obj == nil {
+		t.Fatal("GetObject returned nil for testEntry")
+	}
+
+	// GetAugmentsTarget should return nil for rows without AUGMENTS
+	target := model.GetAugmentsTarget(obj)
+	if target != nil {
+		t.Errorf("GetAugmentsTarget for non-augmenting row returned %v, want nil", target)
+	}
+}
+
+func TestGetAugmentsTargetNil(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// GetAugmentsTarget with nil should return nil
+	target := model.GetAugmentsTarget(nil)
+	if target != nil {
+		t.Errorf("GetAugmentsTarget(nil) returned %v, want nil", target)
+	}
+}
+
+// === Tests for GetParent and GetChildren ===
+
+func TestGetParent(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find testIndex (child of testEntry)
+	indexNodes := model.GetNodesByName("testIndex")
+	if len(indexNodes) == 0 {
+		t.Fatal("GetNodesByName('testIndex') returned empty")
+	}
+	indexNode := indexNodes[0]
+
+	// Get parent
+	parent := model.GetParent(indexNode)
+	if parent == nil {
+		t.Fatal("GetParent returned nil")
+	}
+
+	// Verify parent is testEntry
+	if len(parent.Definitions) == 0 {
+		t.Fatal("parent has no definitions")
+	}
+	name := model.GetStr(parent.Definitions[0].Label)
+	if name != "testEntry" {
+		t.Errorf("parent name = %q, want %q", name, "testEntry")
+	}
+}
+
+func TestGetParentRoot(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find a root node (iso)
+	roots := model.Roots()
+	if len(roots) == 0 {
+		t.Fatal("No root nodes")
+	}
+	root := model.GetNode(roots[0])
+	if root == nil {
+		t.Fatal("GetNode for root returned nil")
+	}
+
+	// GetParent of root should return nil
+	parent := model.GetParent(root)
+	if parent != nil {
+		t.Errorf("GetParent of root returned %v, want nil", parent)
+	}
+}
+
+func TestGetParentNil(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// GetParent with nil should return nil
+	parent := model.GetParent(nil)
+	if parent != nil {
+		t.Errorf("GetParent(nil) returned %v, want nil", parent)
+	}
+}
+
+func TestGetChildren(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find testEntry (parent of testIndex and testValue)
+	rowNodes := model.GetNodesByName("testEntry")
+	if len(rowNodes) == 0 {
+		t.Fatal("GetNodesByName('testEntry') returned empty")
+	}
+	rowNode := rowNodes[0]
+
+	// Get children
+	children := model.GetChildren(rowNode)
+	if len(children) != 2 {
+		t.Fatalf("GetChildren returned %d children, want 2", len(children))
+	}
+
+	// Collect child names
+	childNames := make(map[string]bool)
+	for _, child := range children {
+		if child != nil && len(child.Definitions) > 0 {
+			name := model.GetStr(child.Definitions[0].Label)
+			childNames[name] = true
+		}
+	}
+
+	// Verify expected children
+	if !childNames["testIndex"] {
+		t.Error("testIndex not found in children")
+	}
+	if !childNames["testValue"] {
+		t.Error("testValue not found in children")
+	}
+}
+
+func TestGetChildrenLeaf(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// Find a leaf node (testIndex has no children)
+	indexNodes := model.GetNodesByName("testIndex")
+	if len(indexNodes) == 0 {
+		t.Fatal("GetNodesByName('testIndex') returned empty")
+	}
+
+	// GetChildren of leaf should return empty slice
+	children := model.GetChildren(indexNodes[0])
+	if len(children) != 0 {
+		t.Errorf("GetChildren of leaf returned %d children, want 0", len(children))
+	}
+}
+
+func TestGetChildrenNil(t *testing.T) {
+	ctx := context.Background()
+
+	compiler, err := NewCompiler(ctx)
+	if err != nil {
+		t.Fatalf("NewCompiler failed: %v", err)
+	}
+	defer compiler.Close()
+
+	if err := compiler.LoadModule([]byte(testMIB)); err != nil {
+		t.Fatalf("LoadModule failed: %v", err)
+	}
+
+	model, err := compiler.Resolve()
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// GetChildren with nil should return nil
+	children := model.GetChildren(nil)
+	if children != nil {
+		t.Errorf("GetChildren(nil) returned %v, want nil", children)
+	}
+}

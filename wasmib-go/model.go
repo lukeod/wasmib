@@ -293,6 +293,60 @@ func (m *Model) GetNotificationObjects(notif *Notification) []*Node {
 	return nodes
 }
 
+// GetIndexObjects returns the index column nodes for a row object.
+// These are the objects from the INDEX clause that define the row's key.
+// Returns nil if the object is nil or has no INDEX clause.
+func (m *Model) GetIndexObjects(obj *Object) []*Node {
+	if obj == nil || obj.Index == nil || len(obj.Index.Items) == 0 {
+		return nil
+	}
+	nodes := make([]*Node, 0, len(obj.Index.Items))
+	for _, item := range obj.Index.Items {
+		node := m.GetNode(item.Object)
+		if node != nil {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
+// GetAugmentsTarget returns the row node that this object augments.
+// Returns nil if the object is nil or doesn't use AUGMENTS.
+func (m *Model) GetAugmentsTarget(obj *Object) *Node {
+	if obj == nil || obj.Augments == 0 {
+		return nil
+	}
+	return m.GetNode(obj.Augments)
+}
+
+// GetParent returns the parent node in the OID tree.
+// Returns nil if the node is nil or is a root node.
+func (m *Model) GetParent(n *Node) *Node {
+	if n == nil || n.Parent == 0 {
+		return nil
+	}
+	return m.GetNode(n.Parent)
+}
+
+// GetChildren returns the child nodes in the OID tree.
+// Returns nil if the node is nil, or an empty slice if no children.
+func (m *Model) GetChildren(n *Node) []*Node {
+	if n == nil {
+		return nil
+	}
+	if len(n.Children) == 0 {
+		return []*Node{}
+	}
+	children := make([]*Node, 0, len(n.Children))
+	for _, childID := range n.Children {
+		child := m.GetNode(childID)
+		if child != nil {
+			children = append(children, child)
+		}
+	}
+	return children
+}
+
 // GetEffectiveHint walks the type chain to find a display hint.
 // Returns empty string if no hint found.
 func (m *Model) GetEffectiveHint(typeID uint32) string {
