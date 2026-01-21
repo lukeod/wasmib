@@ -25,7 +25,7 @@ high throughput.
 │  MIB bytes → Lexer → Parser → Resolver → Model                  │
 │                                             │                   │
 │                                             ▼                   │
-│                                  serialize (postcard)           │
+│                                  serialize (protobuf)           │
 └─────────────────────────────────────────────┬───────────────────┘
                                               │
                                   One-time transfer

@@ -1,0 +1,239 @@
+// Protocol Buffers schema for wasmib MIB model serialization.
+// This schema is shared between Rust (prost) and Go code generation.
+
+syntax = "proto3";
+
+package wasmib;
+
+option go_package = "github.com/lukeod/wasmib/wasmib-go/proto";
+
+// Root serialization envelope for FFI export.
+message SerializedModel {
+  // Schema version for forward compatibility.
+  uint32 version = 1;
+
+  // Optional fingerprint of source MIB files (for cache validation).
+  // Empty bytes means no fingerprint.
+  bytes fingerprint = 2;
+
+  // Concatenated string data.
+  string strings_data = 3;
+
+  // Offsets into strings_data for each StrId (1-indexed in Model).
+  repeated StringOffset strings_offsets = 4;
+
+  // Resolved modules.
+  repeated SerializedModule modules = 5;
+
+  // OID tree nodes.
+  repeated SerializedNode nodes = 6;
+
+  // Type definitions.
+  repeated SerializedType types = 7;
+
+  // Object definitions.
+  repeated SerializedObject objects = 8;
+
+  // Notification definitions.
+  repeated SerializedNotification notifications = 9;
+
+  // Root node IDs (typically iso=1).
+  repeated uint32 roots = 10;
+
+  // Unresolved reference counts (for diagnostics).
+  uint32 unresolved_imports = 11;
+  uint32 unresolved_types = 12;
+  uint32 unresolved_oids = 13;
+  uint32 unresolved_indexes = 14;
+  uint32 unresolved_notification_objects = 15;
+}
+
+// String offset pair (start, end) into strings_data.
+message StringOffset {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+// Serialized module definition.
+message SerializedModule {
+  // Module name (StrId).
+  uint32 name = 1;
+  // LAST-UPDATED value (StrId, 0 = none).
+  uint32 last_updated = 2;
+  // CONTACT-INFO value (StrId, 0 = none).
+  uint32 contact_info = 3;
+  // ORGANIZATION value (StrId, 0 = none).
+  uint32 organization = 4;
+  // Description text (StrId, 0 = none).
+  uint32 description = 5;
+  // Revision history.
+  repeated SerializedRevision revisions = 6;
+}
+
+// Serialized revision entry.
+message SerializedRevision {
+  // Revision date (StrId).
+  uint32 date = 1;
+  // Revision description (StrId).
+  uint32 description = 2;
+}
+
+// Serialized OID tree node.
+message SerializedNode {
+  // The arc (subidentifier) at this position.
+  uint32 subid = 1;
+  // Parent node (NodeId, 0 = none/root).
+  uint32 parent = 2;
+  // Child nodes (Vec<NodeId>).
+  repeated uint32 children = 3;
+  // Node kind (0-9, see NodeKind enum).
+  uint32 kind = 4;
+  // Definitions at this OID.
+  repeated SerializedNodeDef definitions = 5;
+}
+
+// Serialized node definition.
+message SerializedNodeDef {
+  // Module where this definition appears (ModuleId).
+  uint32 module = 1;
+  // Object name/label (StrId).
+  uint32 label = 2;
+  // Associated object (ObjectId, 0 = none).
+  uint32 object = 3;
+  // Associated notification (NotificationId, 0 = none).
+  uint32 notification = 4;
+}
+
+// Serialized object definition.
+message SerializedObject {
+  // Node in OID tree (NodeId).
+  uint32 node = 1;
+  // Defining module (ModuleId).
+  uint32 module = 2;
+  // Object name (StrId).
+  uint32 name = 3;
+  // Resolved type (TypeId, 0 = unresolved).
+  uint32 type_id = 4;
+  // Access level (0-5, see Access enum).
+  uint32 access = 5;
+  // Definition status (0-2, see Status enum).
+  uint32 status = 6;
+  // Description text (StrId, 0 = none).
+  uint32 description = 7;
+  // Units string (StrId, 0 = none).
+  uint32 units = 8;
+  // Reference text (StrId, 0 = none).
+  uint32 reference = 9;
+  // Index specification (for row objects).
+  optional SerializedIndex index = 10;
+  // AUGMENTS target (NodeId, 0 = none).
+  uint32 augments = 11;
+  // Default value.
+  optional SerializedDefVal defval = 12;
+  // Inline enumeration values (not from type).
+  repeated EnumValue inline_enum = 13;
+  // Inline BITS values (not from type).
+  repeated BitDef inline_bits = 14;
+}
+
+// Serialized index specification.
+message SerializedIndex {
+  // Index items.
+  repeated SerializedIndexItem items = 1;
+}
+
+// Serialized index item.
+message SerializedIndexItem {
+  // The index object node (NodeId).
+  uint32 object = 1;
+  // Whether this index is IMPLIED.
+  bool implied = 2;
+}
+
+// Serialized default value.
+message SerializedDefVal {
+  // Kind: 0=Integer, 1=Unsigned, 2=String, 3=HexString, 4=BinaryString, 5=Enum, 6=Bits, 7=OidRef.
+  uint32 kind = 1;
+  // Integer value (for kind 0).
+  optional int64 int_val = 2;
+  // Unsigned value (for kind 1).
+  optional uint64 uint_val = 3;
+  // String ID (for kinds 2, 5, or unresolved OID symbol).
+  optional uint32 str_val = 4;
+  // Raw string (for kinds 3, 4 - hex/binary strings).
+  optional string raw_str = 5;
+  // Node ID (for kind 7 - resolved OID ref).
+  optional uint32 node_val = 6;
+  // Bit names as StrIds (for kind 6).
+  repeated uint32 bits_val = 7;
+}
+
+// Serialized type definition.
+message SerializedType {
+  // Defining module (ModuleId).
+  uint32 module = 1;
+  // Type name (StrId).
+  uint32 name = 2;
+  // Base type (0-11, see BaseType enum).
+  uint32 base = 3;
+  // Parent type (TypeId, 0 = none, for TC inheritance).
+  uint32 parent = 4;
+  // Definition status (0-2, see Status enum).
+  uint32 status = 5;
+  // Is this a textual convention?
+  bool is_tc = 6;
+  // Display hint (StrId, 0 = none).
+  uint32 hint = 7;
+  // Description text (StrId, 0 = none).
+  uint32 description = 8;
+  // Size constraint.
+  optional SerializedConstraint size = 9;
+  // Value range constraint.
+  optional SerializedConstraint range = 10;
+  // Enumeration values.
+  repeated EnumValue enum_values = 11;
+  // Bit definitions.
+  repeated BitDef bit_defs = 12;
+}
+
+// Enumeration value: (value, name StrId).
+message EnumValue {
+  int64 value = 1;
+  uint32 name = 2;
+}
+
+// Bit definition: (position, name StrId).
+message BitDef {
+  uint32 position = 1;
+  uint32 name = 2;
+}
+
+// Serialized constraint (for size or value ranges).
+message SerializedConstraint {
+  // (min, max) pairs for allowed values/sizes.
+  repeated Range ranges = 1;
+}
+
+// Range pair (min, max).
+message Range {
+  int64 min = 1;
+  int64 max = 2;
+}
+
+// Serialized notification definition.
+message SerializedNotification {
+  // Node in OID tree (NodeId).
+  uint32 node = 1;
+  // Defining module (ModuleId).
+  uint32 module = 2;
+  // Notification name (StrId).
+  uint32 name = 3;
+  // Definition status (0-2, see Status enum).
+  uint32 status = 4;
+  // Description text (StrId, 0 = none).
+  uint32 description = 5;
+  // Reference text (StrId, 0 = none).
+  uint32 reference = 6;
+  // Objects included in the notification (Vec<NodeId>).
+  repeated uint32 objects = 7;
+}

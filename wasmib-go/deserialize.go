@@ -3,861 +3,272 @@ package wasmib
 import (
 	"errors"
 	"fmt"
-	"io"
+
+	"github.com/lukeod/wasmib/wasmib-go/proto"
+	pb "google.golang.org/protobuf/proto"
 )
 
-var (
-	// ErrUnexpectedEOF is returned when the data ends unexpectedly.
-	ErrUnexpectedEOF = errors.New("unexpected end of data")
-	// ErrVarintOverflow is returned when a varint is too large.
-	ErrVarintOverflow = errors.New("varint overflow")
-	// ErrUnsupportedVersion is returned when the schema version is not supported.
-	ErrUnsupportedVersion = errors.New("unsupported schema version")
-)
+// ErrUnsupportedVersion is returned when the schema version is not supported.
+var ErrUnsupportedVersion = errors.New("unsupported schema version")
 
 const (
 	schemaVersion = 1
 )
 
-// Deserialize parses a postcard-encoded SerializedModel.
+// Deserialize parses a protobuf-encoded SerializedModel.
 func Deserialize(data []byte) (*Model, error) {
-	r := &postcardReader{data: data}
-
-	// Read version
-	version, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading version: %w", err)
-	}
-	if version != schemaVersion {
-		return nil, fmt.Errorf("%w: got %d, expected %d", ErrUnsupportedVersion, version, schemaVersion)
+	// Unmarshal protobuf
+	var msg proto.SerializedModel
+	if err := pb.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("unmarshaling protobuf: %w", err)
 	}
 
-	// Read fingerprint (Option<[u8; 32]>)
-	hasFingerprint, err := r.readBool()
-	if err != nil {
-		return nil, fmt.Errorf("reading fingerprint flag: %w", err)
-	}
-	if hasFingerprint {
-		if err := r.skip(32); err != nil {
-			return nil, fmt.Errorf("skipping fingerprint: %w", err)
-		}
+	// Check version
+	if msg.Version != schemaVersion {
+		return nil, fmt.Errorf("%w: got %d, expected %d", ErrUnsupportedVersion, msg.Version, schemaVersion)
 	}
 
-	// Read strings_data
-	stringsData, err := r.readString()
-	if err != nil {
-		return nil, fmt.Errorf("reading strings_data: %w", err)
-	}
+	// Build string table from offsets
+	strings := buildStrings(msg.StringsData, msg.StringsOffsets)
 
-	// Read strings_offsets
-	offsetCount, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading strings_offsets count: %w", err)
-	}
-	stringsOffsets := make([][2]uint32, offsetCount)
-	for i := uint32(0); i < offsetCount; i++ {
-		start, err := r.readU32()
-		if err != nil {
-			return nil, fmt.Errorf("reading string offset start: %w", err)
-		}
-		end, err := r.readU32()
-		if err != nil {
-			return nil, fmt.Errorf("reading string offset end: %w", err)
-		}
-		stringsOffsets[i] = [2]uint32{start, end}
-	}
-
-	// Build string table
-	strings := make([]string, len(stringsOffsets))
-	for i, offsets := range stringsOffsets {
-		if int(offsets[1]) <= len(stringsData) && offsets[0] <= offsets[1] {
-			strings[i] = stringsData[offsets[0]:offsets[1]]
-		}
-	}
-
-	// Read modules
-	modules, err := readModules(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading modules: %w", err)
-	}
-
-	// Read nodes
-	nodes, err := readNodes(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading nodes: %w", err)
-	}
-
-	// Read types
-	types, err := readTypes(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading types: %w", err)
-	}
-
-	// Read objects
-	objects, err := readObjects(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading objects: %w", err)
-	}
-
-	// Read notifications
-	notifications, err := readNotifications(r)
-	if err != nil {
-		return nil, fmt.Errorf("reading notifications: %w", err)
-	}
-
-	// Read roots
-	rootCount, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading roots count: %w", err)
-	}
-	roots := make([]uint32, rootCount)
-	for i := uint32(0); i < rootCount; i++ {
-		roots[i], err = r.readU32()
-		if err != nil {
-			return nil, fmt.Errorf("reading root: %w", err)
-		}
-	}
-
-	// Read unresolved counts
-	unresolvedImports, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading unresolved_imports: %w", err)
-	}
-	unresolvedTypes, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading unresolved_types: %w", err)
-	}
-	unresolvedOids, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading unresolved_oids: %w", err)
-	}
-	unresolvedIndexes, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading unresolved_indexes: %w", err)
-	}
-	unresolvedNotifObjects, err := r.readU32()
-	if err != nil {
-		return nil, fmt.Errorf("reading unresolved_notification_objects: %w", err)
-	}
+	// Convert protobuf types to internal types
+	modules := convertModules(msg.Modules)
+	nodes := convertNodes(msg.Nodes)
+	types := convertTypes(msg.Types)
+	objects := convertObjects(msg.Objects)
+	notifications := convertNotifications(msg.Notifications)
 
 	m := &Model{
-		version:                       version,
+		version:                       msg.Version,
 		strings:                       strings,
 		modules:                       modules,
 		nodes:                         nodes,
 		types:                         types,
 		objects:                       objects,
 		notifications:                 notifications,
-		roots:                         roots,
-		unresolvedImports:             unresolvedImports,
-		unresolvedTypes:               unresolvedTypes,
-		unresolvedOids:                unresolvedOids,
-		unresolvedIndexes:             unresolvedIndexes,
-		unresolvedNotificationObjects: unresolvedNotifObjects,
+		roots:                         msg.Roots,
+		unresolvedImports:             msg.UnresolvedImports,
+		unresolvedTypes:               msg.UnresolvedTypes,
+		unresolvedOids:                msg.UnresolvedOids,
+		unresolvedIndexes:             msg.UnresolvedIndexes,
+		unresolvedNotificationObjects: msg.UnresolvedNotificationObjects,
 	}
 
 	m.buildIndices()
 	return m, nil
 }
 
-func readModules(r *postcardReader) ([]Module, error) {
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
+func buildStrings(data string, offsets []*proto.StringOffset) []string {
+	if len(offsets) == 0 {
+		return nil
 	}
-	modules := make([]Module, count)
-	for i := uint32(0); i < count; i++ {
-		mod, err := readModule(r)
-		if err != nil {
-			return nil, err
+
+	strings := make([]string, len(offsets))
+	for i, offset := range offsets {
+		if int(offset.End) <= len(data) && offset.Start <= offset.End {
+			strings[i] = data[offset.Start:offset.End]
 		}
-		modules[i] = mod
 	}
-	return modules, nil
+	return strings
 }
 
-func readModule(r *postcardReader) (Module, error) {
-	var m Module
-	var err error
-
-	m.Name, err = r.readU32()
-	if err != nil {
-		return m, err
-	}
-	m.LastUpdated, err = r.readU32()
-	if err != nil {
-		return m, err
-	}
-	m.ContactInfo, err = r.readU32()
-	if err != nil {
-		return m, err
-	}
-	m.Organization, err = r.readU32()
-	if err != nil {
-		return m, err
-	}
-	m.Description, err = r.readU32()
-	if err != nil {
-		return m, err
-	}
-
-	// Revisions
-	revCount, err := r.readU32()
-	if err != nil {
-		return m, err
-	}
-	m.Revisions = make([]Revision, revCount)
-	for i := uint32(0); i < revCount; i++ {
-		m.Revisions[i].Date, err = r.readU32()
-		if err != nil {
-			return m, err
-		}
-		m.Revisions[i].Description, err = r.readU32()
-		if err != nil {
-			return m, err
+func convertModules(pbModules []*proto.SerializedModule) []Module {
+	modules := make([]Module, len(pbModules))
+	for i, pb := range pbModules {
+		modules[i] = Module{
+			Name:         pb.Name,
+			LastUpdated:  pb.LastUpdated,
+			ContactInfo:  pb.ContactInfo,
+			Organization: pb.Organization,
+			Description:  pb.Description,
+			Revisions:    convertRevisions(pb.Revisions),
 		}
 	}
-
-	return m, nil
+	return modules
 }
 
-func readNodes(r *postcardReader) ([]Node, error) {
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	nodes := make([]Node, count)
-	for i := uint32(0); i < count; i++ {
-		node, err := readNode(r)
-		if err != nil {
-			return nil, err
+func convertRevisions(pbRevisions []*proto.SerializedRevision) []Revision {
+	revisions := make([]Revision, len(pbRevisions))
+	for i, pb := range pbRevisions {
+		revisions[i] = Revision{
+			Date:        pb.Date,
+			Description: pb.Description,
 		}
-		nodes[i] = node
 	}
-	return nodes, nil
+	return revisions
 }
 
-func readNode(r *postcardReader) (Node, error) {
-	var n Node
-	var err error
-
-	n.Subid, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Parent, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-
-	// Children
-	childCount, err := r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Children = make([]uint32, childCount)
-	for i := uint32(0); i < childCount; i++ {
-		n.Children[i], err = r.readU32()
-		if err != nil {
-			return n, err
+func convertNodes(pbNodes []*proto.SerializedNode) []Node {
+	nodes := make([]Node, len(pbNodes))
+	for i, pb := range pbNodes {
+		nodes[i] = Node{
+			Subid:       pb.Subid,
+			Parent:      pb.Parent,
+			Children:    pb.Children,
+			Kind:        NodeKind(pb.Kind),
+			Definitions: convertNodeDefs(pb.Definitions),
 		}
 	}
-
-	// Kind
-	kind, err := r.readU8()
-	if err != nil {
-		return n, err
-	}
-	n.Kind = NodeKind(kind)
-
-	// Definitions
-	defCount, err := r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Definitions = make([]NodeDef, defCount)
-	for i := uint32(0); i < defCount; i++ {
-		n.Definitions[i], err = readNodeDef(r)
-		if err != nil {
-			return n, err
-		}
-	}
-
-	return n, nil
+	return nodes
 }
 
-func readNodeDef(r *postcardReader) (NodeDef, error) {
-	var d NodeDef
-	var err error
-
-	d.Module, err = r.readU32()
-	if err != nil {
-		return d, err
+func convertNodeDefs(pbDefs []*proto.SerializedNodeDef) []NodeDef {
+	defs := make([]NodeDef, len(pbDefs))
+	for i, pb := range pbDefs {
+		defs[i] = NodeDef{
+			Module:       pb.Module,
+			Label:        pb.Label,
+			Object:       pb.Object,
+			Notification: pb.Notification,
+		}
 	}
-	d.Label, err = r.readU32()
-	if err != nil {
-		return d, err
-	}
-	d.Object, err = r.readU32()
-	if err != nil {
-		return d, err
-	}
-	d.Notification, err = r.readU32()
-	if err != nil {
-		return d, err
-	}
-
-	return d, nil
+	return defs
 }
 
-func readTypes(r *postcardReader) ([]Type, error) {
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	types := make([]Type, count)
-	for i := uint32(0); i < count; i++ {
-		t, err := readType(r)
-		if err != nil {
-			return nil, err
+func convertTypes(pbTypes []*proto.SerializedType) []Type {
+	types := make([]Type, len(pbTypes))
+	for i, pb := range pbTypes {
+		types[i] = Type{
+			Module:      pb.Module,
+			Name:        pb.Name,
+			Base:        BaseType(pb.Base),
+			Parent:      pb.Parent,
+			Status:      Status(pb.Status),
+			IsTC:        pb.IsTc,
+			Hint:        pb.Hint,
+			Description: pb.Description,
+			Size:        convertConstraint(pb.Size),
+			Range:       convertConstraint(pb.Range),
+			EnumValues:  convertEnumValues(pb.EnumValues),
+			BitDefs:     convertBitDefs(pb.BitDefs),
 		}
-		types[i] = t
 	}
-	return types, nil
+	return types
 }
 
-func readType(r *postcardReader) (Type, error) {
-	var t Type
-	var err error
-
-	t.Module, err = r.readU32()
-	if err != nil {
-		return t, err
+func convertConstraint(pb *proto.SerializedConstraint) *Constraint {
+	if pb == nil || len(pb.Ranges) == 0 {
+		return nil
 	}
-	t.Name, err = r.readU32()
-	if err != nil {
-		return t, err
+	ranges := make([][2]int64, len(pb.Ranges))
+	for i, r := range pb.Ranges {
+		ranges[i] = [2]int64{r.Min, r.Max}
 	}
-
-	base, err := r.readU8()
-	if err != nil {
-		return t, err
-	}
-	t.Base = BaseType(base)
-
-	t.Parent, err = r.readU32()
-	if err != nil {
-		return t, err
-	}
-
-	status, err := r.readU8()
-	if err != nil {
-		return t, err
-	}
-	t.Status = Status(status)
-
-	t.IsTC, err = r.readBool()
-	if err != nil {
-		return t, err
-	}
-	t.Hint, err = r.readU32()
-	if err != nil {
-		return t, err
-	}
-	t.Description, err = r.readU32()
-	if err != nil {
-		return t, err
-	}
-
-	// Size constraint (Option)
-	t.Size, err = readOptionalConstraint(r)
-	if err != nil {
-		return t, err
-	}
-
-	// Range constraint (Option)
-	t.Range, err = readOptionalConstraint(r)
-	if err != nil {
-		return t, err
-	}
-
-	// Enum values (Option<Vec>)
-	t.EnumValues, err = readOptionalEnumValues(r)
-	if err != nil {
-		return t, err
-	}
-
-	// Bit defs (Option<Vec>)
-	t.BitDefs, err = readOptionalBitDefs(r)
-	if err != nil {
-		return t, err
-	}
-
-	return t, nil
+	return &Constraint{Ranges: ranges}
 }
 
-func readOptionalConstraint(r *postcardReader) (*Constraint, error) {
-	hasConstraint, err := r.readBool()
-	if err != nil {
-		return nil, err
+func convertEnumValues(pbValues []*proto.EnumValue) []EnumValue {
+	if len(pbValues) == 0 {
+		return nil
 	}
-	if !hasConstraint {
-		return nil, nil
-	}
-
-	rangeCount, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	ranges := make([][2]int64, rangeCount)
-	for i := uint32(0); i < rangeCount; i++ {
-		min, err := r.readI64()
-		if err != nil {
-			return nil, err
+	values := make([]EnumValue, len(pbValues))
+	for i, pb := range pbValues {
+		values[i] = EnumValue{
+			Value: pb.Value,
+			Name:  pb.Name,
 		}
-		max, err := r.readI64()
-		if err != nil {
-			return nil, err
-		}
-		ranges[i] = [2]int64{min, max}
 	}
-
-	return &Constraint{Ranges: ranges}, nil
+	return values
 }
 
-func readOptionalEnumValues(r *postcardReader) ([]EnumValue, error) {
-	hasValues, err := r.readBool()
-	if err != nil {
-		return nil, err
+func convertBitDefs(pbDefs []*proto.BitDef) []BitDef {
+	if len(pbDefs) == 0 {
+		return nil
 	}
-	if !hasValues {
-		return nil, nil
-	}
-
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	values := make([]EnumValue, count)
-	for i := uint32(0); i < count; i++ {
-		val, err := r.readI64()
-		if err != nil {
-			return nil, err
+	defs := make([]BitDef, len(pbDefs))
+	for i, pb := range pbDefs {
+		defs[i] = BitDef{
+			Position: pb.Position,
+			Name:     pb.Name,
 		}
-		name, err := r.readU32()
-		if err != nil {
-			return nil, err
-		}
-		values[i] = EnumValue{Value: val, Name: name}
 	}
-	return values, nil
+	return defs
 }
 
-func readOptionalBitDefs(r *postcardReader) ([]BitDef, error) {
-	hasDefs, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if !hasDefs {
-		return nil, nil
-	}
-
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	defs := make([]BitDef, count)
-	for i := uint32(0); i < count; i++ {
-		pos, err := r.readU32()
-		if err != nil {
-			return nil, err
+func convertObjects(pbObjects []*proto.SerializedObject) []Object {
+	objects := make([]Object, len(pbObjects))
+	for i, pb := range pbObjects {
+		objects[i] = Object{
+			Node:        pb.Node,
+			Module:      pb.Module,
+			Name:        pb.Name,
+			TypeID:      pb.TypeId,
+			Access:      Access(pb.Access),
+			Status:      Status(pb.Status),
+			Description: pb.Description,
+			Units:       pb.Units,
+			Reference:   pb.Reference,
+			Index:       convertIndex(pb.Index),
+			Augments:    pb.Augments,
+			DefVal:      convertDefVal(pb.Defval),
+			InlineEnum:  convertEnumValues(pb.InlineEnum),
+			InlineBits:  convertBitDefs(pb.InlineBits),
 		}
-		name, err := r.readU32()
-		if err != nil {
-			return nil, err
-		}
-		defs[i] = BitDef{Position: pos, Name: name}
 	}
-	return defs, nil
+	return objects
 }
 
-func readObjects(r *postcardReader) ([]Object, error) {
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
+func convertIndex(pb *proto.SerializedIndex) *IndexSpec {
+	if pb == nil || len(pb.Items) == 0 {
+		return nil
 	}
-	objects := make([]Object, count)
-	for i := uint32(0); i < count; i++ {
-		obj, err := readObject(r)
-		if err != nil {
-			return nil, err
+	items := make([]IndexItem, len(pb.Items))
+	for i, item := range pb.Items {
+		items[i] = IndexItem{
+			Object:  item.Object,
+			Implied: item.Implied,
 		}
-		objects[i] = obj
 	}
-	return objects, nil
+	return &IndexSpec{Items: items}
 }
 
-func readObject(r *postcardReader) (Object, error) {
-	var o Object
-	var err error
+func convertDefVal(pb *proto.SerializedDefVal) *DefVal {
+	if pb == nil {
+		return nil
+	}
+	// Check if any field is actually set (kind alone isn't enough for proto3)
+	// We rely on the presence of kind > 0 or any other field being non-zero
+	hasValue := pb.IntVal != nil || pb.UintVal != nil || pb.StrVal != nil ||
+		pb.RawStr != nil || pb.NodeVal != nil || len(pb.BitsVal) > 0
 
-	o.Node, err = r.readU32()
-	if err != nil {
-		return o, err
-	}
-	o.Module, err = r.readU32()
-	if err != nil {
-		return o, err
-	}
-	o.Name, err = r.readU32()
-	if err != nil {
-		return o, err
-	}
-	o.TypeID, err = r.readU32()
-	if err != nil {
-		return o, err
+	if pb.Kind == 0 && !hasValue {
+		return nil
 	}
 
-	access, err := r.readU8()
-	if err != nil {
-		return o, err
+	d := &DefVal{Kind: DefValKind(pb.Kind)}
+	if pb.IntVal != nil {
+		d.IntVal = *pb.IntVal
 	}
-	o.Access = Access(access)
-
-	status, err := r.readU8()
-	if err != nil {
-		return o, err
+	if pb.UintVal != nil {
+		d.UintVal = *pb.UintVal
 	}
-	o.Status = Status(status)
-
-	o.Description, err = r.readU32()
-	if err != nil {
-		return o, err
+	if pb.StrVal != nil {
+		d.StrID = *pb.StrVal
 	}
-	o.Units, err = r.readU32()
-	if err != nil {
-		return o, err
+	if pb.RawStr != nil {
+		d.RawStr = *pb.RawStr
 	}
-	o.Reference, err = r.readU32()
-	if err != nil {
-		return o, err
+	if pb.NodeVal != nil {
+		d.NodeID = *pb.NodeVal
 	}
-
-	// Index (Option)
-	o.Index, err = readOptionalIndex(r)
-	if err != nil {
-		return o, err
+	if len(pb.BitsVal) > 0 {
+		d.BitsVals = pb.BitsVal
 	}
-
-	o.Augments, err = r.readU32()
-	if err != nil {
-		return o, err
-	}
-
-	// DefVal (Option)
-	o.DefVal, err = readOptionalDefVal(r)
-	if err != nil {
-		return o, err
-	}
-
-	// InlineEnum (Option<Vec>)
-	o.InlineEnum, err = readOptionalEnumValues(r)
-	if err != nil {
-		return o, err
-	}
-
-	// InlineBits (Option<Vec>)
-	o.InlineBits, err = readOptionalBitDefs(r)
-	if err != nil {
-		return o, err
-	}
-
-	return o, nil
+	return d
 }
 
-func readOptionalIndex(r *postcardReader) (*IndexSpec, error) {
-	hasIndex, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if !hasIndex {
-		return nil, nil
-	}
-
-	itemCount, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	items := make([]IndexItem, itemCount)
-	for i := uint32(0); i < itemCount; i++ {
-		obj, err := r.readU32()
-		if err != nil {
-			return nil, err
-		}
-		implied, err := r.readBool()
-		if err != nil {
-			return nil, err
-		}
-		items[i] = IndexItem{Object: obj, Implied: implied}
-	}
-
-	return &IndexSpec{Items: items}, nil
-}
-
-func readOptionalDefVal(r *postcardReader) (*DefVal, error) {
-	hasDefVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if !hasDefVal {
-		return nil, nil
-	}
-
-	kind, err := r.readU8()
-	if err != nil {
-		return nil, err
-	}
-
-	d := &DefVal{Kind: DefValKind(kind)}
-
-	// int_val (Option<i64>)
-	hasIntVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasIntVal {
-		d.IntVal, err = r.readI64()
-		if err != nil {
-			return nil, err
+func convertNotifications(pbNotifs []*proto.SerializedNotification) []Notification {
+	notifications := make([]Notification, len(pbNotifs))
+	for i, pb := range pbNotifs {
+		notifications[i] = Notification{
+			Node:        pb.Node,
+			Module:      pb.Module,
+			Name:        pb.Name,
+			Status:      Status(pb.Status),
+			Description: pb.Description,
+			Reference:   pb.Reference,
+			Objects:     pb.Objects,
 		}
 	}
-
-	// uint_val (Option<u64>)
-	hasUintVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasUintVal {
-		d.UintVal, err = r.readU64()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// str_val (Option<u32>)
-	hasStrVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasStrVal {
-		d.StrID, err = r.readU32()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// raw_str (Option<String>)
-	hasRawStr, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasRawStr {
-		d.RawStr, err = r.readString()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// node_val (Option<u32>)
-	hasNodeVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasNodeVal {
-		d.NodeID, err = r.readU32()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// bits_val (Option<Vec<u32>>)
-	hasBitsVal, err := r.readBool()
-	if err != nil {
-		return nil, err
-	}
-	if hasBitsVal {
-		bitsCount, err := r.readU32()
-		if err != nil {
-			return nil, err
-		}
-		d.BitsVals = make([]uint32, bitsCount)
-		for i := uint32(0); i < bitsCount; i++ {
-			d.BitsVals[i], err = r.readU32()
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return d, nil
-}
-
-func readNotifications(r *postcardReader) ([]Notification, error) {
-	count, err := r.readU32()
-	if err != nil {
-		return nil, err
-	}
-	notifs := make([]Notification, count)
-	for i := uint32(0); i < count; i++ {
-		n, err := readNotification(r)
-		if err != nil {
-			return nil, err
-		}
-		notifs[i] = n
-	}
-	return notifs, nil
-}
-
-func readNotification(r *postcardReader) (Notification, error) {
-	var n Notification
-	var err error
-
-	n.Node, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Module, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Name, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-
-	status, err := r.readU8()
-	if err != nil {
-		return n, err
-	}
-	n.Status = Status(status)
-
-	n.Description, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Reference, err = r.readU32()
-	if err != nil {
-		return n, err
-	}
-
-	// Objects
-	objCount, err := r.readU32()
-	if err != nil {
-		return n, err
-	}
-	n.Objects = make([]uint32, objCount)
-	for i := uint32(0); i < objCount; i++ {
-		n.Objects[i], err = r.readU32()
-		if err != nil {
-			return n, err
-		}
-	}
-
-	return n, nil
-}
-
-// === Postcard Reader ===
-
-type postcardReader struct {
-	data []byte
-	pos  int
-}
-
-func (r *postcardReader) readU8() (uint8, error) {
-	if r.pos >= len(r.data) {
-		return 0, io.ErrUnexpectedEOF
-	}
-	v := r.data[r.pos]
-	r.pos++
-	return v, nil
-}
-
-// readU32 reads a varint-encoded u32.
-func (r *postcardReader) readU32() (uint32, error) {
-	var result uint32
-	var shift uint
-	for {
-		if r.pos >= len(r.data) {
-			return 0, io.ErrUnexpectedEOF
-		}
-		b := r.data[r.pos]
-		r.pos++
-		result |= uint32(b&0x7F) << shift
-		if b&0x80 == 0 {
-			break
-		}
-		shift += 7
-		if shift >= 35 {
-			return 0, ErrVarintOverflow
-		}
-	}
-	return result, nil
-}
-
-// readU64 reads a varint-encoded u64.
-func (r *postcardReader) readU64() (uint64, error) {
-	var result uint64
-	var shift uint
-	for {
-		if r.pos >= len(r.data) {
-			return 0, io.ErrUnexpectedEOF
-		}
-		b := r.data[r.pos]
-		r.pos++
-		result |= uint64(b&0x7F) << shift
-		if b&0x80 == 0 {
-			break
-		}
-		shift += 7
-		if shift >= 70 {
-			return 0, ErrVarintOverflow
-		}
-	}
-	return result, nil
-}
-
-// readI64 reads a zigzag-encoded varint i64.
-func (r *postcardReader) readI64() (int64, error) {
-	u, err := r.readU64()
-	if err != nil {
-		return 0, err
-	}
-	// Zigzag decode
-	return int64(u>>1) ^ -int64(u&1), nil
-}
-
-func (r *postcardReader) readBool() (bool, error) {
-	b, err := r.readU8()
-	return b != 0, err
-}
-
-func (r *postcardReader) readString() (string, error) {
-	length, err := r.readU32()
-	if err != nil {
-		return "", err
-	}
-	if r.pos+int(length) > len(r.data) {
-		return "", io.ErrUnexpectedEOF
-	}
-	s := string(r.data[r.pos : r.pos+int(length)])
-	r.pos += int(length)
-	return s, nil
-}
-
-func (r *postcardReader) skip(n int) error {
-	if r.pos+n > len(r.data) {
-		return io.ErrUnexpectedEOF
-	}
-	r.pos += n
-	return nil
+	return notifications
 }

@@ -31,7 +31,6 @@ use wasmib_core::lexer::{Diagnostic, Severity};
 use wasmib_core::parser::Parser;
 use wasmib_core::resolver::Resolver;
 
-use crate::serialize::SerializedModel;
 
 /// Error codes returned by FFI functions.
 pub mod error {
@@ -243,9 +242,8 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     // Store resolve diagnostics
     state.resolve_diagnostics = result.diagnostics;
 
-    // Serialize model
-    let serialized = SerializedModel::from_model(&result.model, None);
-    let bytes = serialized.to_bytes();
+    // Serialize model to protobuf
+    let bytes = crate::serialize::to_bytes(&result.model, None);
 
     // Store with length prefix
     let len = bytes.len() as u32;
