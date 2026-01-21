@@ -20,6 +20,14 @@
 
 extern crate alloc;
 
+use core::sync::atomic::AtomicBool;
+
+/// Flag indicating a panic occurred in WASM.
+///
+/// The panic handler sets this to true; `wasmib_get_error()` checks it
+/// so hosts can detect panics even though the handler must loop forever.
+pub(crate) static PANICKED: AtomicBool = AtomicBool::new(false);
+
 pub mod cache;
 pub mod ffi;
 pub mod serialize;
@@ -39,6 +47,8 @@ static ALLOCATOR: talc::TalckWasm = unsafe { talc::TalckWasm::new_global() };
 #[cfg(all(target_arch = "wasm32", not(test)))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    use core::sync::atomic::Ordering;
+    PANICKED.store(true, Ordering::SeqCst);
     loop {}
 }
 

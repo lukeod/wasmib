@@ -25,6 +25,7 @@ use alloc::alloc::{Layout, alloc, dealloc};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
+use core::sync::atomic::Ordering;
 
 use wasmib_core::lexer::{Diagnostic, Severity};
 use wasmib_core::module::{Module, lower_module};
@@ -336,8 +337,19 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
 ///
 /// Returns pointer to length-prefixed string: `[len: u32 LE][msg: u8; len]`
 /// Returns null if no error occurred.
+///
+/// Note: Also checks for panics. If a panic occurred, returns "panic occurred"
+/// even if no explicit error was set. This allows hosts to detect WASM panics.
 #[unsafe(no_mangle)]
 pub extern "C" fn wasmib_get_error() -> *const u8 {
+    // Check for panic first - panic handler sets this flag
+    if crate::PANICKED.load(Ordering::SeqCst) {
+        // Return a static error message for panics
+        // Format: [len: u32 LE][msg: u8; len]
+        static PANIC_ERROR: &[u8] = b"\x0e\x00\x00\x00panic occurred";
+        return PANIC_ERROR.as_ptr();
+    }
+
     let state = STATE.get();
     match &state.last_error {
         Some(bytes) => bytes.as_ptr(),
