@@ -1284,6 +1284,7 @@ mod tests {
         Definition::TypeDef(TypeDef {
             name: Symbol::from_name(name),
             syntax,
+            base_type: None,
             display_hint: hint.map(|s| s.into()),
             status: Status::Current,
             description: None,

@@ -127,7 +127,8 @@ fn create_user_types(ctx: &mut ResolverContext) {
                     Some(TypeDefData {
                         module_idx,
                         name: td.name.name.clone(),
-                        base: syntax_to_base_type(&td.syntax),
+                        // Prefer explicit base_type if set, otherwise derive from syntax
+                        base: td.base_type.or_else(|| syntax_to_base_type(&td.syntax)),
                         is_tc: td.is_textual_convention,
                         status: td.status,
                         hint: td.display_hint.clone(),
@@ -602,6 +603,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: Some("Test type".into()),
@@ -631,6 +633,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: Some("Test type".into()),
@@ -668,6 +671,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: Some("Test type".into()),
@@ -704,6 +708,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -744,6 +749,7 @@ mod tests {
         let typedef1 = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: Some("255a".into()),
             status: ModuleStatus::Current,
             description: None,
@@ -755,6 +761,7 @@ mod tests {
         let typedef2 = TypeDef {
             name: Symbol::from_name("MyString2"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("MyString")),
+            base_type: None,
             display_hint: None, // No hint - should inherit from MyString
             status: ModuleStatus::Current,
             description: None,
@@ -814,6 +821,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("IfEntry"),
             syntax: TypeSyntax::Sequence(vec![]),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -851,6 +859,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("TestPhysAddress"),
             syntax: TypeSyntax::OctetString,
+            base_type: None,
             display_hint: Some("1x:".into()),
             status: ModuleStatus::Current,
             description: None,
@@ -897,6 +906,7 @@ mod tests {
                     max: Some(RangeValue::Unsigned(255)),
                 }]),
             },
+            base_type: None,
             display_hint: Some("255a".into()),
             status: ModuleStatus::Current,
             description: None,
@@ -936,6 +946,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("TestAutonomousType"),
             syntax: TypeSyntax::ObjectIdentifier,
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -978,6 +989,7 @@ mod tests {
                 NamedNumber::new(Symbol::from_name("true"), 1),
                 NamedNumber::new(Symbol::from_name("false"), 2),
             ]),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1020,6 +1032,7 @@ mod tests {
                 NamedBit::new(Symbol::from_name("flag1"), 0),
                 NamedBit::new(Symbol::from_name("flag2"), 1),
             ]),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1118,6 +1131,7 @@ mod tests {
         let typedef = TypeDef {
             name: Symbol::from_name("MyString"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1176,6 +1190,7 @@ mod tests {
                     max: Some(RangeValue::Unsigned(64)),
                 }]),
             },
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1193,6 +1208,7 @@ mod tests {
                     max: Some(RangeValue::Unsigned(255)),
                 }]),
             },
+            base_type: None,
             display_hint: Some("255a".into()),
             status: ModuleStatus::Current,
             description: None,
@@ -1254,6 +1270,7 @@ mod tests {
         let level1 = TypeDef {
             name: Symbol::from_name("Level1"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("Level2")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1265,6 +1282,7 @@ mod tests {
         let level2 = TypeDef {
             name: Symbol::from_name("Level2"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("Level3")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,
@@ -1276,6 +1294,7 @@ mod tests {
         let level3 = TypeDef {
             name: Symbol::from_name("Level3"),
             syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            base_type: None,
             display_hint: None,
             status: ModuleStatus::Current,
             description: None,

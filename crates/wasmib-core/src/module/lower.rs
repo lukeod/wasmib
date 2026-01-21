@@ -288,6 +288,7 @@ fn lower_textual_convention(def: &ast::TextualConventionDef) -> TypeDef {
     TypeDef {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax.syntax),
+        base_type: None, // Derived from syntax during resolution
         display_hint: def.display_hint.as_ref().map(|h| h.value.clone()),
         status: lower_status(def.status.value),
         description: Some(def.description.value.clone()),
@@ -301,6 +302,7 @@ fn lower_type_assignment(def: &ast::TypeAssignmentDef) -> TypeDef {
     TypeDef {
         name: Symbol::from(&def.name),
         syntax: lower_type_syntax(&def.syntax),
+        base_type: None, // Derived from syntax during resolution
         display_hint: None,
         status: Status::Current,
         description: None,

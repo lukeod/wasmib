@@ -26,6 +26,7 @@
 use super::syntax::{DefVal, OidAssignment, TypeSyntax};
 use super::types::{Access, Status, Symbol};
 use crate::lexer::Span;
+use crate::model::BaseType;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -243,6 +244,13 @@ pub struct TypeDef {
     pub name: Symbol,
     /// Base syntax.
     pub syntax: TypeSyntax,
+    /// Explicit base type override.
+    ///
+    /// For most types, the base type is derived from `syntax`. However, some
+    /// SMI base types like IpAddress are syntactically `OCTET STRING (SIZE 4)`
+    /// but have distinct semantic base types (for index encoding, etc.).
+    /// This field allows synthetic base modules to specify the correct base type.
+    pub base_type: Option<BaseType>,
     /// DISPLAY-HINT.
     pub display_hint: Option<String>,
     /// STATUS.
