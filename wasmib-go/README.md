@@ -60,8 +60,7 @@ wasmib uses a "serialize to host" pattern:
    this point on, all queries are pure Go with no WASM calls.
 
 This design enables unlimited concurrent queries from any number of goroutines
-without contention. The alternative (fine-grained FFI with per-query WASM calls)
-would serialize all access through a single-threaded WASM execution context.
+without contention.
 
 ## Installation
 
