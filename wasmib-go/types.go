@@ -4,16 +4,16 @@ package wasmib
 type NodeKind uint8
 
 const (
-	NodeKindInternal     NodeKind = 0  // Path node without definition
-	NodeKindNode         NodeKind = 1  // OBJECT-IDENTITY, MODULE-IDENTITY, value assignment
-	NodeKindScalar       NodeKind = 2  // OBJECT-TYPE not in table context
-	NodeKindTable        NodeKind = 3  // SYNTAX SEQUENCE OF
-	NodeKindRow          NodeKind = 4  // Has INDEX or AUGMENTS
-	NodeKindColumn       NodeKind = 5  // Parent is Row
-	NodeKindNotification NodeKind = 6  // NOTIFICATION-TYPE, TRAP-TYPE
-	NodeKindGroup        NodeKind = 7  // OBJECT-GROUP, NOTIFICATION-GROUP
-	NodeKindCompliance   NodeKind = 8  // MODULE-COMPLIANCE
-	NodeKindCapabilities NodeKind = 9  // AGENT-CAPABILITIES
+	NodeKindInternal     NodeKind = 0 // Path node without definition
+	NodeKindNode         NodeKind = 1 // OBJECT-IDENTITY, MODULE-IDENTITY, value assignment
+	NodeKindScalar       NodeKind = 2 // OBJECT-TYPE not in table context
+	NodeKindTable        NodeKind = 3 // SYNTAX SEQUENCE OF
+	NodeKindRow          NodeKind = 4 // Has INDEX or AUGMENTS
+	NodeKindColumn       NodeKind = 5 // Parent is Row
+	NodeKindNotification NodeKind = 6 // NOTIFICATION-TYPE, TRAP-TYPE
+	NodeKindGroup        NodeKind = 7 // OBJECT-GROUP, NOTIFICATION-GROUP
+	NodeKindCompliance   NodeKind = 8 // MODULE-COMPLIANCE
+	NodeKindCapabilities NodeKind = 9 // AGENT-CAPABILITIES
 )
 
 func (k NodeKind) String() string {

@@ -9,10 +9,10 @@ import (
 type IndexType uint8
 
 const (
-	IndexTypeInteger    IndexType = 0 // INTEGER, Integer32, Unsigned32, etc.
-	IndexTypeString     IndexType = 1 // OCTET STRING, DisplayString, etc.
-	IndexTypeIpAddress  IndexType = 2 // IpAddress (always 4 bytes)
-	IndexTypeOID        IndexType = 3 // OBJECT IDENTIFIER
+	IndexTypeInteger   IndexType = 0 // INTEGER, Integer32, Unsigned32, etc.
+	IndexTypeString    IndexType = 1 // OCTET STRING, DisplayString, etc.
+	IndexTypeIpAddress IndexType = 2 // IpAddress (always 4 bytes)
+	IndexTypeOID       IndexType = 3 // OBJECT IDENTIFIER
 )
 
 func (t IndexType) String() string {
@@ -40,12 +40,12 @@ type IndexValue struct {
 
 // Common errors for index operations.
 var (
-	ErrNilRow           = errors.New("row object is nil")
-	ErrNoIndex          = errors.New("row has no INDEX clause")
-	ErrNotEnoughData    = errors.New("not enough data in OID suffix")
+	ErrNilRow             = errors.New("row object is nil")
+	ErrNoIndex            = errors.New("row has no INDEX clause")
+	ErrNotEnoughData      = errors.New("not enough data in OID suffix")
 	ErrValueCountMismatch = errors.New("value count does not match index count")
-	ErrUnsupportedType  = errors.New("unsupported index type")
-	ErrInvalidIpAddress = errors.New("IpAddress must be exactly 4 bytes")
+	ErrUnsupportedType    = errors.New("unsupported index type")
+	ErrInvalidIpAddress   = errors.New("IpAddress must be exactly 4 bytes")
 )
 
 // DecodeIndexOID decodes an OID suffix into typed index values for a table row.
@@ -71,26 +71,15 @@ func (m *Model) DecodeIndexOID(row *Object, suffix []uint32) ([]IndexValue, erro
 				ErrNotEnoughData, len(row.Index.Items), i)
 		}
 
-		// Get the index column's type info
-		indexNode := m.GetNode(item.Object)
-		if indexNode == nil {
-			return nil, fmt.Errorf("index %d: cannot find node", i)
+		info, err := m.getIndexColumnInfo(item, i, len(row.Index.Items))
+		if err != nil {
+			return nil, err
 		}
-		indexObj := m.GetObject(indexNode)
-		if indexObj == nil {
-			return nil, fmt.Errorf("index %d: cannot find object definition", i)
-		}
-
-		indexType := m.GetType(indexObj.TypeID)
-		baseType := m.getEffectiveBaseType(indexObj.TypeID)
-		isLast := i == len(row.Index.Items)-1
-		implied := item.Implied
 
 		var val IndexValue
 		var consumed int
-		var err error
 
-		switch baseType {
+		switch info.baseType {
 		case BaseTypeInteger32, BaseTypeUnsigned32, BaseTypeCounter32,
 			BaseTypeGauge32, BaseTypeTimeTicks, BaseTypeCounter64:
 			val, consumed, err = decodeInteger(suffix[pos:])
@@ -99,14 +88,14 @@ func (m *Model) DecodeIndexOID(row *Object, suffix []uint32) ([]IndexValue, erro
 			val, consumed, err = decodeIpAddress(suffix[pos:])
 
 		case BaseTypeOctetString:
-			fixedSize := m.getFixedStringSize(indexType)
-			val, consumed, err = decodeOctetString(suffix[pos:], implied && isLast, fixedSize)
+			fixedSize := m.getFixedStringSize(info.typ)
+			val, consumed, err = decodeOctetString(suffix[pos:], info.implied && info.isLast, fixedSize)
 
 		case BaseTypeObjectIdentifier:
-			val, consumed, err = decodeObjectIdentifier(suffix[pos:], implied && isLast)
+			val, consumed, err = decodeObjectIdentifier(suffix[pos:], info.implied && info.isLast)
 
 		default:
-			return nil, fmt.Errorf("index %d: %w: %v", i, ErrUnsupportedType, baseType)
+			return nil, fmt.Errorf("index %d: %w: %v", i, ErrUnsupportedType, info.baseType)
 		}
 
 		if err != nil {
@@ -138,25 +127,14 @@ func (m *Model) EncodeIndexOID(row *Object, values []IndexValue) ([]uint32, erro
 	var suffix []uint32
 
 	for i, item := range row.Index.Items {
-		// Get the index column's type info
-		indexNode := m.GetNode(item.Object)
-		if indexNode == nil {
-			return nil, fmt.Errorf("index %d: cannot find node", i)
+		info, err := m.getIndexColumnInfo(item, i, len(row.Index.Items))
+		if err != nil {
+			return nil, err
 		}
-		indexObj := m.GetObject(indexNode)
-		if indexObj == nil {
-			return nil, fmt.Errorf("index %d: cannot find object definition", i)
-		}
-
-		indexType := m.GetType(indexObj.TypeID)
-		baseType := m.getEffectiveBaseType(indexObj.TypeID)
-		isLast := i == len(row.Index.Items)-1
-		implied := item.Implied
 
 		var components []uint32
-		var err error
 
-		switch baseType {
+		switch info.baseType {
 		case BaseTypeInteger32, BaseTypeUnsigned32, BaseTypeCounter32,
 			BaseTypeGauge32, BaseTypeTimeTicks, BaseTypeCounter64:
 			components, err = encodeInteger(values[i])
@@ -165,14 +143,14 @@ func (m *Model) EncodeIndexOID(row *Object, values []IndexValue) ([]uint32, erro
 			components, err = encodeIpAddress(values[i])
 
 		case BaseTypeOctetString:
-			fixedSize := m.getFixedStringSize(indexType)
-			components, err = encodeOctetString(values[i], implied && isLast, fixedSize)
+			fixedSize := m.getFixedStringSize(info.typ)
+			components, err = encodeOctetString(values[i], info.implied && info.isLast, fixedSize)
 
 		case BaseTypeObjectIdentifier:
-			components, err = encodeObjectIdentifier(values[i], implied && isLast)
+			components, err = encodeObjectIdentifier(values[i], info.implied && info.isLast)
 
 		default:
-			return nil, fmt.Errorf("index %d: %w: %v", i, ErrUnsupportedType, baseType)
+			return nil, fmt.Errorf("index %d: %w: %v", i, ErrUnsupportedType, info.baseType)
 		}
 
 		if err != nil {
@@ -183,6 +161,36 @@ func (m *Model) EncodeIndexOID(row *Object, values []IndexValue) ([]uint32, erro
 	}
 
 	return suffix, nil
+}
+
+// indexColumnInfo holds resolved information about an index column.
+type indexColumnInfo struct {
+	node     *Node
+	obj      *Object
+	typ      *Type
+	baseType BaseType
+	isLast   bool
+	implied  bool
+}
+
+// getIndexColumnInfo resolves all type information for an index column.
+func (m *Model) getIndexColumnInfo(item IndexItem, idx, total int) (*indexColumnInfo, error) {
+	node := m.GetNode(item.Object)
+	if node == nil {
+		return nil, fmt.Errorf("index %d: cannot find node", idx)
+	}
+	obj := m.GetObject(node)
+	if obj == nil {
+		return nil, fmt.Errorf("index %d: cannot find object definition", idx)
+	}
+	return &indexColumnInfo{
+		node:     node,
+		obj:      obj,
+		typ:      m.GetType(obj.TypeID),
+		baseType: m.getEffectiveBaseType(obj.TypeID),
+		isLast:   idx == total-1,
+		implied:  item.Implied,
+	}, nil
 }
 
 // getEffectiveBaseType walks up the type chain to find the underlying base type.

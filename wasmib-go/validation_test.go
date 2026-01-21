@@ -207,12 +207,12 @@ func TestValidationOIDDetails(t *testing.T) {
 
 	// Test specific OIDs with detailed comparison
 	tests := []struct {
-		oid         string
-		name        string
-		module      string
-		kind        string
-		access      string // readonly, readwrite, not-accessible
-		baseType    string // Integer32, OctetString, etc.
+		oid      string
+		name     string
+		module   string
+		kind     string
+		access   string // readonly, readwrite, not-accessible
+		baseType string // Integer32, OctetString, etc.
 	}{
 		{"1.3.6.1.2.1.1.1", "sysDescr", "SNMPv2-MIB", "scalar", "readonly", "OctetString"},
 		{"1.3.6.1.2.1.1.4", "sysContact", "SNMPv2-MIB", "scalar", "readwrite", "OctetString"},
@@ -369,7 +369,7 @@ func TestValidationDisplayHints(t *testing.T) {
 		name string
 		hint string
 	}{
-		{"1.3.6.1.2.1.1.1", "sysDescr", "255a"},     // DisplayString
+		{"1.3.6.1.2.1.1.1", "sysDescr", "255a"},         // DisplayString
 		{"1.3.6.1.2.1.2.2.1.6", "ifPhysAddress", "1x:"}, // PhysAddress
 	}
 

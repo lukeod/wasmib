@@ -1,6 +1,7 @@
 package wasmib
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -115,18 +116,18 @@ type DefVal struct {
 
 // Type represents a type definition.
 type Type struct {
-	Module      uint32       // ModuleId
-	Name        uint32       // StrId
-	Base        BaseType     // Base type
-	Parent      uint32       // TypeId for TC inheritance, 0 = none
-	Status      Status       // Definition status
-	IsTC        bool         // Is textual convention
-	Hint        uint32       // StrId, 0 = none
-	Description uint32       // StrId, 0 = none
-	Size        *Constraint  // Size constraint
-	Range       *Constraint  // Value range constraint
-	EnumValues  []EnumValue  // Enumeration values
-	BitDefs     []BitDef     // Bit definitions
+	Module      uint32      // ModuleId
+	Name        uint32      // StrId
+	Base        BaseType    // Base type
+	Parent      uint32      // TypeId for TC inheritance, 0 = none
+	Status      Status      // Definition status
+	IsTC        bool        // Is textual convention
+	Hint        uint32      // StrId, 0 = none
+	Description uint32      // StrId, 0 = none
+	Size        *Constraint // Size constraint
+	Range       *Constraint // Value range constraint
+	EnumValues  []EnumValue // Enumeration values
+	BitDefs     []BitDef    // Bit definitions
 }
 
 // Constraint represents size or value constraints.
@@ -276,13 +277,10 @@ func (m *Model) GetNotificationByID(id uint32) *Notification {
 // GetNotificationObjects returns the objects (varbinds) included in a notification.
 // These are the objects from the OBJECTS clause in NOTIFICATION-TYPE or
 // VARIABLES clause in TRAP-TYPE definitions.
-// Returns nil if the notification is nil, or an empty slice if no objects.
+// Returns nil if the notification is nil or has no objects.
 func (m *Model) GetNotificationObjects(notif *Notification) []*Node {
-	if notif == nil {
+	if notif == nil || len(notif.Objects) == 0 {
 		return nil
-	}
-	if len(notif.Objects) == 0 {
-		return []*Node{}
 	}
 	nodes := make([]*Node, 0, len(notif.Objects))
 	for _, nodeID := range notif.Objects {
@@ -330,13 +328,10 @@ func (m *Model) GetParent(n *Node) *Node {
 }
 
 // GetChildren returns the child nodes in the OID tree.
-// Returns nil if the node is nil, or an empty slice if no children.
+// Returns nil if the node is nil or has no children.
 func (m *Model) GetChildren(n *Node) []*Node {
-	if n == nil {
+	if n == nil || len(n.Children) == 0 {
 		return nil
-	}
-	if len(n.Children) == 0 {
-		return []*Node{}
 	}
 	children := make([]*Node, 0, len(n.Children))
 	for _, childID := range n.Children {
@@ -494,18 +489,20 @@ func (m *Model) GetNodeByOIDPrefix(oid []uint32) (node *Node, suffix []uint32) {
 
 // GetNodeByOIDPrefixStr is like GetNodeByOIDPrefix but takes a dotted OID string.
 // Returns the matching node and the unmatched suffix as a slice.
+// Returns (nil, nil) if the OID string is empty or invalid.
 func (m *Model) GetNodeByOIDPrefixStr(oid string) (node *Node, suffix []uint32) {
-	arcs := parseOIDString(oid)
-	if arcs == nil {
+	arcs, err := parseOIDString(oid)
+	if err != nil || arcs == nil {
 		return nil, nil
 	}
 	return m.GetNodeByOIDPrefix(arcs)
 }
 
 // parseOIDString parses a dotted OID string into arc values.
-func parseOIDString(oid string) []uint32 {
+// Returns (nil, nil) for empty input, or (nil, error) for invalid input.
+func parseOIDString(oid string) ([]uint32, error) {
 	if oid == "" {
-		return nil
+		return nil, nil
 	}
 
 	// Count dots to pre-allocate
@@ -521,16 +518,17 @@ func parseOIDString(oid string) []uint32 {
 	for i := 0; i <= len(oid); i++ {
 		if i == len(oid) || oid[i] == '.' {
 			if i > start {
-				n, err := strconv.ParseUint(oid[start:i], 10, 32)
+				segment := oid[start:i]
+				n, err := strconv.ParseUint(segment, 10, 32)
 				if err != nil {
-					return nil
+					return nil, fmt.Errorf("invalid OID component %q: %w", segment, err)
 				}
 				arcs = append(arcs, uint32(n))
 			}
 			start = i + 1
 		}
 	}
-	return arcs
+	return arcs, nil
 }
 
 // Walk traverses the tree depth-first from a starting node.

@@ -11,7 +11,7 @@ type HexCase bool
 const (
 	// HexLower outputs lowercase hex digits (0a:1b:2c).
 	HexLower HexCase = false
-	// HexUpper outputs uppercase hex digits (0A:1B:2C). 
+	// HexUpper outputs uppercase hex digits (0A:1B:2C).
 	HexUpper HexCase = true
 )
 

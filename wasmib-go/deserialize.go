@@ -29,7 +29,10 @@ func Deserialize(data []byte) (*Model, error) {
 	}
 
 	// Build string table from offsets
-	strings := buildStrings(msg.StringsData, msg.StringsOffsets)
+	strings, err := buildStrings(msg.StringsData, msg.StringsOffsets)
+	if err != nil {
+		return nil, fmt.Errorf("building string table: %w", err)
+	}
 
 	// Convert protobuf types to internal types
 	modules := convertModules(msg.Modules)
@@ -58,18 +61,20 @@ func Deserialize(data []byte) (*Model, error) {
 	return m, nil
 }
 
-func buildStrings(data string, offsets []*proto.StringOffset) []string {
+func buildStrings(data string, offsets []*proto.StringOffset) ([]string, error) {
 	if len(offsets) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	strings := make([]string, len(offsets))
 	for i, offset := range offsets {
-		if int(offset.End) <= len(data) && offset.Start <= offset.End {
-			strings[i] = data[offset.Start:offset.End]
+		if offset.Start > offset.End || int(offset.End) > len(data) {
+			return nil, fmt.Errorf("invalid string offset %d: %d..%d exceeds data len %d",
+				i, offset.Start, offset.End, len(data))
 		}
+		strings[i] = data[offset.Start:offset.End]
 	}
-	return strings
+	return strings, nil
 }
 
 func convertModules(pbModules []*proto.SerializedModule) []Module {
