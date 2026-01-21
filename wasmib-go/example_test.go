@@ -88,6 +88,34 @@ func ExampleModel_GetNodeByQualifiedName() {
 	// OID: 1.3.6.1.2.1.2.2.1.1
 }
 
+func ExampleModel_GetOIDSlice() {
+	ctx := context.Background()
+	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")
+
+	node := model.GetNodeByQualifiedName("IF-MIB", "ifIndex")
+	if node != nil {
+		arcs := model.GetOIDSlice(node)
+		fmt.Printf("OID arcs: %v\n", arcs)
+	}
+	// Output:
+	// OID arcs: [1 3 6 1 2 1 2 2 1 1]
+}
+
+func ExampleModel_GetNodeByOIDSlice() {
+	ctx := context.Background()
+	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")
+
+	// Lookup by numeric OID slice
+	oid := []uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 1}
+	node := model.GetNodeByOIDSlice(oid)
+	if node != nil {
+		obj := model.GetObject(node)
+		fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+	}
+	// Output:
+	// Name: ifIndex
+}
+
 func ExampleModel_Walk() {
 	ctx := context.Background()
 	model, _ := wasmib.Load(ctx, "testdata/IF-MIB")

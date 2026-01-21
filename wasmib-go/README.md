@@ -181,6 +181,12 @@ model, err := compiler.Resolve()
 ```go
 // Dotted string lookup
 node := model.GetNodeByOID("1.3.6.1.2.1.2.2.1.1")
+
+// Numeric slice lookup
+node := model.GetNodeByOIDSlice([]uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 1})
+
+// Get OID as numeric slice
+arcs := model.GetOIDSlice(node) // []uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 1}
 ```
 
 ### Lookup by Name

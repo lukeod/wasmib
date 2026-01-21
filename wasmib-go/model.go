@@ -290,8 +290,26 @@ func (m *Model) GetEffectiveHint(typeID uint32) string {
 
 // GetOID computes the full OID string for a node.
 func (m *Model) GetOID(n *Node) string {
-	if n == nil {
+	arcs := m.GetOIDSlice(n)
+	if arcs == nil {
 		return ""
+	}
+
+	var b strings.Builder
+	for i, arc := range arcs {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(strconv.FormatUint(uint64(arc), 10))
+	}
+	return b.String()
+}
+
+// GetOIDSlice returns the full OID as a slice of arc values.
+// Returns nil if the node is nil.
+func (m *Model) GetOIDSlice(n *Node) []uint32 {
+	if n == nil {
+		return nil
 	}
 
 	var arcs []uint32
@@ -304,15 +322,49 @@ func (m *Model) GetOID(n *Node) string {
 		current = m.GetNode(current.Parent)
 	}
 
-	// Reverse and format
-	var b strings.Builder
-	for i := len(arcs) - 1; i >= 0; i-- {
-		if i < len(arcs)-1 {
-			b.WriteByte('.')
-		}
-		b.WriteString(strconv.FormatUint(uint64(arcs[i]), 10))
+	// Reverse in place
+	for i, j := 0, len(arcs)-1; i < j; i, j = i+1, j-1 {
+		arcs[i], arcs[j] = arcs[j], arcs[i]
 	}
-	return b.String()
+	return arcs
+}
+
+// GetNodeByOIDSlice looks up a node by OID arc values.
+// Returns nil if not found.
+func (m *Model) GetNodeByOIDSlice(oid []uint32) *Node {
+	if len(oid) == 0 {
+		return nil
+	}
+
+	// Find root with matching first arc
+	var current *Node
+	for _, rootID := range m.roots {
+		root := m.GetNode(rootID)
+		if root != nil && root.Subid == oid[0] {
+			current = root
+			break
+		}
+	}
+	if current == nil {
+		return nil
+	}
+
+	// Walk down the tree following arcs
+	for _, arc := range oid[1:] {
+		found := false
+		for _, childID := range current.Children {
+			child := m.GetNode(childID)
+			if child != nil && child.Subid == arc {
+				current = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	return current
 }
 
 // GetNodeID returns the ID of a node.
