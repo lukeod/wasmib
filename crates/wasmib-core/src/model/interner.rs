@@ -281,10 +281,40 @@ impl StringInterner {
             data.len()
         );
 
+        // Rebuild dedup table for find() to work
+        let mut dedup = BTreeMap::new();
+        for (idx, window) in offsets.windows(2).enumerate() {
+            let start = window[0] as usize;
+            let end = window[1] as usize;
+            if let Some(s) = data.get(start..end) {
+                // Only dedup short strings (matching intern behavior)
+                if s.len() < DEDUP_THRESHOLD {
+                    let hash = hash_str(s);
+                    if let Some(id) = StrId::from_index(idx) {
+                        dedup.entry(hash).or_insert_with(Vec::new).push(id);
+                    }
+                }
+            }
+        }
+        // Handle last string (from last offset to data.len())
+        if let Some(&last_offset) = offsets.last() {
+            let start = last_offset as usize;
+            if start < data.len() {
+                if let Some(s) = data.get(start..) {
+                    if s.len() < DEDUP_THRESHOLD {
+                        let hash = hash_str(s);
+                        if let Some(id) = StrId::from_index(offsets.len() - 1) {
+                            dedup.entry(hash).or_insert_with(Vec::new).push(id);
+                        }
+                    }
+                }
+            }
+        }
+
         Self {
             data,
             offsets,
-            dedup: BTreeMap::new(),
+            dedup,
         }
     }
 }

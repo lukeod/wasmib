@@ -2,8 +2,8 @@
 //!
 //! Build the complete OID tree, extracting implicit nodes from inline OID assignments.
 
-use crate::module::{Definition, OidAssignment, OidComponent};
 use crate::model::{ModuleId, NodeDefinition, NodeId, NodeKind, Oid, OidNode};
+use crate::module::{Definition, OidAssignment, OidComponent};
 use crate::resolver::context::ResolverContext;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -693,11 +693,11 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{
-        Access, Definition, Import, Module, ObjectType, OidAssignment,
-        OidComponent, Status, TypeSyntax, Symbol,
-    };
     use crate::lexer::Span;
+    use crate::module::{
+        Access, Definition, Import, Module, ObjectType, OidAssignment, OidComponent, Status,
+        Symbol, TypeSyntax,
+    };
     use crate::resolver::phases::imports::resolve_imports;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
@@ -984,7 +984,9 @@ mod tests {
         let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
 
         // Check that intermediate node has a definition
-        let intermediate_node_id = ctx.lookup_node_for_module(module_id, "intermediate").unwrap();
+        let intermediate_node_id = ctx
+            .lookup_node_for_module(module_id, "intermediate")
+            .unwrap();
         let intermediate_node = ctx.model.get_node(intermediate_node_id).unwrap();
 
         // Should have exactly one definition

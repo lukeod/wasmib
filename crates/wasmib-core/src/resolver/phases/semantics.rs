@@ -9,12 +9,12 @@
 //! including `Option<String>` fields, we use `Vec<HirRef>` which stores only
 //! indices and accesses the data through the context.
 
-use crate::module::{DefVal as ModuleDefVal, Definition, Notification, ObjectType, TypeSyntax};
 use crate::lexer::Span;
 use crate::model::{
     Access, DefVal, IndexItem, IndexSpec, ModuleId, NodeId, NodeKind, ResolvedNotification,
     ResolvedObject, Status, UnresolvedIndex,
 };
+use crate::module::{DefVal as ModuleDefVal, Definition, Notification, ObjectType, TypeSyntax};
 use crate::resolver::context::ResolverContext;
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -583,7 +583,9 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &ModuleDefVal, module_id: M
         ModuleDefVal::HexString(s) => DefVal::HexString(s.clone()),
         ModuleDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
         ModuleDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
-        ModuleDefVal::Bits(syms) => DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect()),
+        ModuleDefVal::Bits(syms) => {
+            DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect())
+        }
         ModuleDefVal::OidRef(sym) => {
             // Try to resolve the OID reference
             let resolved_node = ctx.lookup_node_for_module(module_id, &sym.name);
@@ -647,20 +649,20 @@ fn hir_status_to_status(status: crate::module::Status) -> Status {
 
 #[cfg(test)]
 mod tests {
+    use super::analyze_semantics;
+    use crate::lexer::Span;
     use crate::model::{NodeKind, Status as ModelStatus};
     use crate::module::{
-        Access, Constraint, Definition, Import, IndexItem, Module,
-        Notification, ObjectType, OidAssignment, OidComponent, Range,
-        RangeValue, Status, TypeDef, TypeSyntax, NamedBit, Symbol,
+        Access, Constraint, Definition, Import, IndexItem, Module, NamedBit, Notification,
+        ObjectType, OidAssignment, OidComponent, Range, RangeValue, Status, Symbol, TypeDef,
+        TypeSyntax,
     };
     use crate::resolver::context::ResolverContext;
-    use alloc::boxed::Box;
-    use crate::lexer::Span;
     use crate::resolver::phases::{
         imports::resolve_imports, oids::resolve_oids, registration::register_modules,
         types::resolve_types,
     };
-    use super::analyze_semantics;
+    use alloc::boxed::Box;
     use alloc::vec;
 
     fn make_object_type(
@@ -750,10 +752,7 @@ mod tests {
                 OidComponent::Name(Symbol::from_name("enterprises")),
                 OidComponent::Number(1),
             ],
-            Some(vec![IndexItem::new(
-                Symbol::from_name("testIndex"),
-                false,
-            )]),
+            Some(vec![IndexItem::new(Symbol::from_name("testIndex"), false)]),
         );
 
         let modules = vec![make_test_module_with_imports(

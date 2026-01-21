@@ -15,10 +15,9 @@ dhat-heap = ["dep:dhat"]
 [dependencies]
 dhat = { version = "0.3", optional = true }
 wasmib-core = { path = "../wasmib-core", default-features = false, features = ["std", "serde"] }
+wasmib-wasm = { path = "../wasmib-wasm", features = ["std"] }
 rayon = "1.10"
-postcard = { version = "1", features = ["alloc"] }
 sha2 = "0.10"
-serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 
 [dev-dependencies]

@@ -6,9 +6,9 @@
 //! Key design: imports from a given source module name are resolved ATOMICALLY.
 //! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
-use crate::module::Definition;
 use crate::lexer::Span;
 use crate::model::{ModuleId, UnresolvedImportReason};
+use crate::module::Definition;
 use crate::resolver::context::ResolverContext;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
@@ -313,8 +313,8 @@ fn is_macro_symbol(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{Import, Module, Symbol};
     use crate::lexer::Span;
+    use crate::module::{Import, Module, Symbol};
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
 
@@ -322,9 +322,7 @@ mod tests {
         let mut module = Module::new(Symbol::from_name(name), Span::new(0, 0));
         module.imports = imports
             .into_iter()
-            .map(|(m, s)| {
-                Import::new(Symbol::from_name(m), Symbol::from_name(s), Span::new(0, 0))
-            })
+            .map(|(m, s)| Import::new(Symbol::from_name(m), Symbol::from_name(s), Span::new(0, 0)))
             .collect();
         module
     }

@@ -51,9 +51,9 @@ mod phases;
 #[cfg(feature = "tracing")]
 pub mod tracing;
 
-use crate::module::Module;
 use crate::lexer::{Diagnostic, Severity, Span};
 use crate::model::Model;
+use crate::module::Module;
 use alloc::string::String;
 use alloc::vec::Vec;
 use context::ResolverContext;
@@ -330,11 +330,11 @@ pub fn is_base_module(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{
-        Access, Definition, Import, Module, ObjectType, OidAssignment,
-        OidComponent, Status, TypeSyntax, Symbol,
-    };
     use crate::lexer::Span;
+    use crate::module::{
+        Access, Definition, Import, Module, ObjectType, OidAssignment, OidComponent, Status,
+        Symbol, TypeSyntax,
+    };
     use alloc::vec;
 
     fn make_test_module(name: &str, defs: Vec<Definition>) -> Module {

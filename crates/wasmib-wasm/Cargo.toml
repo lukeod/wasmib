@@ -12,21 +12,18 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-std = ["wasmib-core/std", "micropb/std", "postcard/use-std"]
+std = ["wasmib-core/std", "micropb/std"]
 
 [dependencies]
-wasmib-core = { path = "../wasmib-core", default-features = false, features = ["serde"] }
-micropb = { version = "0.6", default-features = false, features = ["encode", "alloc", "enable-64bit"] }
-# Keep postcard/serde for cache.rs (internal caching of ModelParts)
-postcard = { version = "1", default-features = false, features = ["alloc"] }
-serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+wasmib-core = { path = "../wasmib-core", default-features = false }
+micropb = { version = "0.6", default-features = false, features = ["encode", "decode", "alloc", "enable-64bit"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 talc = { version = "4", default-features = false, features = ["lock_api"] }
 
 [dev-dependencies]
 # Enable std for tests
-wasmib-core = { path = "../wasmib-core", features = ["std", "serde"] }
+wasmib-core = { path = "../wasmib-core", features = ["std"] }
 
 [build-dependencies]
 micropb-gen = "0.6"

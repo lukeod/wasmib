@@ -21,16 +21,15 @@
 //! - Returned pointers from `wasmib_get_*` are valid until next `wasmib_reset` or `wasmib_resolve`
 //! - All returned data is length-prefixed: `[len: u32 LE][data: u8; len]`
 
-use alloc::alloc::{alloc, dealloc, Layout};
+use alloc::alloc::{Layout, alloc, dealloc};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 
-use wasmib_core::module::{lower_module, Module};
 use wasmib_core::lexer::{Diagnostic, Severity};
+use wasmib_core::module::{Module, lower_module};
 use wasmib_core::parser::Parser;
 use wasmib_core::resolver::Resolver;
-
 
 /// Error codes returned by FFI functions.
 pub mod error {

@@ -32,7 +32,9 @@ use alloc::boxed::Box;
 
 use super::definition::{Definition, TypeDef, ValueAssignment};
 use super::module::Module;
-use super::syntax::{Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax};
+use super::syntax::{
+    Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax,
+};
 use super::types::{SmiLanguage, Status, Symbol};
 
 /// SMI base modules.
@@ -330,16 +332,32 @@ fn create_rfc1215() -> Module {
 fn create_smiv1_type_definitions() -> Vec<Definition> {
     vec![
         // Counter ::= [APPLICATION 1] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("Counter", constrained_uint_range(u64::from(u32::MAX)), BaseType::Counter32),
+        make_typedef_with_base(
+            "Counter",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::Counter32,
+        ),
         // Gauge ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("Gauge", constrained_uint_range(u64::from(u32::MAX)), BaseType::Gauge32),
+        make_typedef_with_base(
+            "Gauge",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::Gauge32,
+        ),
         // NetworkAddress ::= CHOICE { internet IpAddress }
         // In practice, always IpAddress - we model it as OCTET STRING SIZE (4)
-        make_typedef_with_base("NetworkAddress", constrained_octet_fixed(4), BaseType::IpAddress),
+        make_typedef_with_base(
+            "NetworkAddress",
+            constrained_octet_fixed(4),
+            BaseType::IpAddress,
+        ),
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
         make_typedef_with_base("IpAddress", constrained_octet_fixed(4), BaseType::IpAddress),
         // TimeTicks ::= [APPLICATION 3] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("TimeTicks", constrained_uint_range(u64::from(u32::MAX)), BaseType::TimeTicks),
+        make_typedef_with_base(
+            "TimeTicks",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::TimeTicks,
+        ),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
         make_typedef_with_base("Opaque", TypeSyntax::OctetString, BaseType::Opaque),
     ]
@@ -606,10 +624,7 @@ fn constrained_octet_range(min: u64, max: u64) -> TypeSyntax {
 
 /// Create a constrained INTEGER with unsigned range (0..max).
 fn constrained_uint_range(max: u64) -> TypeSyntax {
-    constrained_int_range(
-        RangeValue::Unsigned(0),
-        Some(RangeValue::Unsigned(max)),
-    )
+    constrained_int_range(RangeValue::Unsigned(0), Some(RangeValue::Unsigned(max)))
 }
 
 /// Create base type definitions as `TypeDefs`.
@@ -627,15 +642,35 @@ fn create_base_type_definitions() -> Vec<Definition> {
             BaseType::Integer32,
         ),
         // Counter32 ::= [APPLICATION 1] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("Counter32", constrained_uint_range(u64::from(u32::MAX)), BaseType::Counter32),
+        make_typedef_with_base(
+            "Counter32",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::Counter32,
+        ),
         // Counter64 ::= [APPLICATION 6] IMPLICIT INTEGER (0..18446744073709551615)
-        make_typedef_with_base("Counter64", constrained_uint_range(u64::MAX), BaseType::Counter64),
+        make_typedef_with_base(
+            "Counter64",
+            constrained_uint_range(u64::MAX),
+            BaseType::Counter64,
+        ),
         // Gauge32 ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("Gauge32", constrained_uint_range(u64::from(u32::MAX)), BaseType::Gauge32),
+        make_typedef_with_base(
+            "Gauge32",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::Gauge32,
+        ),
         // Unsigned32 ::= [APPLICATION 2] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("Unsigned32", constrained_uint_range(u64::from(u32::MAX)), BaseType::Unsigned32),
+        make_typedef_with_base(
+            "Unsigned32",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::Unsigned32,
+        ),
         // TimeTicks ::= [APPLICATION 3] IMPLICIT INTEGER (0..4294967295)
-        make_typedef_with_base("TimeTicks", constrained_uint_range(u64::from(u32::MAX)), BaseType::TimeTicks),
+        make_typedef_with_base(
+            "TimeTicks",
+            constrained_uint_range(u64::from(u32::MAX)),
+            BaseType::TimeTicks,
+        ),
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
         make_typedef_with_base("IpAddress", constrained_octet_fixed(4), BaseType::IpAddress),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
@@ -790,11 +825,7 @@ fn make_tc(name: &str, display_hint: Option<&str>, syntax: TypeSyntax) -> Defini
 }
 
 /// Create a `TypeDef` for an obsolete textual convention.
-fn make_tc_obsolete(
-    name: &str,
-    display_hint: Option<&str>,
-    syntax: TypeSyntax,
-) -> Definition {
+fn make_tc_obsolete(name: &str, display_hint: Option<&str>, syntax: TypeSyntax) -> Definition {
     Definition::TypeDef(TypeDef {
         name: Symbol::from_name(name),
         syntax,

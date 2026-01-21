@@ -65,8 +65,8 @@ pub fn register_modules(ctx: &mut ResolverContext) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{Definition, Module, Symbol};
     use crate::lexer::Span;
+    use crate::module::{Definition, Module, Symbol};
     use alloc::vec;
 
     fn make_test_module(name: &str, defs: Vec<Definition>) -> Module {

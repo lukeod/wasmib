@@ -100,10 +100,7 @@ pub fn lower_module(ast_module: &ast::Module) -> Module {
 /// Lower import clauses.
 ///
 /// Also detects SMI language from imports.
-fn lower_imports(
-    import_clauses: &[ast::ImportClause],
-    ctx: &mut LoweringContext,
-) -> Vec<Import> {
+fn lower_imports(import_clauses: &[ast::ImportClause], ctx: &mut LoweringContext) -> Vec<Import> {
     let mut imports = Vec::new();
 
     for clause in import_clauses {
@@ -156,15 +153,15 @@ fn lower_definition(def: &ast::Definition, ctx: &LoweringContext) -> Option<Defi
             Some(Definition::ValueAssignment(lower_value_assignment(d)))
         }
         ast::Definition::ObjectGroup(d) => Some(Definition::ObjectGroup(lower_object_group(d))),
-        ast::Definition::NotificationGroup(d) => Some(Definition::NotificationGroup(
-            lower_notification_group(d),
-        )),
+        ast::Definition::NotificationGroup(d) => {
+            Some(Definition::NotificationGroup(lower_notification_group(d)))
+        }
         ast::Definition::ModuleCompliance(d) => {
             Some(Definition::ModuleCompliance(lower_module_compliance(d)))
         }
-        ast::Definition::AgentCapabilities(d) => Some(Definition::AgentCapabilities(
-            lower_agent_capabilities(d),
-        )),
+        ast::Definition::AgentCapabilities(d) => {
+            Some(Definition::AgentCapabilities(lower_agent_capabilities(d)))
+        }
         // Filter out non-semantic definitions
         ast::Definition::MacroDefinition(_) | ast::Definition::Error(_) => None,
     }
@@ -469,9 +466,7 @@ fn lower_notification_variation(v: &ast::NotificationVariation) -> NotificationV
 /// Lower AST type syntax.
 fn lower_type_syntax(syntax: &ast::TypeSyntax) -> TypeSyntax {
     match syntax {
-        ast::TypeSyntax::TypeRef(ident) => {
-            TypeSyntax::TypeRef(Symbol::from(ident))
-        }
+        ast::TypeSyntax::TypeRef(ident) => TypeSyntax::TypeRef(Symbol::from(ident)),
         ast::TypeSyntax::IntegerEnum { named_numbers, .. } => TypeSyntax::IntegerEnum(
             named_numbers
                 .iter()

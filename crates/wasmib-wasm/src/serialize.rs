@@ -13,14 +13,29 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use micropb::MessageEncode;
+use core::fmt;
+use micropb::{MessageDecode, MessageEncode, PbDecoder};
 use wasmib_core::model::{
-    DefVal, IndexItem, Model, OidNode, ResolvedModule, ResolvedNotification, ResolvedObject,
-    ResolvedType, Revision, StringInterner,
+    Access, BaseType, BitDefinitions, DefVal, EnumValues, IndexItem, IndexSpec, Model, ModelParts,
+    ModuleId, NodeDefinition, NodeId, NodeKind, NotificationId, ObjectId, OidNode, RangeBound,
+    ResolvedModule, ResolvedNotification, ResolvedObject, ResolvedType, Revision, SizeConstraint,
+    Status, StrId, StringInterner, TypeId, UnresolvedReferences, ValueConstraint,
 };
 
-// Include generated protobuf types
-include!(concat!(env!("OUT_DIR"), "/wasmib.rs"));
+// Include generated protobuf types (with warnings suppressed for generated code)
+#[allow(
+    unused_imports,
+    unused_parens,
+    unused_variables,
+    non_camel_case_types,
+    non_snake_case,
+    clippy::all,
+    clippy::pedantic
+)]
+mod proto {
+    include!(concat!(env!("OUT_DIR"), "/wasmib.rs"));
+}
+use proto::wasmib_;
 
 /// Current schema version. Bump on any breaking change to serialized format.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -108,6 +123,405 @@ pub fn to_bytes(model: &Model, fingerprint: Option<[u8; 32]>) -> Vec<u8> {
         .encode(&mut micropb::PbEncoder::new(&mut buf))
         .expect("serialization should not fail");
     buf
+}
+
+/// Error during protobuf deserialization.
+#[derive(Debug)]
+pub enum DecodeError {
+    /// Protobuf decode failed.
+    ProtobufDecode(micropb::DecodeError<core::convert::Infallible>),
+    /// Invalid enum value.
+    InvalidEnumValue { field: &'static str, value: u32 },
+    /// Invalid ID (zero where non-zero expected).
+    InvalidId { field: &'static str },
+}
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ProtobufDecode(e) => write!(f, "protobuf decode error: {:?}", e),
+            Self::InvalidEnumValue { field, value } => {
+                write!(f, "invalid enum value {} for field {}", value, field)
+            }
+            Self::InvalidId { field } => write!(f, "invalid zero ID for field {}", field),
+        }
+    }
+}
+
+impl From<micropb::DecodeError<core::convert::Infallible>> for DecodeError {
+    fn from(e: micropb::DecodeError<core::convert::Infallible>) -> Self {
+        Self::ProtobufDecode(e)
+    }
+}
+
+/// Deserialize a model from protobuf bytes.
+///
+/// # Errors
+///
+/// Returns an error if the protobuf data is invalid or contains invalid enum values.
+pub fn from_bytes(bytes: &[u8]) -> Result<Model, DecodeError> {
+    let mut msg = SerializedModel::default();
+    msg.decode(&mut PbDecoder::new(bytes), bytes.len())?;
+    to_model(msg)
+}
+
+/// Get the schema version from serialized bytes without fully decoding.
+///
+/// This reads only the version field from the protobuf envelope.
+///
+/// # Errors
+///
+/// Returns an error if the protobuf header cannot be read.
+pub fn get_version(bytes: &[u8]) -> Result<u32, DecodeError> {
+    let mut msg = SerializedModel::default();
+    msg.decode(&mut PbDecoder::new(bytes), bytes.len())?;
+    Ok(msg.r#version)
+}
+
+/// Get the fingerprint from serialized bytes without fully decoding.
+///
+/// # Errors
+///
+/// Returns an error if the protobuf header cannot be read.
+pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, DecodeError> {
+    let mut msg = SerializedModel::default();
+    msg.decode(&mut PbDecoder::new(bytes), bytes.len())?;
+    if msg.r#fingerprint.is_empty() {
+        Ok(None)
+    } else if msg.r#fingerprint.len() == 32 {
+        let mut fp = [0u8; 32];
+        fp.copy_from_slice(&msg.r#fingerprint);
+        Ok(Some(fp))
+    } else {
+        Ok(None) // Invalid fingerprint length, treat as missing
+    }
+}
+
+/// Convert a SerializedModel to a Model.
+fn to_model(msg: SerializedModel) -> Result<Model, DecodeError> {
+    // 1. Reconstruct string interner offsets
+    // The StringOffset messages have (start, end) pairs for each string.
+    // The interner expects cumulative offsets [0, end1, end2, ...], so we take the starts.
+    let strings_offsets: Vec<u32> = msg.r#strings_offsets.iter().map(|o| o.r#start).collect();
+
+    // 2. Deserialize modules
+    let modules: Result<Vec<_>, _> = msg.r#modules.into_iter().map(deserialize_module).collect();
+    let modules = modules?;
+
+    // 3. Deserialize nodes
+    let nodes: Result<Vec<_>, _> = msg.r#nodes.into_iter().map(deserialize_node).collect();
+    let nodes = nodes?;
+
+    // 4. Deserialize types
+    let types: Result<Vec<_>, _> = msg.r#types.into_iter().map(deserialize_type).collect();
+    let types = types?;
+
+    // 5. Deserialize objects
+    let objects: Result<Vec<_>, _> = msg.r#objects.into_iter().map(deserialize_object).collect();
+    let objects = objects?;
+
+    // 6. Deserialize notifications
+    let notifications: Result<Vec<_>, _> = msg
+        .r#notifications
+        .into_iter()
+        .map(deserialize_notification)
+        .collect();
+    let notifications = notifications?;
+
+    // 7. Deserialize roots
+    let roots: Vec<NodeId> = msg
+        .r#roots
+        .into_iter()
+        .filter_map(NodeId::from_raw)
+        .collect();
+
+    // 8. Create unresolved references (counts only, details not preserved)
+    let unresolved = UnresolvedReferences::default();
+    // Note: The serialized format only stores counts, not the actual unresolved references.
+    // This is acceptable since unresolved references are primarily for diagnostics during
+    // resolution, not for deserialized cached models.
+
+    let parts = ModelParts {
+        strings_data: msg.r#strings_data,
+        strings_offsets,
+        modules,
+        nodes,
+        types,
+        objects,
+        notifications,
+        roots,
+        unresolved,
+    };
+
+    Ok(Model::from_parts(parts))
+}
+
+fn deserialize_module(msg: SerializedModule) -> Result<ResolvedModule, DecodeError> {
+    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
+        field: "module.name",
+    })?;
+
+    let mut module = ResolvedModule::new(name);
+    module.last_updated = StrId::from_raw(msg.r#last_updated);
+    module.contact_info = StrId::from_raw(msg.r#contact_info);
+    module.organization = StrId::from_raw(msg.r#organization);
+    module.description = StrId::from_raw(msg.r#description);
+    module.revisions = msg
+        .r#revisions
+        .into_iter()
+        .filter_map(deserialize_revision)
+        .collect();
+
+    Ok(module)
+}
+
+fn deserialize_revision(msg: SerializedRevision) -> Option<Revision> {
+    let date = StrId::from_raw(msg.r#date)?;
+    let description = StrId::from_raw(msg.r#description)?;
+    Some(Revision::new(date, description))
+}
+
+fn deserialize_node(msg: SerializedNode) -> Result<OidNode, DecodeError> {
+    let kind = NodeKind::from_u8(msg.r#kind as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "node.kind",
+        value: msg.r#kind,
+    })?;
+
+    let mut node = OidNode::new(msg.r#subid, NodeId::from_raw(msg.r#parent));
+    node.kind = kind;
+    node.children = msg
+        .r#children
+        .into_iter()
+        .filter_map(NodeId::from_raw)
+        .collect();
+    node.definitions = msg
+        .r#definitions
+        .into_iter()
+        .filter_map(deserialize_node_def)
+        .collect();
+
+    Ok(node)
+}
+
+fn deserialize_node_def(msg: SerializedNodeDef) -> Option<NodeDefinition> {
+    let module = ModuleId::from_raw(msg.r#module)?;
+    let label = StrId::from_raw(msg.r#label)?;
+    let mut def = NodeDefinition::new(module, label);
+    def.object = ObjectId::from_raw(msg.r#object);
+    def.notification = NotificationId::from_raw(msg.r#notification);
+    Some(def)
+}
+
+fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
+    let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
+        field: "type.module",
+    })?;
+    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId { field: "type.name" })?;
+    let base = BaseType::from_u8(msg.r#base as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "type.base",
+        value: msg.r#base,
+    })?;
+    let status = Status::from_u8(msg.r#status as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "type.status",
+        value: msg.r#status,
+    })?;
+
+    let mut typ = ResolvedType::new(name, module, base);
+    typ.parent_type = TypeId::from_raw(msg.r#parent);
+    typ.status = status;
+    typ.is_textual_convention = msg.r#is_tc;
+    typ.hint = StrId::from_raw(msg.r#hint);
+    typ.description = StrId::from_raw(msg.r#description);
+
+    // Deserialize size constraint (use accessor method for optional field)
+    if let Some(size_msg) = msg.r#size() {
+        typ.size = Some(deserialize_size_constraint(size_msg));
+    }
+
+    // Deserialize value range constraint (use accessor method for optional field)
+    if let Some(range_msg) = msg.r#range() {
+        typ.value_range = Some(deserialize_value_constraint(range_msg));
+    }
+
+    // Deserialize enum values
+    if !msg.r#enum_values.is_empty() {
+        let values: Vec<(i64, StrId)> = msg
+            .r#enum_values
+            .into_iter()
+            .filter_map(|ev| StrId::from_raw(ev.r#name).map(|name| (ev.r#value, name)))
+            .collect();
+        if !values.is_empty() {
+            typ.enum_values = Some(EnumValues::new(values));
+        }
+    }
+
+    // Deserialize bit definitions
+    if !msg.r#bit_defs.is_empty() {
+        let bits: Vec<(u32, StrId)> = msg
+            .r#bit_defs
+            .into_iter()
+            .filter_map(|bd| StrId::from_raw(bd.r#name).map(|name| (bd.r#position, name)))
+            .collect();
+        if !bits.is_empty() {
+            typ.bit_defs = Some(BitDefinitions::new(bits));
+        }
+    }
+
+    Ok(typ)
+}
+
+fn deserialize_size_constraint(msg: &SerializedConstraint) -> SizeConstraint {
+    SizeConstraint {
+        ranges: msg
+            .r#ranges
+            .iter()
+            .map(|r| (r.r#min as u32, r.r#max as u32))
+            .collect(),
+    }
+}
+
+fn deserialize_value_constraint(msg: &SerializedConstraint) -> ValueConstraint {
+    ValueConstraint {
+        ranges: msg
+            .r#ranges
+            .iter()
+            .map(|r| (RangeBound::Signed(r.r#min), RangeBound::Signed(r.r#max)))
+            .collect(),
+    }
+}
+
+fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeError> {
+    let node = NodeId::from_raw(msg.r#node).ok_or(DecodeError::InvalidId {
+        field: "object.node",
+    })?;
+    let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
+        field: "object.module",
+    })?;
+    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
+        field: "object.name",
+    })?;
+    let access = Access::from_u8(msg.r#access as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "object.access",
+        value: msg.r#access,
+    })?;
+    let status = Status::from_u8(msg.r#status as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "object.status",
+        value: msg.r#status,
+    })?;
+
+    let mut obj = ResolvedObject::new(node, module, name, TypeId::from_raw(msg.r#type_id), access);
+    obj.status = status;
+    obj.description = StrId::from_raw(msg.r#description);
+    obj.units = StrId::from_raw(msg.r#units);
+    obj.reference = StrId::from_raw(msg.r#reference);
+    obj.augments = NodeId::from_raw(msg.r#augments);
+
+    // Deserialize index (use accessor method for optional field)
+    if let Some(index_msg) = msg.r#index() {
+        let items: Vec<IndexItem> = index_msg
+            .r#items
+            .iter()
+            .filter_map(|item| {
+                NodeId::from_raw(item.r#object).map(|obj| IndexItem::new(obj, item.r#implied))
+            })
+            .collect();
+        if !items.is_empty() {
+            obj.index = Some(IndexSpec::new(items));
+        }
+    }
+
+    // Deserialize defval (use accessor method for optional field)
+    if let Some(defval_msg) = msg.r#defval() {
+        obj.defval = deserialize_defval(defval_msg);
+    }
+
+    // Deserialize inline enum
+    if !msg.r#inline_enum.is_empty() {
+        let values: Vec<(i64, StrId)> = msg
+            .r#inline_enum
+            .into_iter()
+            .filter_map(|ev| StrId::from_raw(ev.r#name).map(|name| (ev.r#value, name)))
+            .collect();
+        if !values.is_empty() {
+            obj.inline_enum = Some(EnumValues::new(values));
+        }
+    }
+
+    // Deserialize inline bits
+    if !msg.r#inline_bits.is_empty() {
+        let bits: Vec<(u32, StrId)> = msg
+            .r#inline_bits
+            .into_iter()
+            .filter_map(|bd| StrId::from_raw(bd.r#name).map(|name| (bd.r#position, name)))
+            .collect();
+        if !bits.is_empty() {
+            obj.inline_bits = Some(BitDefinitions::new(bits));
+        }
+    }
+
+    Ok(obj)
+}
+
+fn deserialize_defval(msg: &SerializedDefVal) -> Option<DefVal> {
+    match msg.r#kind {
+        // Use accessor methods which return Option<&T> for optional fields
+        0 => msg.r#int_val().copied().map(DefVal::Integer),
+        1 => msg.r#uint_val().copied().map(DefVal::Unsigned),
+        2 => msg
+            .r#str_val()
+            .and_then(|&v| StrId::from_raw(v))
+            .map(DefVal::String),
+        3 => msg.r#raw_str().map(|s| DefVal::HexString(s.clone())),
+        4 => msg.r#raw_str().map(|s| DefVal::BinaryString(s.clone())),
+        5 => msg
+            .r#str_val()
+            .and_then(|&v| StrId::from_raw(v))
+            .map(DefVal::Enum),
+        6 => {
+            let bits: Vec<StrId> = msg
+                .r#bits_val
+                .iter()
+                .copied()
+                .filter_map(StrId::from_raw)
+                .collect();
+            Some(DefVal::Bits(bits))
+        }
+        7 => Some(DefVal::OidRef {
+            node: msg.r#node_val().and_then(|&v| NodeId::from_raw(v)),
+            symbol: msg.r#str_val().and_then(|&v| StrId::from_raw(v)),
+        }),
+        _ => None,
+    }
+}
+
+fn deserialize_notification(
+    msg: SerializedNotification,
+) -> Result<ResolvedNotification, DecodeError> {
+    let node = NodeId::from_raw(msg.r#node).ok_or(DecodeError::InvalidId {
+        field: "notification.node",
+    })?;
+    let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
+        field: "notification.module",
+    })?;
+    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
+        field: "notification.name",
+    })?;
+    let status = Status::from_u8(msg.r#status as u8).ok_or(DecodeError::InvalidEnumValue {
+        field: "notification.status",
+        value: msg.r#status,
+    })?;
+
+    let mut notif = ResolvedNotification::new(node, module, name);
+    notif.status = status;
+    notif.description = StrId::from_raw(msg.r#description);
+    notif.reference = StrId::from_raw(msg.r#reference);
+    notif.objects = msg
+        .r#objects
+        .into_iter()
+        .filter_map(NodeId::from_raw)
+        .collect();
+
+    Ok(notif)
 }
 
 /// Serialize the string interner to (data, offsets).
@@ -316,7 +730,9 @@ fn serialize_type(typ: &ResolvedType) -> SerializedType {
     result
 }
 
-fn serialize_size_constraint(constraint: &wasmib_core::model::SizeConstraint) -> SerializedConstraint {
+fn serialize_size_constraint(
+    constraint: &wasmib_core::model::SizeConstraint,
+) -> SerializedConstraint {
     SerializedConstraint {
         r#ranges: constraint
             .ranges
@@ -329,7 +745,9 @@ fn serialize_size_constraint(constraint: &wasmib_core::model::SizeConstraint) ->
     }
 }
 
-fn serialize_value_constraint(constraint: &wasmib_core::model::ValueConstraint) -> SerializedConstraint {
+fn serialize_value_constraint(
+    constraint: &wasmib_core::model::ValueConstraint,
+) -> SerializedConstraint {
     SerializedConstraint {
         r#ranges: constraint
             .ranges
@@ -364,7 +782,76 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmib_core::model::{Access, BaseType, Model, NodeKind, Status};
+    use wasmib_core::model::{
+        Access, BaseType, Model, NodeKind, OidNode, ResolvedModule, ResolvedType, Status,
+    };
+
+    #[test]
+    fn test_round_trip_empty_model() {
+        let model = Model::new();
+        let bytes = to_bytes(&model, None);
+        let restored = from_bytes(&bytes).expect("decode should succeed");
+
+        assert_eq!(restored.module_count(), 0);
+        assert_eq!(restored.node_count(), 0);
+        assert_eq!(restored.type_count(), 0);
+        assert_eq!(restored.object_count(), 0);
+        assert_eq!(restored.notification_count(), 0);
+    }
+
+    #[test]
+    fn test_round_trip_with_fingerprint() {
+        let model = Model::new();
+        let fp = [42u8; 32];
+        let bytes = to_bytes(&model, Some(fp));
+
+        // Verify we can extract fingerprint
+        let extracted_fp = get_fingerprint(&bytes).expect("should extract fingerprint");
+        assert_eq!(extracted_fp, Some(fp));
+
+        // Verify full decode works
+        let restored = from_bytes(&bytes).expect("decode should succeed");
+        assert_eq!(restored.module_count(), 0);
+    }
+
+    #[test]
+    fn test_round_trip_with_content() {
+        let mut model = Model::new();
+
+        // Add a module
+        let mod_name = model.intern("TEST-MIB");
+        let module = ResolvedModule::new(mod_name);
+        let mod_id = model.add_module(module).expect("should add module");
+
+        // Add a node
+        let mut node = OidNode::new(1, None);
+        node.kind = NodeKind::Scalar;
+        let node_id = model.add_node(node).expect("should add node");
+        model.add_root(node_id);
+
+        // Add a type
+        let type_name = model.intern("TestType");
+        let mut typ = ResolvedType::new(type_name, mod_id, BaseType::Integer32);
+        typ.description = Some(model.intern("A test type"));
+        model.add_type(typ).expect("should add type");
+
+        // Serialize and deserialize
+        let bytes = to_bytes(&model, None);
+        let restored = from_bytes(&bytes).expect("decode should succeed");
+
+        // Verify counts
+        assert_eq!(restored.module_count(), 1);
+        assert_eq!(restored.node_count(), 1);
+        assert_eq!(restored.type_count(), 1);
+
+        // Verify module name
+        let restored_mod = restored.get_module_by_name("TEST-MIB");
+        assert!(restored_mod.is_some(), "Module TEST-MIB should be found");
+
+        // Verify node kind
+        let root = restored.roots().next().expect("should have root");
+        assert_eq!(root.kind, NodeKind::Scalar);
+    }
 
     #[test]
     fn test_serialize_empty_model() {

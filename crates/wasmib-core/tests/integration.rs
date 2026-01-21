@@ -1,8 +1,8 @@
 //! Integration tests with real MIB files.
 
 use wasmib_core::ast::Definition as AstDefinition;
-use wasmib_core::module::{self, Definition, SmiLanguage};
 use wasmib_core::lexer::{Lexer, Severity, TokenKind};
+use wasmib_core::module::{self, Definition, SmiLanguage};
 use wasmib_core::parser::Parser;
 
 /// Test tokenizing IF-MIB, a standard SNMP MIB module.

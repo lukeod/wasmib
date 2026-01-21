@@ -2,10 +2,12 @@
 //!
 //! Build the type graph with inheritance chains and resolve all type references.
 
-use crate::module::{Constraint, Definition, Range, RangeValue, Status as ModuleStatus, TypeSyntax};
 use crate::model::{
     BaseType, BitDefinitions, EnumValues, RangeBound, ResolvedType, SizeConstraint, Status, TypeId,
     ValueConstraint,
+};
+use crate::module::{
+    Constraint, Definition, Range, RangeValue, Status as ModuleStatus, TypeSyntax,
 };
 use crate::resolver::context::ResolverContext;
 use alloc::string::String;
@@ -110,19 +112,17 @@ fn create_user_types(ctx: &mut ResolverContext) {
                     };
 
                     // Extract constraints
-                    let (size, value_range) =
-                        if let TypeSyntax::Constrained { constraint, .. } = &td.syntax {
-                            match constraint {
-                                Constraint::Size(r) => {
-                                    (Some(hir_ranges_to_size_constraint(r)), None)
-                                }
-                                Constraint::Range(r) => {
-                                    (None, Some(hir_ranges_to_value_constraint(r)))
-                                }
-                            }
-                        } else {
-                            (None, None)
-                        };
+                    let (size, value_range) = if let TypeSyntax::Constrained {
+                        constraint, ..
+                    } = &td.syntax
+                    {
+                        match constraint {
+                            Constraint::Size(r) => (Some(hir_ranges_to_size_constraint(r)), None),
+                            Constraint::Range(r) => (None, Some(hir_ranges_to_value_constraint(r))),
+                        }
+                    } else {
+                        (None, None)
+                    };
 
                     Some(TypeDefData {
                         module_idx,
@@ -551,8 +551,10 @@ fn range_value_to_bound(v: &RangeValue) -> RangeBound {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{Import, Module, TypeDef, NamedBit, NamedNumber, Symbol, Status as ModuleStatus};
     use crate::lexer::Span;
+    use crate::module::{
+        Import, Module, NamedBit, NamedNumber, Status as ModuleStatus, Symbol, TypeDef,
+    };
     use crate::resolver::phases::imports::resolve_imports;
     use crate::resolver::phases::registration::register_modules;
     use alloc::vec;
@@ -773,10 +775,7 @@ mod tests {
         let modules = vec![make_test_module_with_imports(
             "TEST-MIB",
             vec![("SNMPv2-TC", "DisplayString")],
-            vec![
-                Definition::TypeDef(typedef1),
-                Definition::TypeDef(typedef2),
-            ],
+            vec![Definition::TypeDef(typedef1), Definition::TypeDef(typedef2)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -1220,10 +1219,7 @@ mod tests {
         // Note: DerivedString is defined BEFORE BaseString (forward reference)
         let modules = vec![make_test_module(
             "TEST-MIB",
-            vec![
-                Definition::TypeDef(derived),
-                Definition::TypeDef(base),
-            ],
+            vec![Definition::TypeDef(derived), Definition::TypeDef(base)],
         )];
         let mut ctx = ResolverContext::new(modules);
 
@@ -1231,8 +1227,12 @@ mod tests {
         resolve_types(&mut ctx);
 
         // Both types should exist
-        let derived_id = ctx.lookup_type("DerivedString").expect("DerivedString should exist");
-        let base_id = ctx.lookup_type("BaseString").expect("BaseString should exist");
+        let derived_id = ctx
+            .lookup_type("DerivedString")
+            .expect("DerivedString should exist");
+        let base_id = ctx
+            .lookup_type("BaseString")
+            .expect("BaseString should exist");
 
         // Check parent pointer: DerivedString -> BaseString
         let derived_type = ctx.model.get_type(derived_id).expect("type should exist");

@@ -26,8 +26,8 @@ fn main() {
     // Use alloc types (Vec, String) instead of heapless containers
     generator.use_container_alloc();
 
-    // Generate encode-only code (we only serialize on Rust side)
-    generator.encode_decode(EncodeDecode::EncodeOnly);
+    // Generate both encode and decode code for cache round-trips
+    generator.encode_decode(EncodeDecode::Both);
 
     generator
         .compile_protos(&["wasmib.proto"], out_file)

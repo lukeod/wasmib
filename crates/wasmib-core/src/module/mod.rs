@@ -32,14 +32,14 @@ mod module;
 mod syntax;
 mod types;
 
-pub use base_modules::{create_base_modules, is_base_module, BaseModule};
+pub use base_modules::{BaseModule, create_base_modules, is_base_module};
 pub use definition::{
     AgentCapabilities, ComplianceGroup, ComplianceModule, ComplianceObject, Definition, IndexItem,
     ModuleCompliance, ModuleIdentity, Notification, NotificationGroup, NotificationVariation,
     ObjectGroup, ObjectIdentity, ObjectType, ObjectVariation, Revision, SupportsModule, TrapInfo,
     TypeDef, ValueAssignment,
 };
-pub use lower::{lower_module, LoweringContext};
+pub use lower::{LoweringContext, lower_module};
 pub use module::{Import, Module};
 pub use syntax::{
     Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,

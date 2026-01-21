@@ -218,11 +218,7 @@ impl ResolverContext {
     }
 
     /// Look up a type by interned symbol in a specific module's scope.
-    fn lookup_type_for_module_interned(
-        &self,
-        module_id: ModuleId,
-        name: StrId,
-    ) -> Option<TypeId> {
+    fn lookup_type_for_module_interned(&self, module_id: ModuleId, name: StrId) -> Option<TypeId> {
         let mut visited = BTreeSet::new();
         let mut current = module_id;
 
@@ -283,7 +279,8 @@ impl ResolverContext {
         name: StrId,
         type_id: TypeId,
     ) {
-        self.module_symbol_to_type.insert((module_id, name), type_id);
+        self.module_symbol_to_type
+            .insert((module_id, name), type_id);
     }
 
     /// Record an unresolved import with its failure reason.
@@ -383,9 +380,9 @@ impl ResolverContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{Module, Symbol};
     use crate::lexer::Span;
     use crate::model::{OidNode, ResolvedModule};
+    use crate::module::{Module, Symbol};
 
     fn make_test_module(name: &str) -> Module {
         Module::new(Symbol::from_name(name), Span::SYNTHETIC)
