@@ -370,6 +370,165 @@ func TestQualifiedNameLookup(t *testing.T) {
 	}
 }
 
+func TestGetNodeByOIDPrefix(t *testing.T) {
+	model := loadTestCorpus(t)
+
+	tests := []struct {
+		name       string
+		oid        []uint32
+		wantOID    string
+		wantSuffix []uint32
+	}{
+		{
+			name:       "exact match scalar",
+			oid:        []uint32{1, 3, 6, 1, 2, 1, 1, 1},
+			wantOID:    "1.3.6.1.2.1.1.1",
+			wantSuffix: nil,
+		},
+		{
+			name:       "scalar with .0 instance",
+			oid:        []uint32{1, 3, 6, 1, 2, 1, 1, 1, 0},
+			wantOID:    "1.3.6.1.2.1.1.1",
+			wantSuffix: []uint32{0},
+		},
+		{
+			name:       "table column with index",
+			oid:        []uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 2, 1},
+			wantOID:    "1.3.6.1.2.1.2.2.1.2", // ifDescr
+			wantSuffix: []uint32{1},
+		},
+		{
+			name:       "table column with multi-digit index",
+			oid:        []uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 4, 123},
+			wantOID:    "1.3.6.1.2.1.2.2.1.4", // ifMtu
+			wantSuffix: []uint32{123},
+		},
+		{
+			name:       "deep into unknown subtree",
+			oid:        []uint32{1, 3, 6, 1, 4, 1, 9999, 1, 2, 3},
+			wantOID:    "1.3.6.1.4.1", // enterprises
+			wantSuffix: []uint32{9999, 1, 2, 3},
+		},
+		{
+			name:       "exact match internal node",
+			oid:        []uint32{1, 3, 6, 1, 2, 1},
+			wantOID:    "1.3.6.1.2.1",
+			wantSuffix: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, suffix := model.GetNodeByOIDPrefix(tt.oid)
+			if node == nil {
+				t.Fatal("GetNodeByOIDPrefix returned nil node")
+			}
+
+			gotOID := model.GetOID(node)
+			if gotOID != tt.wantOID {
+				t.Errorf("matched OID = %q, want %q", gotOID, tt.wantOID)
+			}
+
+			if !slicesEqual(suffix, tt.wantSuffix) {
+				t.Errorf("suffix = %v, want %v", suffix, tt.wantSuffix)
+			}
+		})
+	}
+}
+
+func TestGetNodeByOIDPrefixStr(t *testing.T) {
+	model := loadTestCorpus(t)
+
+	tests := []struct {
+		name       string
+		oid        string
+		wantOID    string
+		wantSuffix []uint32
+	}{
+		{
+			name:       "scalar with .0 instance",
+			oid:        "1.3.6.1.2.1.1.5.0",
+			wantOID:    "1.3.6.1.2.1.1.5", // sysName
+			wantSuffix: []uint32{0},
+		},
+		{
+			name:       "table column with index",
+			oid:        "1.3.6.1.2.1.2.2.1.5.42",
+			wantOID:    "1.3.6.1.2.1.2.2.1.5", // ifSpeed
+			wantSuffix: []uint32{42},
+		},
+		{
+			name:       "exact match",
+			oid:        "1.3.6.1.2.1.1.3",
+			wantOID:    "1.3.6.1.2.1.1.3", // sysUpTime
+			wantSuffix: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, suffix := model.GetNodeByOIDPrefixStr(tt.oid)
+			if node == nil {
+				t.Fatal("GetNodeByOIDPrefixStr returned nil node")
+			}
+
+			gotOID := model.GetOID(node)
+			if gotOID != tt.wantOID {
+				t.Errorf("matched OID = %q, want %q", gotOID, tt.wantOID)
+			}
+
+			if !slicesEqual(suffix, tt.wantSuffix) {
+				t.Errorf("suffix = %v, want %v", suffix, tt.wantSuffix)
+			}
+		})
+	}
+}
+
+func TestGetNodeByOIDPrefixEdgeCases(t *testing.T) {
+	model := loadTestCorpus(t)
+
+	// Empty OID
+	node, suffix := model.GetNodeByOIDPrefix(nil)
+	if node != nil || suffix != nil {
+		t.Error("Expected (nil, nil) for empty OID")
+	}
+
+	node, suffix = model.GetNodeByOIDPrefix([]uint32{})
+	if node != nil || suffix != nil {
+		t.Error("Expected (nil, nil) for zero-length OID")
+	}
+
+	// Invalid root
+	node, suffix = model.GetNodeByOIDPrefix([]uint32{99, 1, 2, 3})
+	if node != nil || suffix != nil {
+		t.Error("Expected (nil, nil) for invalid root arc")
+	}
+
+	// Empty string
+	node, suffix = model.GetNodeByOIDPrefixStr("")
+	if node != nil || suffix != nil {
+		t.Error("Expected (nil, nil) for empty string")
+	}
+
+	// Invalid string
+	node, suffix = model.GetNodeByOIDPrefixStr("not.an.oid")
+	if node != nil || suffix != nil {
+		t.Error("Expected (nil, nil) for invalid OID string")
+	}
+}
+
+func slicesEqual(a, b []uint32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestModelIsComplete(t *testing.T) {
 	model := loadTestCorpus(t)
 
@@ -511,6 +670,27 @@ func BenchmarkParallelLookup(b *testing.B) {
 			i++
 		}
 	})
+}
+
+func BenchmarkGetNodeByOIDPrefix(b *testing.B) {
+	model := setupBenchModel(b)
+	// Simulate SNMP response OID with instance suffix
+	oid := []uint32{1, 3, 6, 1, 2, 1, 2, 2, 1, 4, 123}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = model.GetNodeByOIDPrefix(oid)
+	}
+}
+
+func BenchmarkGetNodeByOIDPrefixStr(b *testing.B) {
+	model := setupBenchModel(b)
+	oid := "1.3.6.1.2.1.2.2.1.4.123"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = model.GetNodeByOIDPrefixStr(oid)
+	}
 }
 
 func TestParallelGoroutineSafety(t *testing.T) {

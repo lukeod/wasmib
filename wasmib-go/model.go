@@ -367,6 +367,96 @@ func (m *Model) GetNodeByOIDSlice(oid []uint32) *Node {
 	return current
 }
 
+// GetNodeByOIDPrefix finds the node with the longest matching OID prefix.
+// Returns the matching node and the unmatched suffix (instance index).
+// Returns (nil, nil) if no prefix matches at all.
+//
+// This is useful for mapping SNMP response OIDs back to MIB definitions,
+// since response OIDs include instance suffixes (e.g., sysName.0 or ifDescr.1).
+func (m *Model) GetNodeByOIDPrefix(oid []uint32) (node *Node, suffix []uint32) {
+	if len(oid) == 0 {
+		return nil, nil
+	}
+
+	// Find root with matching first arc
+	var current *Node
+	for _, rootID := range m.roots {
+		root := m.GetNode(rootID)
+		if root != nil && root.Subid == oid[0] {
+			current = root
+			break
+		}
+	}
+	if current == nil {
+		return nil, nil
+	}
+
+	// Walk down the tree as far as possible
+	matched := 1
+	for _, arc := range oid[1:] {
+		found := false
+		for _, childID := range current.Children {
+			child := m.GetNode(childID)
+			if child != nil && child.Subid == arc {
+				current = child
+				matched++
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+	}
+
+	// Return matched node and remaining suffix
+	if matched < len(oid) {
+		return current, oid[matched:]
+	}
+	return current, nil
+}
+
+// GetNodeByOIDPrefixStr is like GetNodeByOIDPrefix but takes a dotted OID string.
+// Returns the matching node and the unmatched suffix as a slice.
+func (m *Model) GetNodeByOIDPrefixStr(oid string) (node *Node, suffix []uint32) {
+	arcs := parseOIDString(oid)
+	if arcs == nil {
+		return nil, nil
+	}
+	return m.GetNodeByOIDPrefix(arcs)
+}
+
+// parseOIDString parses a dotted OID string into arc values.
+func parseOIDString(oid string) []uint32 {
+	if oid == "" {
+		return nil
+	}
+
+	// Count dots to pre-allocate
+	count := 1
+	for i := 0; i < len(oid); i++ {
+		if oid[i] == '.' {
+			count++
+		}
+	}
+
+	arcs := make([]uint32, 0, count)
+	start := 0
+	for i := 0; i <= len(oid); i++ {
+		if i == len(oid) || oid[i] == '.' {
+			if i > start {
+				n, err := strconv.ParseUint(oid[start:i], 10, 32)
+				if err != nil {
+					return nil
+				}
+				arcs = append(arcs, uint32(n))
+			}
+			start = i + 1
+		}
+	}
+	return arcs
+}
+
 // GetNodeID returns the ID of a node.
 // Returns 0 if the node is not in this model.
 func (m *Model) GetNodeID(n *Node) uint32 {
