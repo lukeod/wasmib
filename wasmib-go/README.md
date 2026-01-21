@@ -7,6 +7,50 @@ model. Parsing and resolution are performed in Rust/WASM for correctness and
 compatibility with vendor MIBs, while all queries run as native Go code for
 high throughput.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Rust/WASM                                                       │
+│                                                                 │
+│  MIB Sources → Lexer → Parser → Resolver → Model                │
+│                                               │                 │
+│                                               ▼                 │
+│                                    serialize (postcard)         │
+└───────────────────────────────────────────────┬─────────────────┘
+                                                │
+                                    One-time transfer
+                                                │
+┌───────────────────────────────────────────────▼─────────────────┐
+│ Go (native)                                                     │
+│                                                                 │
+│  Deserialize → Model (read-only)                                │
+│                   │                                             │
+│       ┌───────────┼───────────┬───────────┐                     │
+│       ▼           ▼           ▼           ▼                     │
+│   Goroutine   Goroutine   Goroutine   Goroutine                 │
+│                                                                 │
+│   All queries are native Go — no WASM calls                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+wasmib uses a "serialize to host" pattern:
+
+1. **Rust/WASM** handles the complex work: lexing, parsing, cross-module
+   resolution, OID tree construction, and semantic analysis. This runs once
+   during initialization.
+
+2. **The resolved Model is serialized** and transferred to Go as a single
+   blob. This includes the full OID tree, all type definitions, object
+   metadata, and an interned string table.
+
+3. **Go deserializes into native structs** and builds lookup indices. From
+   this point on, all queries are pure Go with no WASM calls.
+
+This design enables unlimited concurrent queries from any number of goroutines
+without contention. The alternative (fine-grained FFI with per-query WASM calls)
+would serialize all access through a single-threaded WASM execution context.
+
 ## Installation
 
 ```bash
@@ -230,10 +274,11 @@ if node.Kind.IsConformance() {
 }
 ```
 
-## String Interning
+## String Table
 
-All strings in the model are interned. String fields store `uint32` IDs
-that must be looked up via `model.GetStr()`:
+The Rust parser interns all strings into a deduplicated table for memory
+efficiency. This structure is preserved in Go: string fields store `uint32`
+IDs that must be looked up via `model.GetStr()`:
 
 ```go
 obj := model.GetObject(node)
