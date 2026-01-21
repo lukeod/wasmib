@@ -280,11 +280,42 @@ impl<'src> Parser<'src> {
 
     // === Parsing methods ===
 
-    /// Parse module header: `ModuleName DEFINITIONS ::= BEGIN`
+    /// Parse module header: `ModuleName [{ oid }] DEFINITIONS ::= BEGIN`
+    ///
+    /// The optional `{ oid }` part is an obsolete ASN.1 construct that was used
+    /// in pre-standard MIBs (circa 1992) before RFC 1902/2578 prohibited it.
+    /// We skip it for backward compatibility with files like CISCO-MIB.
     fn parse_module_header(&mut self) -> Result<(Ident, DefinitionsKind), Diagnostic> {
         // Module name (uppercase identifier)
         let name_token = self.expect_identifier()?;
         let name = self.make_ident(name_token);
+
+        // Check for obsolete module OID: `{ iso org(3) dod(6) ... }`
+        // This was valid ASN.1 but prohibited by RFC 2578.
+        // Skip it entirely if present (like libsmi and net-snmp do).
+        if self.check(TokenKind::LBrace) {
+            let oid_start = self.current_span();
+            let mut depth = 1;
+            self.advance(); // consume opening brace
+
+            while depth > 0 && !self.is_eof() {
+                let token = self.advance();
+                match token.kind {
+                    TokenKind::LBrace => depth += 1,
+                    TokenKind::RBrace => depth -= 1,
+                    _ => {}
+                }
+            }
+
+            // Emit warning about obsolete format
+            self.diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                span: Span::new(oid_start.start, self.current_span().end),
+                message: String::from(
+                    "obsolete module OID in header (prohibited by RFC 2578, skipped)",
+                ),
+            });
+        }
 
         // DEFINITIONS or PIB-DEFINITIONS
         let definitions_kind = if self.check(TokenKind::UppercaseIdent) {

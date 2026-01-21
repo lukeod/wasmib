@@ -768,3 +768,58 @@ fn test_oid_values_match_libsmi() {
 
     println!("All {} OIDs verified against libsmi!", expected_oids.len());
 }
+
+/// Test parsing MIB with obsolete module OID in header (pre-RFC 2578 format).
+/// This format was valid ASN.1 but prohibited by SMIv2.
+#[test]
+fn test_parse_obsolete_module_oid_header() {
+    // Format: ModuleName { oid-value } DEFINITIONS ::= BEGIN
+    // The OID between the name and DEFINITIONS should be skipped.
+    let source = br#"
+TEST-MIB { iso org(3) dod(6) internet(1) private(4) enterprises(1) 9999 }
+DEFINITIONS ::= BEGIN
+
+IMPORTS
+    enterprises
+        FROM SNMPv2-SMI;
+
+testRoot OBJECT IDENTIFIER ::= { enterprises 9999 }
+
+END
+"#;
+
+    let parser = Parser::new(source);
+    let module = parser.parse_module();
+
+    // Module should parse successfully
+    assert_eq!(module.name.name, "TEST-MIB");
+
+    // Should have one definition (testRoot value assignment)
+    assert!(
+        !module.body.is_empty(),
+        "Expected definitions, got empty body"
+    );
+
+    // Should have a warning about the obsolete format
+    let warnings: Vec<_> = module
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .collect();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("obsolete module OID")),
+        "Expected warning about obsolete module OID format"
+    );
+
+    // Should have no errors
+    let errors: Vec<_> = module
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+
+    println!("Obsolete module OID header parsed successfully with warning");
+}
