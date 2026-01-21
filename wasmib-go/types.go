@@ -1,8 +1,3 @@
-// Package wasmib provides Go bindings for the wasmib MIB parser.
-//
-// wasmib parses SNMP MIB definition files and provides a queryable model.
-// The heavy lifting (parsing, normalization, resolution) is done in Rust/WASM,
-// while Go handles native queries for high-throughput applications.
 package wasmib
 
 // NodeKind represents the semantic type of an OID node.

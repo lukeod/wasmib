@@ -1,4 +1,4 @@
-module github.com/wasmib/wasmib-go
+module github.com/lukeod/wasmib/wasmib-go
 
 go 1.24.0
 
