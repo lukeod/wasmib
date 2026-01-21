@@ -78,10 +78,12 @@ impl WasmState {
     }
 
     fn set_error(&mut self, msg: &str) {
-        let len = msg.len() as u32;
-        let mut buf = Vec::with_capacity(4 + msg.len());
+        // Truncate message if it exceeds u32::MAX (only possible on 64-bit, not WASM)
+        let len = u32::try_from(msg.len()).unwrap_or(u32::MAX);
+        let msg_bytes = &msg.as_bytes()[..len as usize];
+        let mut buf = Vec::with_capacity(4 + msg_bytes.len());
         buf.extend_from_slice(&len.to_le_bytes());
-        buf.extend_from_slice(msg.as_bytes());
+        buf.extend_from_slice(msg_bytes);
         self.last_error = Some(buf);
     }
 }
@@ -245,8 +247,16 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     // Serialize model to protobuf
     let bytes = crate::serialize::to_bytes(&result.model, None);
 
+    // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
+    let len = match u32::try_from(bytes.len()) {
+        Ok(len) => len,
+        Err(_) => {
+            state.set_error("serialized model too large (exceeds 4GB)");
+            return error::INTERNAL_ERROR;
+        }
+    };
+
     // Store with length prefix
-    let len = bytes.len() as u32;
     let mut output = Vec::with_capacity(4 + bytes.len());
     output.extend_from_slice(&len.to_le_bytes());
     output.extend_from_slice(&bytes);
@@ -323,14 +333,23 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     }
     json.push(']');
 
+    // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
+    let len = match u32::try_from(json.len()) {
+        Ok(len) => len,
+        Err(_) => {
+            // Diagnostics too large - return empty array
+            static EMPTY_ARRAY: &[u8] = b"\x02\x00\x00\x00[]";
+            return EMPTY_ARRAY.as_ptr();
+        }
+    };
+
     // Store with length prefix
-    let len = json.len() as u32;
     let mut output = Vec::with_capacity(4 + json.len());
     output.extend_from_slice(&len.to_le_bytes());
     output.extend_from_slice(json.as_bytes());
-    state.serialized_diagnostics = Some(output);
 
-    state.serialized_diagnostics.as_ref().unwrap().as_ptr()
+    // Store and return pointer - insert() returns a reference, avoiding unwrap
+    state.serialized_diagnostics.insert(output).as_ptr()
 }
 
 /// Get last error message.
