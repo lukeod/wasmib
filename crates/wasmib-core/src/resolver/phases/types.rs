@@ -200,24 +200,41 @@ fn create_user_types(ctx: &mut ResolverContext) {
     }
 }
 
-/// Resolve base types and set parent pointers.
+/// Resolve base types and set parent pointers using multi-pass resolution.
+///
+/// This uses an iterative approach similar to OID resolution to handle forward
+/// references. Types that reference other types defined later in the same module
+/// will be resolved in subsequent passes.
 fn resolve_type_bases(ctx: &mut ResolverContext) {
-    // First pass: link TypeRef-based types to their parent
-    link_typeref_parents(ctx);
+    // Multi-pass parent linking for TypeRef-based types
+    resolve_typeref_parents_multipass(ctx);
 
-    // Second pass: link primitive-syntax types to their primitive parents
+    // Link primitive-syntax types to their primitive parents
     // This handles types like `DisplayString SYNTAX OCTET STRING (SIZE ...)` which
     // should have parent_type pointing to "OCTET STRING".
+    // Primitives are always available after seed_primitive_types, so no multi-pass needed.
     link_primitive_syntax_parents(ctx);
 
-    // Third pass: inherit base types from parents for types that need it
+    // After all parents are linked, inherit base types from parent chains (single pass)
     inherit_base_types(ctx);
 }
 
-/// Link types that use `TypeRef` syntax to their parent types.
-fn link_typeref_parents(ctx: &mut ResolverContext) {
-    // For each type with a TypeRef syntax, try to resolve the parent
-    let type_refs: Vec<_> = ctx
+/// Data needed for a type parent resolution task.
+struct TypeResolutionTask {
+    module_idx: usize,
+    type_name: String,
+    base_name: String,
+    span: crate::lexer::Span,
+}
+
+/// Resolve TypeRef parent pointers using multi-pass iteration.
+///
+/// Collects all types with TypeRef syntax and iteratively attempts to link
+/// their parent pointers. Types that reference forward-declared types will
+/// be resolved in subsequent passes.
+fn resolve_typeref_parents_multipass(ctx: &mut ResolverContext) {
+    // Collect all types with TypeRef syntax
+    let mut pending: Vec<TypeResolutionTask> = ctx
         .hir_modules
         .iter()
         .enumerate()
@@ -225,22 +242,22 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
             module.definitions.iter().filter_map(move |def| {
                 if let Definition::TypeDef(td) = def {
                     if let TypeSyntax::TypeRef(ref base_name) = td.syntax {
-                        return Some((
+                        return Some(TypeResolutionTask {
                             module_idx,
-                            td.name.name.clone(),
-                            base_name.name.clone(),
-                            td.span,
-                        ));
+                            type_name: td.name.name.clone(),
+                            base_name: base_name.name.clone(),
+                            span: td.span,
+                        });
                     }
                     if let TypeSyntax::Constrained { ref base, .. } = td.syntax
                         && let TypeSyntax::TypeRef(ref base_name) = **base
                     {
-                        return Some((
+                        return Some(TypeResolutionTask {
                             module_idx,
-                            td.name.name.clone(),
-                            base_name.name.clone(),
-                            td.span,
-                        ));
+                            type_name: td.name.name.clone(),
+                            base_name: base_name.name.clone(),
+                            span: td.span,
+                        });
                     }
                 }
                 None
@@ -248,26 +265,68 @@ fn link_typeref_parents(ctx: &mut ResolverContext) {
         })
         .collect();
 
-    for (module_idx, type_name, base_name, span) in type_refs {
-        let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
-            continue; // Skip if module not registered (shouldn't happen)
+    // Multi-pass resolution
+    let max_iterations = 20; // Safety limit (matches OID resolution)
+
+    for _iteration in 0..max_iterations {
+        if pending.is_empty() {
+            break;
+        }
+
+        let initial_count = pending.len();
+        let mut still_pending = Vec::new();
+
+        for task in pending {
+            if !try_resolve_type_parent(ctx, &task) {
+                still_pending.push(task);
+            }
+        }
+
+        // No progress - record remaining as unresolved
+        if still_pending.len() == initial_count {
+            for task in still_pending {
+                let Some(module_id) = ctx.get_module_id_for_hir_index(task.module_idx) else {
+                    continue;
+                };
+                ctx.record_unresolved_type(module_id, &task.type_name, &task.base_name, task.span);
+            }
+            break;
+        }
+
+        pending = still_pending;
+    }
+}
+
+/// Attempt to resolve a type's parent pointer. Returns true if successful.
+fn try_resolve_type_parent(ctx: &mut ResolverContext, task: &TypeResolutionTask) -> bool {
+    let Some(module_id) = ctx.get_module_id_for_hir_index(task.module_idx) else {
+        return false;
+    };
+
+    // Look up the type being resolved (must be module-scoped to find THIS module's type)
+    let type_id = ctx.lookup_type_for_module(module_id, &task.type_name);
+    // Look up the parent type (respects imports)
+    let parent_id = ctx.lookup_type_for_module(module_id, &task.base_name);
+
+    if let (Some(type_id), Some(parent_id)) = (type_id, parent_id) {
+        // Check if parent already has its parent resolved (if it needs one)
+        // This ensures we don't link to a type that's still pending resolution
+        let parent_ready = if let Some(parent_type) = ctx.model.get_type(parent_id) {
+            // Parent is ready if it doesn't need base resolution, or if it has a parent set
+            !parent_type.needs_base_resolution || parent_type.parent_type.is_some()
+        } else {
+            false
         };
 
-        // Both lookups must be module-scoped:
-        // - type_id: the type being defined (must find THIS module's type, not another module's)
-        // - parent_id: the base type (respects imports)
-        let type_id = ctx.lookup_type_for_module(module_id, &type_name);
-        let parent_id = ctx.lookup_type_for_module(module_id, &base_name);
-
-        if let (Some(type_id), Some(parent_id)) = (type_id, parent_id) {
-            // Set parent pointer
+        if parent_ready {
             if let Some(typ) = ctx.model.get_type_mut(type_id) {
                 typ.parent_type = Some(parent_id);
             }
-        } else if parent_id.is_none() {
-            ctx.record_unresolved_type(module_id, &type_name, &base_name, span);
+            return true;
         }
     }
+
+    false
 }
 
 /// Get the primitive type name for a syntax that uses primitive syntax directly.
@@ -1093,5 +1152,175 @@ mod tests {
         assert_eq!(names[0], "MyString");
         assert_eq!(names[1], "DisplayString");
         assert_eq!(names[2], "OCTET STRING");
+    }
+
+    // ============================================================
+    // Tests for forward reference resolution (multi-pass)
+    // ============================================================
+
+    #[test]
+    fn test_forward_reference_type_resolution() {
+        // DerivedString references BaseString, but DerivedString is defined first.
+        // This tests that forward references within a module are handled correctly.
+        //
+        // DerivedString ::= TEXTUAL-CONVENTION SYNTAX BaseString (SIZE (0..64))
+        // BaseString ::= TEXTUAL-CONVENTION SYNTAX OCTET STRING (SIZE (0..255))
+        use alloc::boxed::Box;
+
+        let derived = TypeDef {
+            name: Symbol::from_name("DerivedString"),
+            syntax: TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::TypeRef(Symbol::from_name("BaseString"))),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(64)),
+                }]),
+            },
+            display_hint: None,
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let base = TypeDef {
+            name: Symbol::from_name("BaseString"),
+            syntax: TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::OctetString),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(255)),
+                }]),
+            },
+            display_hint: Some("255a".into()),
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        // Note: DerivedString is defined BEFORE BaseString (forward reference)
+        let modules = vec![make_test_module(
+            "TEST-MIB",
+            vec![
+                Definition::TypeDef(derived),
+                Definition::TypeDef(base),
+            ],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_types(&mut ctx);
+
+        // Both types should exist
+        let derived_id = ctx.lookup_type("DerivedString").expect("DerivedString should exist");
+        let base_id = ctx.lookup_type("BaseString").expect("BaseString should exist");
+
+        // Check parent pointer: DerivedString -> BaseString
+        let derived_type = ctx.model.get_type(derived_id).expect("type should exist");
+        assert_eq!(
+            derived_type.parent_type,
+            Some(base_id),
+            "DerivedString should have BaseString as parent"
+        );
+
+        // Check base type inheritance: DerivedString should inherit OctetString
+        assert_eq!(
+            derived_type.base,
+            BaseType::OctetString,
+            "DerivedString should inherit OctetString base from BaseString"
+        );
+
+        // Verify the chain: DerivedString -> BaseString -> OCTET STRING
+        let chain = ctx.model.get_type_chain(derived_id);
+        assert!(
+            chain.len() >= 3,
+            "chain should have at least DerivedString, BaseString, OCTET STRING"
+        );
+        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
+        assert_eq!(names[0], "DerivedString");
+        assert_eq!(names[1], "BaseString");
+        assert_eq!(names[2], "OCTET STRING");
+    }
+
+    #[test]
+    fn test_forward_reference_chain_three_levels() {
+        // Tests a chain of three user types with forward references:
+        // Level1 references Level2, Level2 references Level3, Level3 references DisplayString
+        // All defined in reverse order (Level1 first, Level3 last before DisplayString)
+
+        let level1 = TypeDef {
+            name: Symbol::from_name("Level1"),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("Level2")),
+            display_hint: None,
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let level2 = TypeDef {
+            name: Symbol::from_name("Level2"),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("Level3")),
+            display_hint: None,
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        let level3 = TypeDef {
+            name: Symbol::from_name("Level3"),
+            syntax: TypeSyntax::TypeRef(Symbol::from_name("DisplayString")),
+            display_hint: None,
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: true,
+            span: Span::new(0, 0),
+        };
+
+        // Defined in reverse order (forward references)
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![("SNMPv2-TC", "DisplayString")],
+            vec![
+                Definition::TypeDef(level1),
+                Definition::TypeDef(level2),
+                Definition::TypeDef(level3),
+            ],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+
+        // All types should exist
+        let level1_id = ctx.lookup_type("Level1").expect("Level1 should exist");
+
+        // Check base type inheritance: Level1 should ultimately resolve to OctetString
+        let level1_type = ctx.model.get_type(level1_id).expect("type should exist");
+        assert_eq!(
+            level1_type.base,
+            BaseType::OctetString,
+            "Level1 should inherit OctetString base through the chain"
+        );
+
+        // Verify the full chain
+        let chain = ctx.model.get_type_chain(level1_id);
+        assert!(
+            chain.len() >= 4,
+            "chain should have at least Level1, Level2, Level3, DisplayString"
+        );
+        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
+        assert_eq!(names[0], "Level1");
+        assert_eq!(names[1], "Level2");
+        assert_eq!(names[2], "Level3");
+        assert_eq!(names[3], "DisplayString");
     }
 }
