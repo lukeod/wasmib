@@ -32,10 +32,7 @@ use alloc::boxed::Box;
 
 use super::definition::{Definition, TypeDef, ValueAssignment};
 use super::module::Module;
-use super::syntax::{
-    ChoiceAlternative, Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,
-    TypeSyntax,
-};
+use super::syntax::{Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax};
 use super::types::{SmiLanguage, Status, Symbol};
 
 /// SMI base modules (types and MACROs, not regular MIBs).
@@ -269,17 +266,15 @@ fn create_smiv1_type_definitions() -> Vec<Definition> {
             constrained_uint_range(u64::from(u32::MAX)),
             BaseType::Gauge32,
         ),
-        // NetworkAddress ::= CHOICE { internet IpAddress }
-        // The only alternative ever defined was IpAddress
-        make_typedef(
-            "NetworkAddress",
-            TypeSyntax::Choice(vec![ChoiceAlternative::new(
-                Symbol::from_name("internet"),
-                TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
-            )]),
-        ),
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
         make_typedef_with_base("IpAddress", constrained_octet_fixed(4), BaseType::IpAddress),
+        // NetworkAddress ::= CHOICE { internet IpAddress }
+        // CHOICE is normalized to the first (only) alternative: IpAddress
+        make_typedef_with_base(
+            "NetworkAddress",
+            TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
+            BaseType::IpAddress,
+        ),
         // TimeTicks ::= [APPLICATION 3] IMPLICIT INTEGER (0..4294967295)
         make_typedef_with_base(
             "TimeTicks",
@@ -627,81 +622,26 @@ fn create_base_type_definitions() -> Vec<Definition> {
                 },
             ]),
         ),
-        // ObjectSyntax ::= CHOICE {
-        //     simple SimpleSyntax,
-        //     application-wide ApplicationSyntax
-        // }
+        // ObjectSyntax ::= CHOICE { simple SimpleSyntax, application-wide ApplicationSyntax }
+        // CHOICE normalized to first alternative (SimpleSyntax).
+        // This is a protocol-level meta-type, not used as OBJECT-TYPE SYNTAX.
         make_typedef(
             "ObjectSyntax",
-            TypeSyntax::Choice(vec![
-                ChoiceAlternative::new(
-                    Symbol::from_name("simple"),
-                    TypeSyntax::TypeRef(Symbol::from_name("SimpleSyntax")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("application-wide"),
-                    TypeSyntax::TypeRef(Symbol::from_name("ApplicationSyntax")),
-                ),
-            ]),
+            TypeSyntax::TypeRef(Symbol::from_name("SimpleSyntax")),
         ),
-        // SimpleSyntax ::= CHOICE {
-        //     integer-value INTEGER,
-        //     string-value OCTET STRING,
-        //     objectID-value OBJECT IDENTIFIER
-        // }
+        // SimpleSyntax ::= CHOICE { integer-value INTEGER, string-value OCTET STRING, ... }
+        // CHOICE normalized to first alternative (INTEGER).
+        // This is a protocol-level meta-type, not used as OBJECT-TYPE SYNTAX.
         make_typedef(
             "SimpleSyntax",
-            TypeSyntax::Choice(vec![
-                ChoiceAlternative::new(
-                    Symbol::from_name("integer-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("INTEGER")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("string-value"),
-                    TypeSyntax::OctetString,
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("objectID-value"),
-                    TypeSyntax::ObjectIdentifier,
-                ),
-            ]),
+            TypeSyntax::TypeRef(Symbol::from_name("INTEGER")),
         ),
-        // ApplicationSyntax ::= CHOICE {
-        //     ipAddress-value IpAddress,
-        //     counter-value Counter32,
-        //     timeticks-value TimeTicks,
-        //     arbitrary-value Opaque,
-        //     big-counter-value Counter64,
-        //     unsigned-integer-value Unsigned32
-        // }
+        // ApplicationSyntax ::= CHOICE { ipAddress-value IpAddress, counter-value Counter32, ... }
+        // CHOICE normalized to first alternative (IpAddress).
+        // This is a protocol-level meta-type, not used as OBJECT-TYPE SYNTAX.
         make_typedef(
             "ApplicationSyntax",
-            TypeSyntax::Choice(vec![
-                ChoiceAlternative::new(
-                    Symbol::from_name("ipAddress-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("counter-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("Counter32")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("timeticks-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("TimeTicks")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("arbitrary-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("Opaque")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("big-counter-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("Counter64")),
-                ),
-                ChoiceAlternative::new(
-                    Symbol::from_name("unsigned-integer-value"),
-                    TypeSyntax::TypeRef(Symbol::from_name("Unsigned32")),
-                ),
-            ]),
+            TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
         ),
     ]
 }

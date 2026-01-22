@@ -484,9 +484,6 @@ fn syntax_to_base_type(syntax: &TypeSyntax) -> Option<BaseType> {
         TypeSyntax::ObjectIdentifier => Some(BaseType::ObjectIdentifier),
         TypeSyntax::Constrained { base, .. } => syntax_to_base_type(base),
         TypeSyntax::SequenceOf(_) | TypeSyntax::Sequence(_) => Some(BaseType::Sequence),
-        // CHOICE types are abstract containers, not directly used in OBJECT-TYPE SYNTAX
-        // They define which alternative types can appear at a given position
-        TypeSyntax::Choice(_) => None,
     }
 }
 

@@ -16,8 +16,8 @@ use super::definition::{
 };
 use super::module::{Import, Module};
 use super::syntax::{
-    ChoiceAlternative, Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent,
-    Range, RangeValue, SequenceField, TypeSyntax,
+    Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,
+    SequenceField, TypeSyntax,
 };
 use super::types::{Access, SmiLanguage, Status, Symbol};
 use crate::ast::{
@@ -516,14 +516,17 @@ fn lower_type_syntax(syntax: ast::TypeSyntax) -> TypeSyntax {
                 .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(f.syntax)))
                 .collect(),
         ),
-        ast::TypeSyntax::Choice { alternatives, .. } => TypeSyntax::Choice(
-            alternatives
-                .into_iter()
-                .map(|a| {
-                    ChoiceAlternative::new(Symbol::from(&a.name), lower_type_syntax(a.syntax))
-                })
-                .collect(),
-        ),
+        // CHOICE is normalized to its first alternative's type.
+        // CHOICE only appears in SMI base modules (not user MIBs), and the only
+        // CHOICE usable as OBJECT-TYPE SYNTAX is NetworkAddress which has one alternative.
+        ast::TypeSyntax::Choice { alternatives, .. } => {
+            if let Some(first) = alternatives.into_iter().next() {
+                lower_type_syntax(first.syntax)
+            } else {
+                // Empty CHOICE (shouldn't happen) - fall back to OCTET STRING
+                TypeSyntax::OctetString
+            }
+        }
         ast::TypeSyntax::OctetString { .. } => TypeSyntax::OctetString,
         ast::TypeSyntax::ObjectIdentifier { .. } => TypeSyntax::ObjectIdentifier,
     }

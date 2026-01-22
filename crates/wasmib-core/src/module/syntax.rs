@@ -66,25 +66,6 @@ impl SequenceField {
     }
 }
 
-/// An alternative in a CHOICE type.
-///
-/// Used in `CHOICE { internet IpAddress, ipx IPXAddress }` syntax.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChoiceAlternative {
-    /// The name of the alternative (e.g., "internet", "simple").
-    pub name: Symbol,
-    /// The type of the alternative.
-    pub syntax: TypeSyntax,
-}
-
-impl ChoiceAlternative {
-    /// Create a new choice alternative.
-    #[must_use]
-    pub fn new(name: Symbol, syntax: TypeSyntax) -> Self {
-        Self { name, syntax }
-    }
-}
-
 /// OID assignment (unresolved).
 ///
 /// Keeps OID components as symbols; resolution happens in the resolver.
@@ -199,9 +180,6 @@ pub enum TypeSyntax {
 
     /// SEQUENCE with fields (for row types).
     Sequence(Vec<SequenceField>),
-
-    /// CHOICE type: `CHOICE { simple SimpleSyntax, application ApplicationSyntax }`
-    Choice(Vec<ChoiceAlternative>),
 
     /// OCTET STRING (explicit).
     OctetString,
