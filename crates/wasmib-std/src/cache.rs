@@ -55,8 +55,8 @@ pub enum CacheError {
     },
     /// Fingerprint does not match expected value.
     FingerprintMismatch,
-    /// Protobuf deserialization failed.
-    DeserializationFailed,
+    /// Protobuf deserialization failed (includes underlying decode error context).
+    DeserializationFailed(String),
     /// IO error.
     Io(io::Error),
 }
@@ -68,7 +68,9 @@ impl std::fmt::Display for CacheError {
                 write!(f, "version mismatch: expected {expected}, found {found}")
             }
             Self::FingerprintMismatch => write!(f, "fingerprint mismatch"),
-            Self::DeserializationFailed => write!(f, "protobuf deserialization failed"),
+            Self::DeserializationFailed(msg) => {
+                write!(f, "protobuf deserialization failed: {msg}")
+            }
             Self::Io(e) => write!(f, "IO error: {e}"),
         }
     }
@@ -96,7 +98,9 @@ impl From<wasmib_wasm::cache::CacheError> for CacheError {
                 Self::VersionMismatch { expected, found }
             }
             wasmib_wasm::cache::CacheError::FingerprintMismatch => Self::FingerprintMismatch,
-            wasmib_wasm::cache::CacheError::DeserializationFailed => Self::DeserializationFailed,
+            wasmib_wasm::cache::CacheError::DeserializationFailed(decode_err) => {
+                Self::DeserializationFailed(decode_err.to_string())
+            }
         }
     }
 }

@@ -152,8 +152,11 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
 }
 
 /// Serialize a model to protobuf bytes.
+///
+/// # Panics
+///
+/// Panics if protobuf encoding fails (only possible on out-of-memory).
 #[must_use]
-#[allow(clippy::missing_panics_doc)] // Encoding only fails on OOM
 pub fn to_bytes(model: &Model, fingerprint: Option<[u8; 32]>) -> Vec<u8> {
     let serialized = from_model(model, fingerprint);
     let mut buf = Vec::new();
@@ -993,8 +996,10 @@ mod tests {
 
     #[test]
     fn test_node_kind_round_trip() {
+        // NodeKind has 10 variants: Internal, Node, Scalar, Table, Row, Column,
+        // Notification, Group, Compliance, Capabilities
         for i in 0..10u8 {
-            let kind = NodeKind::from_u8(i).unwrap();
+            let kind = NodeKind::from_u8(i).expect("valid NodeKind value");
             assert_eq!(kind.as_u8(), i);
         }
         assert!(NodeKind::from_u8(10).is_none());
@@ -1002,8 +1007,10 @@ mod tests {
 
     #[test]
     fn test_access_round_trip() {
+        // Access has 6 variants: NotAccessible, AccessibleForNotify, ReadOnly,
+        // ReadWrite, ReadCreate, WriteOnly
         for i in 0..6u8 {
-            let access = Access::from_u8(i).unwrap();
+            let access = Access::from_u8(i).expect("valid Access value");
             assert_eq!(access.as_u8(), i);
         }
         assert!(Access::from_u8(6).is_none());
@@ -1011,8 +1018,9 @@ mod tests {
 
     #[test]
     fn test_status_round_trip() {
+        // Status has 3 variants: Current, Deprecated, Obsolete
         for i in 0..3u8 {
-            let status = Status::from_u8(i).unwrap();
+            let status = Status::from_u8(i).expect("valid Status value");
             assert_eq!(status.as_u8(), i);
         }
         assert!(Status::from_u8(3).is_none());
@@ -1020,8 +1028,11 @@ mod tests {
 
     #[test]
     fn test_base_type_round_trip() {
+        // BaseType has 12 variants: Integer32, Unsigned32, Counter32, Counter64,
+        // Gauge32, TimeTicks, IpAddress, OctetString, ObjectIdentifier, Bits,
+        // Opaque, Unknown
         for i in 0..12u8 {
-            let base = BaseType::from_u8(i).unwrap();
+            let base = BaseType::from_u8(i).expect("valid BaseType value");
             assert_eq!(base.as_u8(), i);
         }
         assert!(BaseType::from_u8(12).is_none());

@@ -320,7 +320,6 @@ pub extern "C" fn wasmib_get_model() -> *const u8 {
 ///
 /// The returned pointer is valid until the next `wasmib_reset()` or `wasmib_resolve()`.
 #[unsafe(no_mangle)]
-#[allow(clippy::missing_panics_doc)] // Encoding only fails on OOM
 pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     use crate::serialize::{Diagnostic as ProtoDiagnostic, Diagnostics as ProtoDiagnostics};
     use micropb::MessageEncode;

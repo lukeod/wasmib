@@ -27,7 +27,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use wasmib_core::model::Model;
 
-use crate::serialize::{self, SCHEMA_VERSION};
+use crate::serialize::{self, DecodeError, SCHEMA_VERSION};
 
 /// Cache error.
 #[derive(Debug)]
@@ -42,7 +42,7 @@ pub enum CacheError {
     /// Fingerprint does not match expected value.
     FingerprintMismatch,
     /// Protobuf deserialization failed.
-    DeserializationFailed,
+    DeserializationFailed(DecodeError),
 }
 
 impl fmt::Display for CacheError {
@@ -52,7 +52,7 @@ impl fmt::Display for CacheError {
                 write!(f, "version mismatch: expected {expected}, found {found}")
             }
             Self::FingerprintMismatch => write!(f, "fingerprint mismatch"),
-            Self::DeserializationFailed => write!(f, "protobuf deserialization failed"),
+            Self::DeserializationFailed(e) => write!(f, "protobuf deserialization failed: {e}"),
         }
     }
 }
@@ -90,7 +90,7 @@ pub fn deserialize_model(
     expected_fingerprint: Option<&[u8; 32]>,
 ) -> Result<Model, CacheError> {
     // Check version first
-    let version = serialize::get_version(bytes).map_err(|_| CacheError::DeserializationFailed)?;
+    let version = serialize::get_version(bytes).map_err(CacheError::DeserializationFailed)?;
     if version != SCHEMA_VERSION {
         return Err(CacheError::VersionMismatch {
             expected: SCHEMA_VERSION,
@@ -101,7 +101,7 @@ pub fn deserialize_model(
     // Check fingerprint if verification requested
     if let Some(expected) = expected_fingerprint {
         let stored =
-            serialize::get_fingerprint(bytes).map_err(|_| CacheError::DeserializationFailed)?;
+            serialize::get_fingerprint(bytes).map_err(CacheError::DeserializationFailed)?;
         match stored {
             Some(fp) if fp == *expected => {}
             _ => return Err(CacheError::FingerprintMismatch),
@@ -109,7 +109,7 @@ pub fn deserialize_model(
     }
 
     // Deserialize the model
-    serialize::from_bytes(bytes).map_err(|_| CacheError::DeserializationFailed)
+    serialize::from_bytes(bytes).map_err(CacheError::DeserializationFailed)
 }
 
 /// Get the fingerprint from cache bytes without fully deserializing.
@@ -121,7 +121,7 @@ pub fn deserialize_model(
 /// Returns an error if the header is invalid.
 pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, CacheError> {
     // Check version first
-    let version = serialize::get_version(bytes).map_err(|_| CacheError::DeserializationFailed)?;
+    let version = serialize::get_version(bytes).map_err(CacheError::DeserializationFailed)?;
     if version != SCHEMA_VERSION {
         return Err(CacheError::VersionMismatch {
             expected: SCHEMA_VERSION,
@@ -129,7 +129,7 @@ pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, CacheError> {
         });
     }
 
-    serialize::get_fingerprint(bytes).map_err(|_| CacheError::DeserializationFailed)
+    serialize::get_fingerprint(bytes).map_err(CacheError::DeserializationFailed)
 }
 
 /// Re-export `SCHEMA_VERSION` for downstream consumers.
