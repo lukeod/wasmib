@@ -203,8 +203,13 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
         return;
     }
 
+    // Apply base module aliasing for non-standard vendor module names
+    // (e.g., SNMPv2-SMI-v1 → SNMPv2-SMI)
+    let effective_module_name = base_module_import_alias(from_module_name)
+        .unwrap_or(from_module_name);
+
     // Get candidate modules for this source name
-    let from_module_name_id = ctx.model.strings().find(from_module_name);
+    let from_module_name_id = ctx.model.strings().find(effective_module_name);
     let candidates: Vec<ModuleId> = from_module_name_id
         .and_then(|id| ctx.module_index.get(&id))
         .cloned()
@@ -310,6 +315,23 @@ fn is_macro_symbol(name: &str) -> bool {
     )
 }
 
+/// Check if a module name should be aliased to a base module for import resolution.
+///
+/// Some vendor MIBs (notably Cisco) import from non-standard module names like
+/// `SNMPv2-SMI-v1` that are functionally equivalent to `SNMPv2-SMI`. These files
+/// typically contain the same definitions but use ASN.1 syntax that wasmib doesn't
+/// parse (e.g., `[APPLICATION n] IMPLICIT` tagged types).
+///
+/// This alias allows imports from such modules to resolve against the synthetic
+/// base modules, without treating the vendor variants as canonical base modules.
+fn base_module_import_alias(name: &str) -> Option<&'static str> {
+    match name {
+        "SNMPv2-SMI-v1" => Some("SNMPv2-SMI"),
+        "SNMPv2-TC-v1" => Some("SNMPv2-TC"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +423,48 @@ mod tests {
 
         // Cross-module import should resolve
         assert!(ctx.model.unresolved().imports.is_empty());
+    }
+
+    #[test]
+    fn test_base_module_import_alias() {
+        // Test that imports from SNMPv2-SMI-v1 resolve to SNMPv2-SMI
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![
+                ("SNMPv2-SMI-v1", "Counter32"),
+                ("SNMPv2-SMI-v1", "enterprises"),
+            ],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Aliased imports should resolve (to synthetic SNMPv2-SMI)
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected SNMPv2-SMI-v1 imports to resolve via alias, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
+    }
+
+    #[test]
+    fn test_base_module_import_alias_tc() {
+        // Test that imports from SNMPv2-TC-v1 resolve to SNMPv2-TC
+        let modules = vec![make_test_module_with_imports(
+            "TEST-MIB",
+            vec![("SNMPv2-TC-v1", "DisplayString")],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Aliased imports should resolve (to synthetic SNMPv2-TC)
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected SNMPv2-TC-v1 imports to resolve via alias, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
     }
 }
