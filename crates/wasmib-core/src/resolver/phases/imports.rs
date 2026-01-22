@@ -396,10 +396,12 @@ fn try_import_forwarding<TR: ImportTracer>(
                         // Take the first candidate for simplicity
                         // (In practice, base modules like SNMPv2-SMI have only one instance)
                         if let Some(&source_module_id) = source_candidates.first() {
-                            let sym_id = ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
-                                // This shouldn't happen as symbols should be interned
-                                panic!("Symbol {} not interned", sym.name)
-                            });
+                            // Symbol should already be interned from registration phase.
+                            // If not found, skip this candidate (defensive - shouldn't happen).
+                            let Some(sym_id) = ctx.model.strings().find(&sym.name) else {
+                                all_found = false;
+                                break;
+                            };
                             forwarded_symbols.push((sym_id, source_module_id));
                             continue;
                         }

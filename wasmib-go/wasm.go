@@ -273,4 +273,3 @@ func (c *Compiler) readLengthPrefixedString(ptr uint32) (string, error) {
 
 	return string(strBytes), nil
 }
-

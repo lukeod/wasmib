@@ -322,9 +322,14 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
 
     // Encode to protobuf bytes
     let mut proto_bytes = Vec::new();
-    diagnostics
+    if diagnostics
         .encode(&mut micropb::PbEncoder::new(&mut proto_bytes))
-        .expect("encoding should not fail");
+        .is_err()
+    {
+        // Encoding failed (likely OOM) - return empty message
+        static EMPTY_MSG: &[u8] = b"\x00\x00\x00\x00";
+        return EMPTY_MSG.as_ptr();
+    }
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
     let Ok(len) = u32::try_from(proto_bytes.len()) else {

@@ -206,7 +206,10 @@ fn is_first_component_resolvable<TR: OidTracer>(
     def: &OidDefinition,
     tracer: &mut TR,
 ) -> bool {
-    let oid = def.oid(ctx);
+    let Some(oid) = def.oid(ctx) else {
+        // Definition has no OID (e.g., TypeDef) - skip
+        return false;
+    };
     match oid.components.first() {
         Some(OidComponent::Name(sym)) => {
             // First check module-scoped lookup
@@ -290,7 +293,10 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
             // Record unresolved for remaining definitions
             for def in still_pending {
                 // Extract data to owned to avoid borrow conflicts
-                let oid = def.oid(ctx);
+                let Some(oid) = def.oid(ctx) else {
+                    // Definition has no OID (shouldn't happen, but skip gracefully)
+                    continue;
+                };
                 let def_name = def.def_name(ctx).to_string();
                 let oid_span = oid.span;
                 let first_component = oid.components.first().cloned();
@@ -329,7 +335,10 @@ fn resolve_oids_inner<TR: OidTracer>(ctx: &mut ResolverContext, tracer: &mut TR)
 fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapTypeDefinition>) {
     for def in trap_defs {
         // Get trap info from HIR - extract to owned values to avoid borrow conflicts
-        let (enterprise_ref, trap_number, span) = def.trap_info(ctx);
+        let Some((enterprise_ref, trap_number, span)) = def.trap_info(ctx) else {
+            // Not a valid TRAP-TYPE definition (shouldn't happen, but skip gracefully)
+            continue;
+        };
         let enterprise = enterprise_ref.to_string();
         let def_name = def.def_name(ctx).to_string();
 
@@ -423,19 +432,20 @@ impl OidDefinition {
     }
 
     /// Get the OID assignment from HIR.
-    fn oid<'a>(&self, ctx: &'a ResolverContext) -> &'a OidAssignment {
+    /// Returns None for TypeDef (which has no OID) or Notification without OID.
+    fn oid<'a>(&self, ctx: &'a ResolverContext) -> Option<&'a OidAssignment> {
         let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
         match def {
-            Definition::ObjectType(d) => &d.oid,
-            Definition::ModuleIdentity(d) => &d.oid,
-            Definition::ObjectIdentity(d) => &d.oid,
-            Definition::Notification(d) => d.oid.as_ref().expect("notification has OID"),
-            Definition::ValueAssignment(d) => &d.oid,
-            Definition::ObjectGroup(d) => &d.oid,
-            Definition::NotificationGroup(d) => &d.oid,
-            Definition::ModuleCompliance(d) => &d.oid,
-            Definition::AgentCapabilities(d) => &d.oid,
-            Definition::TypeDef(_) => panic!("TypeDef has no OID"),
+            Definition::ObjectType(d) => Some(&d.oid),
+            Definition::ModuleIdentity(d) => Some(&d.oid),
+            Definition::ObjectIdentity(d) => Some(&d.oid),
+            Definition::Notification(d) => d.oid.as_ref(),
+            Definition::ValueAssignment(d) => Some(&d.oid),
+            Definition::ObjectGroup(d) => Some(&d.oid),
+            Definition::NotificationGroup(d) => Some(&d.oid),
+            Definition::ModuleCompliance(d) => Some(&d.oid),
+            Definition::AgentCapabilities(d) => Some(&d.oid),
+            Definition::TypeDef(_) => None,
         }
     }
 }
@@ -457,14 +467,18 @@ impl TrapTypeDefinition {
     }
 
     /// Get the trap info from HIR (enterprise name and trap number).
-    fn trap_info<'a>(&self, ctx: &'a ResolverContext) -> (&'a str, u32, crate::lexer::Span) {
+    /// Returns None if this isn't a valid TRAP-TYPE definition (shouldn't happen).
+    fn trap_info<'a>(
+        &self,
+        ctx: &'a ResolverContext,
+    ) -> Option<(&'a str, u32, crate::lexer::Span)> {
         let def = &ctx.hir_modules[self.hir_idx].definitions[self.def_idx];
         if let Definition::Notification(d) = def
             && let Some(ref trap_info) = d.trap_info
         {
-            return (&trap_info.enterprise.name, trap_info.trap_number, d.span);
+            return Some((&trap_info.enterprise.name, trap_info.trap_number, d.span));
         }
-        panic!("TrapTypeDefinition must reference a TRAP-TYPE");
+        None
     }
 }
 
@@ -549,7 +563,10 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
     let module_id = def.module_id;
 
     // Extract data from HIR upfront to avoid borrow conflicts during mutation
-    let oid = def.oid(ctx);
+    let Some(oid) = def.oid(ctx) else {
+        // Definition has no OID (shouldn't happen, but skip gracefully)
+        return false;
+    };
     let def_name = def.def_name(ctx).to_string();
     let oid_span = oid.span;
     let components: Vec<_> = oid.components.clone();
