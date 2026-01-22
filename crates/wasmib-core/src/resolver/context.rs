@@ -2,9 +2,9 @@
 //!
 //! # Memory Optimization
 //!
-//! This module uses `StrId` keys instead of `String` keys in `BTreeMaps`.
-//! Each `StrId` is 4 bytes vs ~24+ bytes for String, significantly reducing
-//! memory when processing large MIB corpora with hundreds of thousands of symbols.
+//! This module uses `Box<str>` keys instead of `String` keys in `BTreeMaps`.
+//! `Box<str>` is 16 bytes vs ~24+ bytes for String, reducing memory when
+//! processing large MIB corpora with hundreds of thousands of symbols.
 
 use crate::module::Module;
 
@@ -37,9 +37,10 @@ fn is_smi_global_type(name: &str) -> bool {
 }
 use crate::lexer::Span;
 use crate::model::{
-    Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedImportReason,
+    Model, ModuleId, NodeId, TypeId, UnresolvedImport, UnresolvedImportReason,
     UnresolvedNotificationObject, UnresolvedOid, UnresolvedType,
 };
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -52,25 +53,25 @@ pub struct ResolverContext {
     pub hir_modules: Vec<Module>,
     /// Module name -> list of `ModuleIds` (handles duplicate module names).
     /// Multiple files may declare the same MODULE-IDENTITY name.
-    /// Uses `StrId` keys for memory efficiency.
-    pub module_index: BTreeMap<StrId, Vec<ModuleId>>,
+    /// Uses `Box<str>` keys for memory efficiency.
+    pub module_index: BTreeMap<Box<str>, Vec<ModuleId>>,
     /// `ModuleId` -> index in `hir_modules` for reverse lookup.
     pub module_id_to_hir_index: BTreeMap<ModuleId, usize>,
     /// Index in `hir_modules` -> `ModuleId` (reverse of `module_id_to_hir_index`).
     pub hir_index_to_module_id: BTreeMap<usize, ModuleId>,
     /// Per-module symbol -> `NodeId` mapping for module-local definitions.
     /// Key: (`ModuleId`, `symbol_name`) -> `NodeId` (uses `ModuleId` for uniqueness)
-    /// Uses `StrId` for symbol names for memory efficiency.
-    pub module_symbol_to_node: BTreeMap<(ModuleId, StrId), NodeId>,
+    /// Uses `Box<str>` for symbol names for memory efficiency.
+    pub module_symbol_to_node: BTreeMap<(ModuleId, Box<str>), NodeId>,
     /// Import declarations: (`ModuleId`, symbol) -> source `ModuleId`
     /// Used for dynamic lookup during OID resolution.
     /// Tracks which specific module was chosen for each import.
-    /// Uses `StrId` for symbol names for memory efficiency.
-    pub module_imports: BTreeMap<(ModuleId, StrId), ModuleId>,
+    /// Uses `Box<str>` for symbol names for memory efficiency.
+    pub module_imports: BTreeMap<(ModuleId, Box<str>), ModuleId>,
     /// Per-module symbol -> `TypeId` mapping for module-local type definitions.
     /// Key: (`ModuleId`, `type_name`) -> `TypeId`
-    /// Uses `StrId` for type names for memory efficiency.
-    pub module_symbol_to_type: BTreeMap<(ModuleId, StrId), TypeId>,
+    /// Uses `Box<str>` for type names for memory efficiency.
+    pub module_symbol_to_type: BTreeMap<(ModuleId, Box<str>), TypeId>,
     /// The `ModuleId` for SNMPv2-SMI, used for ASN.1 primitive lookup.
     /// Set during registration phase when synthetic modules are registered.
     pub snmpv2_smi_module_id: Option<ModuleId>,
@@ -102,28 +103,17 @@ impl ResolverContext {
     /// Convenience method for tests and simple cases where only one module has the name.
     #[allow(dead_code)]
     pub fn get_module_id_by_name(&self, name: &str) -> Option<ModuleId> {
-        let name_id = self.model.strings().find(name)?;
-        self.module_index.get(&name_id)?.first().copied()
-    }
-
-    /// Intern a string in the model.
-    pub fn intern(&mut self, s: &str) -> StrId {
-        self.model.intern(s)
+        self.module_index.get(name)?.first().copied()
     }
 
     /// Look up a node by symbol name in a specific module's scope (by `ModuleId`).
     /// Order: 1) module-local definitions, 2) imports (iteratively following import chain).
     /// Cycle-safe: returns None if a cyclic import chain is detected.
-    ///
-    /// Note: This method requires `name` to already be interned. Use `lookup_node_for_module_str`
-    /// if you have a string slice.
-    pub fn lookup_node_for_module_interned(
-        &self,
-        module_id: ModuleId,
-        name: StrId,
-    ) -> Option<NodeId> {
+    pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
         let mut visited = BTreeSet::new();
         let mut current = module_id;
+        // Box the name once for repeated lookups in the loop
+        let name_key: Box<str> = name.into();
 
         loop {
             // Cycle detection: if we've seen this module before, stop
@@ -131,16 +121,13 @@ impl ResolverContext {
                 return None;
             }
 
-            // Create key for lookups
-            let key = (current, name);
-
             // Check module-local definitions
-            if let Some(&node_id) = self.module_symbol_to_node.get(&key) {
+            if let Some(&node_id) = self.module_symbol_to_node.get(&(current, name_key.clone())) {
                 return Some(node_id);
             }
 
             // Check imports - continue to source module
-            if let Some(&source_module_id) = self.module_imports.get(&key) {
+            if let Some(&source_module_id) = self.module_imports.get(&(current, name_key.clone())) {
                 current = source_module_id;
                 continue;
             }
@@ -150,22 +137,13 @@ impl ResolverContext {
         }
     }
 
-    /// Look up a node by symbol name string in a specific module's scope.
-    /// This is a convenience wrapper that finds the `StrId` for the name.
-    pub fn lookup_node_for_module(&self, module_id: ModuleId, name: &str) -> Option<NodeId> {
-        // Find the StrId for this name (if it exists in the interner)
-        let name_id = self.model.strings().find(name)?;
-        self.lookup_node_for_module_interned(module_id, name_id)
-    }
-
     /// Look up a node by symbol name in a module identified by name.
     /// If multiple modules have the same name, tries all candidates.
     /// Order: 1) module-local definitions, 2) imports (following import chain).
     /// Cycle-safe: cyclic imports are detected and handled gracefully.
     pub fn lookup_node_in_module(&self, module_name: &str, name: &str) -> Option<NodeId> {
         // Get all modules with this name
-        let module_name_id = self.model.strings().find(module_name)?;
-        if let Some(candidates) = self.module_index.get(&module_name_id) {
+        if let Some(candidates) = self.module_index.get(module_name) {
             // Try each candidate
             for &module_id in candidates {
                 if let Some(node_id) = self.lookup_node_for_module(module_id, name) {
@@ -182,7 +160,7 @@ impl ResolverContext {
     pub fn register_import(
         &mut self,
         importing_module: ModuleId,
-        symbol: StrId,
+        symbol: Box<str>,
         source_module: ModuleId,
     ) {
         self.module_imports
@@ -215,10 +193,9 @@ impl ResolverContext {
 
         // For non-primitives, search all modules
         // This is used for convenience (tests, simple lookups)
-        let name_id = self.model.strings().find(name)?;
         for &type_id in self.module_symbol_to_type.values() {
             if let Some(typ) = self.model.get_type(type_id)
-                && typ.name == name_id
+                && typ.name.as_ref() == name
             {
                 return Some(type_id);
             }
@@ -231,14 +208,10 @@ impl ResolverContext {
     /// Order: 1) module-local types, 2) imports (following import chain), 3) global fallback.
     /// Cycle-safe: returns None if a cyclic import chain is detected.
     pub fn lookup_type_for_module(&self, module_id: ModuleId, name: &str) -> Option<TypeId> {
-        let name_id = self.model.strings().find(name)?;
-        self.lookup_type_for_module_interned(module_id, name_id)
-    }
-
-    /// Look up a type by interned symbol in a specific module's scope.
-    fn lookup_type_for_module_interned(&self, module_id: ModuleId, name: StrId) -> Option<TypeId> {
         let mut visited = BTreeSet::new();
         let mut current = module_id;
+        // Box the name once for repeated lookups in the loop
+        let name_key: Box<str> = name.into();
 
         loop {
             // Cycle detection: if we've seen this module before, stop
@@ -246,15 +219,13 @@ impl ResolverContext {
                 break;
             }
 
-            let key = (current, name);
-
             // Check module-local type definitions
-            if let Some(&type_id) = self.module_symbol_to_type.get(&key) {
+            if let Some(&type_id) = self.module_symbol_to_type.get(&(current, name_key.clone())) {
                 return Some(type_id);
             }
 
             // Check imports - continue to source module
-            if let Some(&source_module_id) = self.module_imports.get(&key) {
+            if let Some(&source_module_id) = self.module_imports.get(&(current, name_key.clone())) {
                 current = source_module_id;
                 continue;
             }
@@ -267,21 +238,20 @@ impl ResolverContext {
         // Check if this is a primitive (INTEGER, OCTET STRING, OBJECT IDENTIFIER, BITS)
         // and look it up in SNMPv2-SMI
         if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id {
-            let name_str = self.model.strings().get(name);
-            if is_asn1_primitive(name_str) {
+            if is_asn1_primitive(name) {
                 return self
                     .module_symbol_to_type
-                    .get(&(snmpv2_smi_id, name))
+                    .get(&(snmpv2_smi_id, name_key.clone()))
                     .copied();
             }
 
             // SMI global types: implicit access for common base types
             // Many MIBs use Integer32, Counter32, etc. without explicit import.
             // For leniency, we fall back to SNMPv2-SMI for these types.
-            if is_smi_global_type(name_str) {
+            if is_smi_global_type(name) {
                 return self
                     .module_symbol_to_type
-                    .get(&(snmpv2_smi_id, name))
+                    .get(&(snmpv2_smi_id, name_key))
                     .copied();
             }
         }
@@ -293,7 +263,7 @@ impl ResolverContext {
     pub fn register_module_node_symbol(
         &mut self,
         module_id: ModuleId,
-        symbol_name: StrId,
+        symbol_name: Box<str>,
         node_id: NodeId,
     ) {
         self.module_symbol_to_node
@@ -304,7 +274,7 @@ impl ResolverContext {
     pub fn register_module_type_symbol(
         &mut self,
         module_id: ModuleId,
-        name: StrId,
+        name: Box<str>,
         type_id: TypeId,
     ) {
         self.module_symbol_to_type
@@ -320,12 +290,10 @@ impl ResolverContext {
         reason: UnresolvedImportReason,
         span: Span,
     ) {
-        let from_module_str = self.intern(from_module);
-        let symbol_str = self.intern(symbol);
         self.model.unresolved_mut().imports.push(UnresolvedImport {
             importing_module,
-            from_module: from_module_str,
-            symbol: symbol_str,
+            from_module: from_module.into(),
+            symbol: symbol.into(),
             reason,
             span,
         });
@@ -339,12 +307,10 @@ impl ResolverContext {
         referenced: &str,
         span: Span,
     ) {
-        let referrer_str = self.intern(referrer);
-        let referenced_str = self.intern(referenced);
         self.model.unresolved_mut().types.push(UnresolvedType {
             module,
-            referrer: referrer_str,
-            referenced: referenced_str,
+            referrer: referrer.into(),
+            referenced: referenced.into(),
             span,
         });
     }
@@ -357,12 +323,10 @@ impl ResolverContext {
         component: &str,
         span: Span,
     ) {
-        let def_str = self.intern(definition);
-        let comp_str = self.intern(component);
         self.model.unresolved_mut().oids.push(UnresolvedOid {
             module,
-            definition: def_str,
-            component: comp_str,
+            definition: definition.into(),
+            component: component.into(),
             span,
         });
     }
@@ -375,15 +339,13 @@ impl ResolverContext {
         object: &str,
         span: Span,
     ) {
-        let notif_str = self.intern(notification);
-        let obj_str = self.intern(object);
         self.model
             .unresolved_mut()
             .notification_objects
             .push(UnresolvedNotificationObject {
                 module,
-                notification: notif_str,
-                object: obj_str,
+                notification: notification.into(),
+                object: object.into(),
                 span,
             });
     }
@@ -425,21 +387,18 @@ mod tests {
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)
-        let name_a = ctx.intern("ModuleA");
-        let name_b = ctx.intern("ModuleB");
-        let foo_id = ctx.intern("foo");
         let module_a = ctx
             .model
-            .add_module(ResolvedModule::new(name_a))
+            .add_module(ResolvedModule::new("ModuleA".into()))
             .expect("add_module should succeed");
         let module_b = ctx
             .model
-            .add_module(ResolvedModule::new(name_b))
+            .add_module(ResolvedModule::new("ModuleB".into()))
             .expect("add_module should succeed");
 
         // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
-        ctx.register_import(module_a, foo_id, module_b);
-        ctx.register_import(module_b, foo_id, module_a);
+        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_b, "foo".into(), module_a);
 
         // This should return None (cycle detected) instead of infinite recursion
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -456,25 +415,22 @@ mod tests {
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)
-        let name_a = ctx.intern("ModuleA");
-        let name_b = ctx.intern("ModuleB");
-        let foo_id = ctx.intern("foo");
         let module_a = ctx
             .model
-            .add_module(ResolvedModule::new(name_a))
+            .add_module(ResolvedModule::new("ModuleA".into()))
             .expect("add_module should succeed");
         let module_b = ctx
             .model
-            .add_module(ResolvedModule::new(name_b))
+            .add_module(ResolvedModule::new("ModuleB".into()))
             .expect("add_module should succeed");
 
         // Create a node in module B - OidNode::new takes (subid, parent)
         let node = OidNode::new(1, None);
         let node_id = ctx.model.add_node(node).expect("add_node should succeed");
-        ctx.register_module_node_symbol(module_b, foo_id, node_id);
+        ctx.register_module_node_symbol(module_b, "foo".into(), node_id);
 
         // A imports "foo" from B
-        ctx.register_import(module_a, foo_id, module_b);
+        ctx.register_import(module_a, "foo".into(), module_b);
 
         // Looking up "foo" in module A should find it via the import chain
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -490,29 +446,26 @@ mod tests {
         let mut ctx = ResolverContext::new(hir_modules);
 
         // Register modules (IDs assigned by add_module)
-        let name_a = ctx.intern("ModuleA");
-        let name_b = ctx.intern("ModuleB");
-        let foo_id = ctx.intern("foo");
         let module_a = ctx
             .model
-            .add_module(ResolvedModule::new(name_a))
+            .add_module(ResolvedModule::new("ModuleA".into()))
             .expect("add_module should succeed");
         let module_b = ctx
             .model
-            .add_module(ResolvedModule::new(name_b))
+            .add_module(ResolvedModule::new("ModuleB".into()))
             .expect("add_module should succeed");
 
         // Create nodes in both modules
         let node_a = OidNode::new(1, None);
         let node_a_id = ctx.model.add_node(node_a).expect("add_node should succeed");
-        ctx.register_module_node_symbol(module_a, foo_id, node_a_id);
+        ctx.register_module_node_symbol(module_a, "foo".into(), node_a_id);
 
         let node_b = OidNode::new(2, None);
         let node_b_id = ctx.model.add_node(node_b).expect("add_node should succeed");
-        ctx.register_module_node_symbol(module_b, foo_id, node_b_id);
+        ctx.register_module_node_symbol(module_b, "foo".into(), node_b_id);
 
         // A also imports "foo" from B (should be ignored since local exists)
-        ctx.register_import(module_a, foo_id, module_b);
+        ctx.register_import(module_a, "foo".into(), module_b);
 
         // Looking up "foo" in module A should find the local one
         let result = ctx.lookup_node_for_module(module_a, "foo");
@@ -529,31 +482,27 @@ mod tests {
         ];
         let mut ctx = ResolverContext::new(hir_modules);
 
-        let name_a = ctx.intern("ModuleA");
-        let name_b = ctx.intern("ModuleB");
-        let name_c = ctx.intern("ModuleC");
-        let foo_id = ctx.intern("foo");
         let module_a = ctx
             .model
-            .add_module(ResolvedModule::new(name_a))
+            .add_module(ResolvedModule::new("ModuleA".into()))
             .expect("add_module should succeed");
         let module_b = ctx
             .model
-            .add_module(ResolvedModule::new(name_b))
+            .add_module(ResolvedModule::new("ModuleB".into()))
             .expect("add_module should succeed");
         let module_c = ctx
             .model
-            .add_module(ResolvedModule::new(name_c))
+            .add_module(ResolvedModule::new("ModuleC".into()))
             .expect("add_module should succeed");
 
         // Create node in C
         let node = OidNode::new(1, None);
         let node_id = ctx.model.add_node(node).expect("add_node should succeed");
-        ctx.register_module_node_symbol(module_c, foo_id, node_id);
+        ctx.register_module_node_symbol(module_c, "foo".into(), node_id);
 
         // A -> B -> C import chain
-        ctx.register_import(module_a, foo_id, module_b);
-        ctx.register_import(module_b, foo_id, module_c);
+        ctx.register_import(module_a, "foo".into(), module_b);
+        ctx.register_import(module_b, "foo".into(), module_c);
 
         // Looking up "foo" in A should follow the chain to C
         let result = ctx.lookup_node_for_module(module_a, "foo");

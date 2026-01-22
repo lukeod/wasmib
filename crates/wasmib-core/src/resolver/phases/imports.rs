@@ -7,9 +7,10 @@
 //! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
 use crate::lexer::Span;
-use crate::model::{ModuleId, StrId, UnresolvedImportReason};
+use crate::model::{ModuleId, UnresolvedImportReason};
 use crate::module::Definition;
 use crate::resolver::context::ResolverContext;
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -230,9 +231,9 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     }
 
     // Get candidate modules for this source name
-    let from_module_name_id = ctx.model.strings().find(from_module_name);
-    let candidates: Vec<ModuleId> = from_module_name_id
-        .and_then(|id| ctx.module_index.get(&id))
+    let candidates: Vec<ModuleId> = ctx
+        .module_index
+        .get(from_module_name)
         .cloned()
         .unwrap_or_default();
 
@@ -242,8 +243,7 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     {
         tracer.trace_candidate_chosen(from_module_name, chosen_id);
         for sym in &user_symbols {
-            let sym_id = ctx.intern(&sym.name);
-            ctx.register_import(importing_module, sym_id, chosen_id);
+            ctx.register_import(importing_module, sym.name.as_str().into(), chosen_id);
         }
         return;
     }
@@ -251,9 +251,9 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     // No candidate has all symbols. Try module aliasing as fallback.
     // This handles cases like SNMPv2-SMI-v1 files that exist but lack type definitions.
     if let Some(aliased_name) = base_module_import_alias(from_module_name) {
-        let aliased_name_id = ctx.model.strings().find(aliased_name);
-        let alias_candidates: Vec<ModuleId> = aliased_name_id
-            .and_then(|id| ctx.module_index.get(&id))
+        let alias_candidates: Vec<ModuleId> = ctx
+            .module_index
+            .get(aliased_name)
             .cloned()
             .unwrap_or_default();
 
@@ -266,8 +266,7 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
         ) {
             tracer.trace_candidate_chosen(from_module_name, chosen_id);
             for sym in &user_symbols {
-                let sym_id = ctx.intern(&sym.name);
-                ctx.register_import(importing_module, sym_id, chosen_id);
+                ctx.register_import(importing_module, sym.name.as_str().into(), chosen_id);
             }
             return;
         }
@@ -398,7 +397,7 @@ fn try_import_forwarding<TR: ImportTracer>(
     user_symbols: &[&ImportSymbol],
     from_module_name: &str,
     tracer: &mut TR,
-) -> Option<Vec<(StrId, ModuleId)>> {
+) -> Option<Vec<(Box<str>, ModuleId)>> {
     // For each candidate, check if it imports all the required symbols
     for &candidate_id in candidates {
         if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
@@ -409,31 +408,22 @@ fn try_import_forwarding<TR: ImportTracer>(
             }
 
             // Check if all required symbols are imported by this candidate
-            let mut forwarded_symbols: Vec<(StrId, ModuleId)> = Vec::new();
+            let mut forwarded_symbols: Vec<(Box<str>, ModuleId)> = Vec::new();
             let mut all_found = true;
 
             for sym in user_symbols {
                 if let Some(&source_module_name) = import_map.get(sym.name.as_str()) {
                     // This symbol is imported by the candidate - find the source module
-                    let source_module_name_id = ctx.model.strings().find(source_module_name);
-                    if let Some(source_name_id) = source_module_name_id
-                        && let Some(source_candidates) = ctx.module_index.get(&source_name_id)
-                    {
+                    if let Some(source_candidates) = ctx.module_index.get(source_module_name) {
                         // Take the first candidate for simplicity
                         // (In practice, base modules like SNMPv2-SMI have only one instance)
                         if let Some(&source_module_id) = source_candidates.first() {
-                            // Symbol should already be interned from registration phase.
-                            // If not found, skip this candidate (defensive - shouldn't happen).
-                            let Some(sym_id) = ctx.model.strings().find(&sym.name) else {
-                                all_found = false;
-                                break;
-                            };
                             tracer.trace_import_forwarded(
                                 from_module_name,
                                 &sym.name,
                                 source_module_id,
                             );
-                            forwarded_symbols.push((sym_id, source_module_id));
+                            forwarded_symbols.push((sym.name.as_str().into(), source_module_id));
                             continue;
                         }
                     }
@@ -801,7 +791,7 @@ mod tests {
                 .unresolved()
                 .imports
                 .iter()
-                .map(|u| ctx.model.strings().get(u.symbol))
+                .map(|u| u.symbol.as_ref())
                 .collect::<Vec<_>>()
         );
     }
@@ -860,7 +850,7 @@ mod tests {
                 .unresolved()
                 .imports
                 .iter()
-                .map(|u| ctx.model.strings().get(u.symbol))
+                .map(|u| u.symbol.as_ref())
                 .collect::<Vec<_>>()
         );
     }

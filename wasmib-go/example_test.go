@@ -21,7 +21,7 @@ func Example() {
 	node := model.GetNodeByOID("1.3.6.1.2.1.2.2.1.1")
 	if node != nil {
 		obj := model.GetObject(node)
-		fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+		fmt.Printf("Name: %s\n", obj.Name)
 		fmt.Printf("Kind: %s\n", node.Kind)
 	}
 	// Output:
@@ -54,7 +54,7 @@ func ExampleModel_GetNodeByOID() {
 	node := model.GetNodeByOID("1.3.6.1.2.1.2.2.1.4")
 	if node != nil {
 		obj := model.GetObject(node)
-		fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+		fmt.Printf("Name: %s\n", obj.Name)
 		fmt.Printf("Access: %s\n", obj.Access)
 	}
 	// Output:
@@ -110,7 +110,7 @@ func ExampleModel_GetNodeByOIDSlice() {
 	node := model.GetNodeByOIDSlice(oid)
 	if node != nil {
 		obj := model.GetObject(node)
-		fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+		fmt.Printf("Name: %s\n", obj.Name)
 	}
 	// Output:
 	// Name: ifIndex
@@ -131,7 +131,7 @@ func ExampleModel_Walk() {
 		if n.Kind == wasmib.NodeKindTable || n.Kind == wasmib.NodeKindRow {
 			name := ""
 			if len(n.Definitions) > 0 {
-				name = model.GetStr(n.Definitions[0].Label)
+				name = n.Definitions[0].Label
 			}
 			fmt.Printf("%s (%s)\n", name, n.Kind)
 		}
@@ -155,7 +155,7 @@ func ExampleModel_GetType() {
 
 	t := model.GetType(obj.TypeID)
 	if t != nil {
-		fmt.Printf("Type: %s\n", model.GetStr(t.Name))
+		fmt.Printf("Type: %s\n", t.Name)
 		fmt.Printf("Base: %s\n", t.Base)
 		fmt.Printf("Is TC: %v\n", t.IsTC)
 	}
@@ -285,7 +285,7 @@ func ExampleModel_GetIndexObjects() {
 	indexes := model.GetIndexObjects(obj)
 	for _, idx := range indexes {
 		if len(idx.Definitions) > 0 {
-			name := model.GetStr(idx.Definitions[0].Label)
+			name := idx.Definitions[0].Label
 			fmt.Printf("Index: %s\n", name)
 		}
 	}
@@ -301,7 +301,7 @@ func ExampleModel_GetParent() {
 	ifIndex := model.GetNodeByQualifiedName("IF-MIB", "ifIndex")
 	parent := model.GetParent(ifIndex)
 	if parent != nil && len(parent.Definitions) > 0 {
-		name := model.GetStr(parent.Definitions[0].Label)
+		name := parent.Definitions[0].Label
 		fmt.Printf("Parent of ifIndex: %s (%s)\n", name, parent.Kind)
 	}
 	// Output:
@@ -324,7 +324,7 @@ func ExampleModel_GetChildren() {
 			break
 		}
 		if len(child.Definitions) > 0 {
-			name := model.GetStr(child.Definitions[0].Label)
+			name := child.Definitions[0].Label
 			fmt.Printf("  %s\n", name)
 		}
 	}

@@ -41,7 +41,7 @@
 //! // Access the resolved model
 //! let model = result.model;
 //! for module in model.modules() {
-//!     println!("Module: {}", model.get_str(module.name));
+//!     println!("Module: {}", module.name);
 //! }
 //! ```
 
@@ -282,8 +282,8 @@ impl Resolver {
         };
 
         for imp in &unresolved.imports {
-            let from_module = ctx.model.get_str(imp.from_module);
-            let symbol = ctx.model.get_str(imp.symbol);
+            let from_module = &imp.from_module;
+            let symbol = &imp.symbol;
             push_error(
                 imp.span,
                 alloc::format!("Unresolved import: {from_module}::{symbol}"),
@@ -291,8 +291,8 @@ impl Resolver {
         }
 
         for typ in &unresolved.types {
-            let referrer = ctx.model.get_str(typ.referrer);
-            let referenced = ctx.model.get_str(typ.referenced);
+            let referrer = &typ.referrer;
+            let referenced = &typ.referenced;
             push_error(
                 typ.span,
                 alloc::format!("Unresolved type reference in {referrer}: {referenced}"),
@@ -300,8 +300,8 @@ impl Resolver {
         }
 
         for oid in &unresolved.oids {
-            let definition = ctx.model.get_str(oid.definition);
-            let component = ctx.model.get_str(oid.component);
+            let definition = &oid.definition;
+            let component = &oid.component;
             push_error(
                 oid.span,
                 alloc::format!("Unresolved OID component in {definition}: {component}"),
@@ -309,8 +309,8 @@ impl Resolver {
         }
 
         for idx in &unresolved.indexes {
-            let row = ctx.model.get_str(idx.row);
-            let index_obj = ctx.model.get_str(idx.index_object);
+            let row = &idx.row;
+            let index_obj = &idx.index_object;
             push_error(
                 idx.span,
                 alloc::format!("Unresolved INDEX object in {row}: {index_obj}"),

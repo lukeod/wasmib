@@ -7,23 +7,23 @@
 //!
 //! 1. **Flat structures** - No nested references, use indices instead
 //! 2. **Compact enums** - Use u8 representation for enums
-//! 3. **String table** - All strings are interned, referenced by u32 ID
+//! 3. **Inline strings** - Strings stored directly in protobuf fields
 //! 4. **Versioned** - Schema version in envelope for forward compatibility
 //! 5. **Self-contained** - Indices can be rebuilt from serialized data
 
-use alloc::string::String;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 use micropb::{MessageDecode, MessageEncode, PbDecoder};
 use wasmib_core::model::{
-    Access, BaseType, BitDefinitions, DefVal, EnumValues, IndexItem, IndexSpec, Model, ModelParts,
-    ModuleId, NodeDefinition, NodeId, NodeKind, NotificationId, ObjectId, OidNode, RangeBound,
+    Access, BaseType, BitDefinitions, DefVal, EnumValues, IndexItem, IndexSpec, Model, ModuleId,
+    NodeDefinition, NodeId, NodeKind, NotificationId, ObjectId, OidNode, RangeBound,
     ResolvedModule, ResolvedNotification, ResolvedObject, ResolvedType, Revision, SizeConstraint,
-    Status, StrId, StringInterner, TypeId, UnresolvedImport as CoreUnresolvedImport,
-    UnresolvedImportReason, UnresolvedIndex as CoreUnresolvedIndex,
+    Status, TypeId, UnresolvedImport as CoreUnresolvedImport, UnresolvedImportReason,
+    UnresolvedIndex as CoreUnresolvedIndex,
     UnresolvedNotificationObject as CoreUnresolvedNotificationObject,
-    UnresolvedOid as CoreUnresolvedOid, UnresolvedReferences, UnresolvedType as CoreUnresolvedType,
-    ValueConstraint,
+    UnresolvedOid as CoreUnresolvedOid, UnresolvedType as CoreUnresolvedType, ValueConstraint,
 };
 
 // Include generated protobuf types (with warnings suppressed for generated code)
@@ -42,7 +42,7 @@ mod proto {
 use proto::wasmib_;
 
 /// Current schema version. Bump on any breaking change to serialized format.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Re-export the generated types for external use
 pub use wasmib_::*;
@@ -51,13 +51,10 @@ pub use wasmib_::*;
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // Counts will never exceed u32::MAX
 pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedModel {
-    // 1. Serialize string interner
-    let (strings_data, strings_offsets) = serialize_strings(model.strings());
-
-    // 2. Serialize modules
+    // 1. Serialize modules
     let modules: Vec<_> = model.modules().map(serialize_module).collect();
 
-    // 3. Serialize nodes
+    // 2. Serialize nodes
     let nodes: Vec<_> = (0..model.node_count())
         .filter_map(|i| {
             wasmib_core::model::NodeId::from_index(i)
@@ -66,7 +63,7 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         })
         .collect();
 
-    // 4. Serialize types
+    // 3. Serialize types
     let types: Vec<_> = (0..model.type_count())
         .filter_map(|i| {
             wasmib_core::model::TypeId::from_index(i)
@@ -75,7 +72,7 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         })
         .collect();
 
-    // 5. Serialize objects
+    // 4. Serialize objects
     let objects: Vec<_> = (0..model.object_count())
         .filter_map(|i| {
             wasmib_core::model::ObjectId::from_index(i)
@@ -84,7 +81,7 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         })
         .collect();
 
-    // 6. Serialize notifications
+    // 5. Serialize notifications
     let notifications: Vec<_> = (0..model.notification_count())
         .filter_map(|i| {
             wasmib_core::model::NotificationId::from_index(i)
@@ -93,10 +90,10 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         })
         .collect();
 
-    // 7. Get roots
+    // 6. Get roots
     let roots: Vec<_> = model.root_ids().iter().map(|id| id.to_raw()).collect();
 
-    // 8. Get unresolved references with details
+    // 7. Get unresolved references with details
     let unresolved = model.unresolved();
 
     // Serialize unresolved details
@@ -130,8 +127,6 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
     SerializedModel {
         r#version: SCHEMA_VERSION,
         r#fingerprint: fingerprint.map_or_else(Vec::new, |fp| fp.to_vec()),
-        strings_data,
-        strings_offsets,
         modules,
         nodes,
         types,
@@ -240,73 +235,79 @@ pub fn get_fingerprint(bytes: &[u8]) -> Result<Option<[u8; 32]>, DecodeError> {
 
 /// Convert a `SerializedModel` to a Model.
 fn to_model(msg: SerializedModel) -> Result<Model, DecodeError> {
-    // 1. Reconstruct string interner offsets
-    // The StringOffset messages have (start, end) pairs for each string.
-    // The interner expects cumulative offsets [0, end1, end2, ...], so we take the starts.
-    let strings_offsets: Vec<u32> = msg.r#strings_offsets.iter().map(|o| o.r#start).collect();
+    // Create a new model and populate it by deserializing each entity.
+    let mut model = Model::new();
 
-    // 2. Deserialize modules
-    let modules: Result<Vec<_>, _> = msg.r#modules.into_iter().map(deserialize_module).collect();
-    let modules = modules?;
+    // 1. Deserialize modules
+    for module_msg in msg.r#modules {
+        let module = deserialize_module(module_msg)?;
+        model
+            .add_module(module)
+            .map_err(|_| DecodeError::InvalidId {
+                field: "module capacity",
+            })?;
+    }
 
-    // 3. Deserialize nodes
-    let nodes: Result<Vec<_>, _> = msg.r#nodes.into_iter().map(deserialize_node).collect();
-    let nodes = nodes?;
+    // 2. Deserialize nodes
+    for node_msg in msg.r#nodes {
+        let node = deserialize_node(node_msg)?;
+        model.add_node(node).map_err(|_| DecodeError::InvalidId {
+            field: "node capacity",
+        })?;
+    }
 
-    // 4. Deserialize types
-    let types: Result<Vec<_>, _> = msg.r#types.into_iter().map(deserialize_type).collect();
-    let types = types?;
+    // 3. Deserialize types
+    for type_msg in msg.r#types {
+        let typ = deserialize_type(type_msg)?;
+        model.add_type(typ).map_err(|_| DecodeError::InvalidId {
+            field: "type capacity",
+        })?;
+    }
 
-    // 5. Deserialize objects
-    let objects: Result<Vec<_>, _> = msg.r#objects.into_iter().map(deserialize_object).collect();
-    let objects = objects?;
+    // 4. Deserialize objects
+    for object_msg in msg.r#objects {
+        let obj = deserialize_object(object_msg)?;
+        model.add_object(obj).map_err(|_| DecodeError::InvalidId {
+            field: "object capacity",
+        })?;
+    }
 
-    // 6. Deserialize notifications
-    let notifications: Result<Vec<_>, _> = msg
-        .r#notifications
-        .into_iter()
-        .map(deserialize_notification)
-        .collect();
-    let notifications = notifications?;
+    // 5. Deserialize notifications
+    for notif_msg in msg.r#notifications {
+        let notif = deserialize_notification(notif_msg)?;
+        model
+            .add_notification(notif)
+            .map_err(|_| DecodeError::InvalidId {
+                field: "notification capacity",
+            })?;
+    }
 
-    // 7. Deserialize roots
-    let roots: Vec<NodeId> = msg
-        .r#roots
-        .into_iter()
-        .filter_map(NodeId::from_raw)
-        .collect();
+    // 6. Set roots
+    for root_raw in msg.r#roots {
+        if let Some(root_id) = NodeId::from_raw(root_raw) {
+            model.add_root(root_id);
+        }
+    }
 
-    // 8. Create unresolved references (counts only, details not preserved)
-    let unresolved = UnresolvedReferences::default();
-    // Note: The serialized format only stores counts, not the actual unresolved references.
-    // This is acceptable since unresolved references are primarily for diagnostics during
-    // resolution, not for deserialized cached models.
+    // Note: Unresolved references are not fully deserialized. The counts are stored
+    // but the actual references are primarily for diagnostics during resolution.
 
-    let parts = ModelParts {
-        strings_data: msg.r#strings_data,
-        strings_offsets,
-        modules,
-        nodes,
-        types,
-        objects,
-        notifications,
-        roots,
-        unresolved,
-    };
-
-    Ok(Model::from_parts(parts))
+    Ok(model)
 }
 
 fn deserialize_module(msg: SerializedModule) -> Result<ResolvedModule, DecodeError> {
-    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
-        field: "module.name",
-    })?;
+    if msg.r#name.is_empty() {
+        return Err(DecodeError::InvalidId {
+            field: "module.name",
+        });
+    }
+    let name: Box<str> = msg.r#name.into();
 
     let mut module = ResolvedModule::new(name);
-    module.last_updated = StrId::from_raw(msg.r#last_updated);
-    module.contact_info = StrId::from_raw(msg.r#contact_info);
-    module.organization = StrId::from_raw(msg.r#organization);
-    module.description = StrId::from_raw(msg.r#description);
+    module.last_updated = optional_str(&msg.r#last_updated);
+    module.contact_info = optional_str(&msg.r#contact_info);
+    module.organization = optional_str(&msg.r#organization);
+    module.description = optional_str(&msg.r#description);
     module.revisions = msg
         .r#revisions
         .into_iter()
@@ -317,9 +318,17 @@ fn deserialize_module(msg: SerializedModule) -> Result<ResolvedModule, DecodeErr
 }
 
 fn deserialize_revision(msg: SerializedRevision) -> Option<Revision> {
-    let date = StrId::from_raw(msg.r#date)?;
-    let description = StrId::from_raw(msg.r#description)?;
+    if msg.r#date.is_empty() || msg.r#description.is_empty() {
+        return None;
+    }
+    let date: Box<str> = msg.r#date.into();
+    let description: Box<str> = msg.r#description.into();
     Some(Revision::new(date, description))
+}
+
+/// Convert a string to Option<Box<str>>, returning None for empty strings.
+fn optional_str(s: &str) -> Option<Box<str>> {
+    if s.is_empty() { None } else { Some(s.into()) }
 }
 
 #[allow(clippy::cast_possible_truncation)] // Enum values fit in u8
@@ -347,7 +356,10 @@ fn deserialize_node(msg: SerializedNode) -> Result<OidNode, DecodeError> {
 
 fn deserialize_node_def(msg: SerializedNodeDef) -> Option<NodeDefinition> {
     let module = ModuleId::from_raw(msg.r#module)?;
-    let label = StrId::from_raw(msg.r#label)?;
+    if msg.r#label.is_empty() {
+        return None;
+    }
+    let label: Box<str> = msg.r#label.into();
     let mut def = NodeDefinition::new(module, label);
     def.object = ObjectId::from_raw(msg.r#object);
     def.notification = NotificationId::from_raw(msg.r#notification);
@@ -359,7 +371,10 @@ fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
     let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
         field: "type.module",
     })?;
-    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId { field: "type.name" })?;
+    if msg.r#name.is_empty() {
+        return Err(DecodeError::InvalidId { field: "type.name" });
+    }
+    let name: Box<str> = msg.r#name.clone().into();
     let base = BaseType::from_u8(msg.r#base as u8).ok_or(DecodeError::InvalidEnumValue {
         field: "type.base",
         value: msg.r#base,
@@ -373,8 +388,8 @@ fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
     typ.parent_type = TypeId::from_raw(msg.r#parent);
     typ.status = status;
     typ.is_textual_convention = msg.r#is_tc;
-    typ.hint = StrId::from_raw(msg.r#hint);
-    typ.description = StrId::from_raw(msg.r#description);
+    typ.hint = optional_str(&msg.r#hint);
+    typ.description = optional_str(&msg.r#description);
 
     // Deserialize size constraint (use accessor method for optional field)
     if let Some(size_msg) = msg.r#size() {
@@ -388,10 +403,16 @@ fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
 
     // Deserialize enum values
     if !msg.r#enum_values.is_empty() {
-        let values: Vec<(i64, StrId)> = msg
+        let values: Vec<(i64, Box<str>)> = msg
             .r#enum_values
             .into_iter()
-            .filter_map(|ev| StrId::from_raw(ev.r#name).map(|name| (ev.r#value, name)))
+            .filter_map(|ev| {
+                if ev.r#name.is_empty() {
+                    None
+                } else {
+                    Some((ev.r#value, ev.r#name.into()))
+                }
+            })
             .collect();
         if !values.is_empty() {
             typ.enum_values = Some(EnumValues::new(values));
@@ -400,10 +421,16 @@ fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
 
     // Deserialize bit definitions
     if !msg.r#bit_defs.is_empty() {
-        let bits: Vec<(u32, StrId)> = msg
+        let bits: Vec<(u32, Box<str>)> = msg
             .r#bit_defs
             .into_iter()
-            .filter_map(|bd| StrId::from_raw(bd.r#name).map(|name| (bd.r#position, name)))
+            .filter_map(|bd| {
+                if bd.r#name.is_empty() {
+                    None
+                } else {
+                    Some((bd.r#position, bd.r#name.into()))
+                }
+            })
             .collect();
         if !bits.is_empty() {
             typ.bit_defs = Some(BitDefinitions::new(bits));
@@ -442,9 +469,12 @@ fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeErr
     let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
         field: "object.module",
     })?;
-    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
-        field: "object.name",
-    })?;
+    if msg.r#name.is_empty() {
+        return Err(DecodeError::InvalidId {
+            field: "object.name",
+        });
+    }
+    let name: Box<str> = msg.r#name.clone().into();
     let access = Access::from_u8(msg.r#access as u8).ok_or(DecodeError::InvalidEnumValue {
         field: "object.access",
         value: msg.r#access,
@@ -456,9 +486,9 @@ fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeErr
 
     let mut obj = ResolvedObject::new(node, module, name, TypeId::from_raw(msg.r#type_id), access);
     obj.status = status;
-    obj.description = StrId::from_raw(msg.r#description);
-    obj.units = StrId::from_raw(msg.r#units);
-    obj.reference = StrId::from_raw(msg.r#reference);
+    obj.description = optional_str(&msg.r#description);
+    obj.units = optional_str(&msg.r#units);
+    obj.reference = optional_str(&msg.r#reference);
     obj.augments = NodeId::from_raw(msg.r#augments);
 
     // Deserialize index (use accessor method for optional field)
@@ -482,10 +512,16 @@ fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeErr
 
     // Deserialize inline enum
     if !msg.r#inline_enum.is_empty() {
-        let values: Vec<(i64, StrId)> = msg
+        let values: Vec<(i64, Box<str>)> = msg
             .r#inline_enum
             .into_iter()
-            .filter_map(|ev| StrId::from_raw(ev.r#name).map(|name| (ev.r#value, name)))
+            .filter_map(|ev| {
+                if ev.r#name.is_empty() {
+                    None
+                } else {
+                    Some((ev.r#value, ev.r#name.into()))
+                }
+            })
             .collect();
         if !values.is_empty() {
             obj.inline_enum = Some(EnumValues::new(values));
@@ -494,10 +530,16 @@ fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeErr
 
     // Deserialize inline bits
     if !msg.r#inline_bits.is_empty() {
-        let bits: Vec<(u32, StrId)> = msg
+        let bits: Vec<(u32, Box<str>)> = msg
             .r#inline_bits
             .into_iter()
-            .filter_map(|bd| StrId::from_raw(bd.r#name).map(|name| (bd.r#position, name)))
+            .filter_map(|bd| {
+                if bd.r#name.is_empty() {
+                    None
+                } else {
+                    Some((bd.r#position, bd.r#name.into()))
+                }
+            })
             .collect();
         if !bits.is_empty() {
             obj.inline_bits = Some(BitDefinitions::new(bits));
@@ -514,26 +556,29 @@ fn deserialize_defval(msg: &SerializedDefVal) -> Option<DefVal> {
         1 => msg.r#uint_val().copied().map(DefVal::Unsigned),
         2 => msg
             .r#str_val()
-            .and_then(|&v| StrId::from_raw(v))
-            .map(DefVal::String),
+            .filter(|s| !s.is_empty())
+            .map(|s| DefVal::String(s.as_str().into())),
         3 => msg.r#raw_str().map(|s| DefVal::HexString(s.clone())),
         4 => msg.r#raw_str().map(|s| DefVal::BinaryString(s.clone())),
         5 => msg
             .r#str_val()
-            .and_then(|&v| StrId::from_raw(v))
-            .map(DefVal::Enum),
+            .filter(|s| !s.is_empty())
+            .map(|s| DefVal::Enum(s.as_str().into())),
         6 => {
-            let bits: Vec<StrId> = msg
+            let bits: Vec<Box<str>> = msg
                 .r#bits_val
                 .iter()
-                .copied()
-                .filter_map(StrId::from_raw)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str().into())
                 .collect();
             Some(DefVal::Bits(bits))
         }
         7 => Some(DefVal::OidRef {
             node: msg.r#node_val().and_then(|&v| NodeId::from_raw(v)),
-            symbol: msg.r#str_val().and_then(|&v| StrId::from_raw(v)),
+            symbol: msg
+                .r#str_val()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.as_str().into()),
         }),
         _ => None,
     }
@@ -549,9 +594,12 @@ fn deserialize_notification(
     let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
         field: "notification.module",
     })?;
-    let name = StrId::from_raw(msg.r#name).ok_or(DecodeError::InvalidId {
-        field: "notification.name",
-    })?;
+    if msg.r#name.is_empty() {
+        return Err(DecodeError::InvalidId {
+            field: "notification.name",
+        });
+    }
+    let name: Box<str> = msg.r#name.into();
     let status = Status::from_u8(msg.r#status as u8).ok_or(DecodeError::InvalidEnumValue {
         field: "notification.status",
         value: msg.r#status,
@@ -559,8 +607,8 @@ fn deserialize_notification(
 
     let mut notif = ResolvedNotification::new(node, module, name);
     notif.status = status;
-    notif.description = StrId::from_raw(msg.r#description);
-    notif.reference = StrId::from_raw(msg.r#reference);
+    notif.description = optional_str(&msg.r#description);
+    notif.reference = optional_str(&msg.r#reference);
     notif.objects = msg
         .r#objects
         .into_iter()
@@ -570,54 +618,31 @@ fn deserialize_notification(
     Ok(notif)
 }
 
-/// Serialize the string interner to (data, offsets).
-#[allow(clippy::cast_possible_truncation)] // String data won't exceed u32::MAX
-fn serialize_strings(interner: &StringInterner) -> (String, Vec<StringOffset>) {
-    let (data, offsets) = interner.export_parts();
+/// Convert a string reference to `String` for protobuf serialization.
+fn str_to_proto(s: &str) -> String {
+    s.to_string()
+}
 
-    // Convert offsets to StringOffset messages
-    let offset_msgs: Vec<StringOffset> = if offsets.is_empty() {
-        Vec::new()
-    } else {
-        offsets
-            .windows(2)
-            .map(|w| StringOffset {
-                r#start: w[0],
-                r#end: w[1],
-            })
-            .chain(core::iter::once(StringOffset {
-                r#start: *offsets.last().unwrap_or(&0),
-                r#end: data.len() as u32,
-            }))
-            .collect()
-    };
-
-    (data, offset_msgs)
+/// Convert an `Option<Box<str>>` to `String`, returning empty string for None.
+fn optional_str_to_proto(s: Option<&str>) -> String {
+    s.map_or_else(String::new, ToString::to_string)
 }
 
 fn serialize_module(module: &ResolvedModule) -> SerializedModule {
     SerializedModule {
-        r#name: module.name.to_raw(),
-        r#last_updated: module
-            .last_updated
-            .map_or(0, wasmib_core::model::StrId::to_raw),
-        r#contact_info: module
-            .contact_info
-            .map_or(0, wasmib_core::model::StrId::to_raw),
-        r#organization: module
-            .organization
-            .map_or(0, wasmib_core::model::StrId::to_raw),
-        r#description: module
-            .description
-            .map_or(0, wasmib_core::model::StrId::to_raw),
+        r#name: str_to_proto(&module.name),
+        r#last_updated: optional_str_to_proto(module.last_updated.as_deref()),
+        r#contact_info: optional_str_to_proto(module.contact_info.as_deref()),
+        r#organization: optional_str_to_proto(module.organization.as_deref()),
+        r#description: optional_str_to_proto(module.description.as_deref()),
         r#revisions: module.revisions.iter().map(serialize_revision).collect(),
     }
 }
 
 fn serialize_revision(rev: &Revision) -> SerializedRevision {
     SerializedRevision {
-        r#date: rev.date.to_raw(),
-        r#description: rev.description.to_raw(),
+        r#date: str_to_proto(&rev.date),
+        r#description: str_to_proto(&rev.description),
     }
 }
 
@@ -634,7 +659,7 @@ fn serialize_node(node: &OidNode) -> SerializedNode {
 fn serialize_node_def(def: &wasmib_core::model::NodeDefinition) -> SerializedNodeDef {
     SerializedNodeDef {
         r#module: def.module.to_raw(),
-        r#label: def.label.to_raw(),
+        r#label: str_to_proto(&def.label),
         r#object: def.object.map_or(0, wasmib_core::model::ObjectId::to_raw),
         r#notification: def
             .notification
@@ -646,29 +671,29 @@ fn serialize_object(obj: &ResolvedObject) -> SerializedObject {
     let mut result = SerializedObject {
         r#node: obj.node.to_raw(),
         r#module: obj.module.to_raw(),
-        r#name: obj.name.to_raw(),
+        r#name: str_to_proto(&obj.name),
         r#type_id: obj.type_id.map_or(0, wasmib_core::model::TypeId::to_raw),
         r#access: u32::from(obj.access.as_u8()),
         r#status: u32::from(obj.status.as_u8()),
-        r#description: obj.description.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#units: obj.units.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#reference: obj.reference.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: optional_str_to_proto(obj.description.as_deref()),
+        r#units: optional_str_to_proto(obj.units.as_deref()),
+        r#reference: optional_str_to_proto(obj.reference.as_deref()),
         r#augments: obj.augments.map_or(0, wasmib_core::model::NodeId::to_raw),
         r#inline_enum: obj.inline_enum.as_ref().map_or_else(Vec::new, |e| {
             e.values
                 .iter()
-                .map(|(v, id)| EnumValue {
+                .map(|(v, name)| EnumValue {
                     r#value: *v,
-                    r#name: id.to_raw(),
+                    r#name: str_to_proto(name),
                 })
                 .collect()
         }),
         r#inline_bits: obj.inline_bits.as_ref().map_or_else(Vec::new, |b| {
             b.bits
                 .iter()
-                .map(|(pos, id)| BitDef {
+                .map(|(pos, name)| BitDef {
                     r#position: *pos,
-                    r#name: id.to_raw(),
+                    r#name: str_to_proto(name),
                 })
                 .collect()
         }),
@@ -711,9 +736,9 @@ fn serialize_defval(defval: &DefVal) -> SerializedDefVal {
             result.set_kind(1);
             result.set_uint_val(*v);
         }
-        DefVal::String(id) => {
+        DefVal::String(s) => {
             result.set_kind(2);
-            result.set_str_val(id.to_raw());
+            result.set_str_val(str_to_proto(s));
         }
         DefVal::HexString(s) => {
             result.set_kind(3);
@@ -723,18 +748,18 @@ fn serialize_defval(defval: &DefVal) -> SerializedDefVal {
             result.set_kind(4);
             result.set_raw_str(s.clone());
         }
-        DefVal::Enum(id) => {
+        DefVal::Enum(s) => {
             result.set_kind(5);
-            result.set_str_val(id.to_raw());
+            result.set_str_val(str_to_proto(s));
         }
-        DefVal::Bits(ids) => {
+        DefVal::Bits(names) => {
             result.set_kind(6);
-            result.r#bits_val = ids.iter().map(|id| id.to_raw()).collect();
+            result.r#bits_val = names.iter().map(|s| str_to_proto(s)).collect();
         }
         DefVal::OidRef { node, symbol } => {
             result.set_kind(7);
-            if let Some(id) = symbol {
-                result.set_str_val(id.to_raw());
+            if let Some(s) = symbol {
+                result.set_str_val(str_to_proto(s));
             }
             if let Some(id) = node {
                 result.set_node_val(id.to_raw());
@@ -748,30 +773,30 @@ fn serialize_defval(defval: &DefVal) -> SerializedDefVal {
 fn serialize_type(typ: &ResolvedType) -> SerializedType {
     let mut result = SerializedType {
         r#module: typ.module.to_raw(),
-        r#name: typ.name.to_raw(),
+        r#name: str_to_proto(&typ.name),
         r#base: u32::from(typ.base.as_u8()),
         r#parent: typ
             .parent_type
             .map_or(0, wasmib_core::model::TypeId::to_raw),
         r#status: u32::from(typ.status.as_u8()),
         r#is_tc: typ.is_textual_convention,
-        r#hint: typ.hint.map_or(0, wasmib_core::model::StrId::to_raw),
-        r#description: typ.description.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#hint: optional_str_to_proto(typ.hint.as_deref()),
+        r#description: optional_str_to_proto(typ.description.as_deref()),
         r#enum_values: typ.enum_values.as_ref().map_or_else(Vec::new, |e| {
             e.values
                 .iter()
-                .map(|(v, id)| EnumValue {
+                .map(|(v, name)| EnumValue {
                     r#value: *v,
-                    r#name: id.to_raw(),
+                    r#name: str_to_proto(name),
                 })
                 .collect()
         }),
         r#bit_defs: typ.bit_defs.as_ref().map_or_else(Vec::new, |b| {
             b.bits
                 .iter()
-                .map(|(pos, id)| BitDef {
+                .map(|(pos, name)| BitDef {
                     r#position: *pos,
-                    r#name: id.to_raw(),
+                    r#name: str_to_proto(name),
                 })
                 .collect()
         }),
@@ -831,12 +856,10 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
     SerializedNotification {
         r#node: notif.node.to_raw(),
         r#module: notif.module.to_raw(),
-        r#name: notif.name.to_raw(),
+        r#name: str_to_proto(&notif.name),
         r#status: u32::from(notif.status.as_u8()),
-        r#description: notif
-            .description
-            .map_or(0, wasmib_core::model::StrId::to_raw),
-        r#reference: notif.reference.map_or(0, wasmib_core::model::StrId::to_raw),
+        r#description: optional_str_to_proto(notif.description.as_deref()),
+        r#reference: optional_str_to_proto(notif.reference.as_deref()),
         r#objects: notif.objects.iter().map(|id| id.to_raw()).collect(),
     }
 }
@@ -844,8 +867,8 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
 fn serialize_unresolved_import(imp: &CoreUnresolvedImport) -> UnresolvedImport {
     UnresolvedImport {
         r#importing_module: imp.importing_module.to_raw(),
-        r#from_module: imp.from_module.to_raw(),
-        r#symbol: imp.symbol.to_raw(),
+        r#from_module: str_to_proto(&imp.from_module),
+        r#symbol: str_to_proto(&imp.symbol),
         r#reason: match imp.reason {
             UnresolvedImportReason::ModuleNotFound => 0,
             UnresolvedImportReason::SymbolNotExported => 1,
@@ -856,24 +879,24 @@ fn serialize_unresolved_import(imp: &CoreUnresolvedImport) -> UnresolvedImport {
 fn serialize_unresolved_type(typ: &CoreUnresolvedType) -> UnresolvedType {
     UnresolvedType {
         r#module: typ.module.to_raw(),
-        r#referrer: typ.referrer.to_raw(),
-        r#referenced: typ.referenced.to_raw(),
+        r#referrer: str_to_proto(&typ.referrer),
+        r#referenced: str_to_proto(&typ.referenced),
     }
 }
 
 fn serialize_unresolved_oid(oid: &CoreUnresolvedOid) -> UnresolvedOid {
     UnresolvedOid {
         r#module: oid.module.to_raw(),
-        r#definition: oid.definition.to_raw(),
-        r#component: oid.component.to_raw(),
+        r#definition: str_to_proto(&oid.definition),
+        r#component: str_to_proto(&oid.component),
     }
 }
 
 fn serialize_unresolved_index(idx: &CoreUnresolvedIndex) -> UnresolvedIndex {
     UnresolvedIndex {
         r#module: idx.module.to_raw(),
-        r#row: idx.row.to_raw(),
-        r#index_object: idx.index_object.to_raw(),
+        r#row: str_to_proto(&idx.row),
+        r#index_object: str_to_proto(&idx.index_object),
     }
 }
 
@@ -882,8 +905,8 @@ fn serialize_unresolved_notif(
 ) -> UnresolvedNotificationObject {
     UnresolvedNotificationObject {
         r#module: notif.module.to_raw(),
-        r#notification: notif.notification.to_raw(),
-        r#object: notif.object.to_raw(),
+        r#notification: str_to_proto(&notif.notification),
+        r#object: str_to_proto(&notif.object),
     }
 }
 
@@ -927,7 +950,7 @@ mod tests {
         let mut model = Model::new();
 
         // Add a module
-        let mod_name = model.intern("TEST-MIB");
+        let mod_name: Box<str> = "TEST-MIB".into();
         let module = ResolvedModule::new(mod_name);
         let mod_id = model.add_module(module).expect("should add module");
 
@@ -938,9 +961,9 @@ mod tests {
         model.add_root(node_id);
 
         // Add a type
-        let type_name = model.intern("TestType");
+        let type_name: Box<str> = "TestType".into();
         let mut typ = ResolvedType::new(type_name, mod_id, BaseType::Integer32);
-        typ.description = Some(model.intern("A test type"));
+        typ.description = Some("A test type".into());
         model.add_type(typ).expect("should add type");
 
         // Serialize and deserialize

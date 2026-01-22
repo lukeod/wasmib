@@ -293,12 +293,10 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                     if is_bare_type_index(&item.object.name) {
                         continue;
                     }
-                    let row_str = ctx.intern(&table_data.name);
-                    let index_str = ctx.intern(&item.object.name);
                     ctx.model.unresolved_mut().indexes.push(UnresolvedIndex {
                         module: module_id,
-                        row: row_str,
-                        index_object: index_str,
+                        row: table_data.name.as_str().into(),
+                        index_object: item.object.name.as_str().into(),
                         span: table_data.span,
                     });
                 }
@@ -371,24 +369,24 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
             obj_data.span,
         );
 
-        let name = ctx.intern(&obj_data.name);
+        let name: alloc::boxed::Box<str> = obj_data.name.as_str().into();
         let access = hir_access_to_access(obj_data.access);
         let status = hir_status_to_status(obj_data.status);
 
-        let mut resolved = ResolvedObject::new(node_id, module_id, name, type_id, access);
+        let mut resolved = ResolvedObject::new(node_id, module_id, name.clone(), type_id, access);
 
         resolved.status = status;
 
         if let Some(ref desc) = obj_data.description {
-            resolved.description = Some(ctx.intern(desc));
+            resolved.description = Some(desc.as_str().into());
         }
 
         if let Some(ref units) = obj_data.units {
-            resolved.units = Some(ctx.intern(units));
+            resolved.units = Some(units.as_str().into());
         }
 
         if let Some(ref reference) = obj_data.reference {
-            resolved.reference = Some(ctx.intern(reference));
+            resolved.reference = Some(reference.as_str().into());
         }
 
         // Handle INDEX
@@ -419,7 +417,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         if let TypeSyntax::IntegerEnum(ref enums) = obj_data.syntax {
             let values: Vec<_> = enums
                 .iter()
-                .map(|nn| (nn.value, ctx.intern(&nn.name.name)))
+                .map(|nn| (nn.value, nn.name.name.as_str().into()))
                 .collect();
             resolved.inline_enum = Some(crate::model::EnumValues::new(values));
         }
@@ -428,7 +426,7 @@ fn create_resolved_objects(ctx: &mut ResolverContext) {
         if let TypeSyntax::Bits(ref bits) = obj_data.syntax {
             let defs: Vec<_> = bits
                 .iter()
-                .map(|nb| (nb.position, ctx.intern(&nb.name.name)))
+                .map(|nb| (nb.position, nb.name.name.as_str().into()))
                 .collect();
             resolved.inline_bits = Some(crate::model::BitDefinitions::new(defs));
         }
@@ -497,18 +495,18 @@ fn create_resolved_notifications(ctx: &mut ResolverContext) {
             continue;
         };
 
-        let name = ctx.intern(&notif_data.name);
+        let name: alloc::boxed::Box<str> = notif_data.name.as_str().into();
         let status = hir_status_to_status(notif_data.status);
 
-        let mut resolved = ResolvedNotification::new(node_id, module_id, name);
+        let mut resolved = ResolvedNotification::new(node_id, module_id, name.clone());
         resolved.status = status;
 
         if let Some(ref desc) = notif_data.description {
-            resolved.description = Some(ctx.intern(desc));
+            resolved.description = Some(desc.as_str().into());
         }
 
         if let Some(ref reference) = notif_data.reference {
-            resolved.reference = Some(ctx.intern(reference));
+            resolved.reference = Some(reference.as_str().into());
         }
 
         // Resolve OBJECTS/VARIABLES references to NodeIds
@@ -605,16 +603,16 @@ fn resolve_type_syntax(
 }
 
 /// Convert `ModuleDefVal` to resolved `DefVal`.
-fn convert_defval(ctx: &mut ResolverContext, defval: &ModuleDefVal, module_id: ModuleId) -> DefVal {
+fn convert_defval(ctx: &ResolverContext, defval: &ModuleDefVal, module_id: ModuleId) -> DefVal {
     match defval {
         ModuleDefVal::Integer(n) => DefVal::Integer(*n),
         ModuleDefVal::Unsigned(n) => DefVal::Unsigned(*n),
-        ModuleDefVal::String(s) => DefVal::String(ctx.intern(s)),
+        ModuleDefVal::String(s) => DefVal::String(s.as_str().into()),
         ModuleDefVal::HexString(s) => DefVal::HexString(s.clone()),
         ModuleDefVal::BinaryString(s) => DefVal::BinaryString(s.clone()),
-        ModuleDefVal::Enum(sym) => DefVal::Enum(ctx.intern(&sym.name)),
+        ModuleDefVal::Enum(sym) => DefVal::Enum(sym.name.as_str().into()),
         ModuleDefVal::Bits(syms) => {
-            DefVal::Bits(syms.iter().map(|s| ctx.intern(&s.name)).collect())
+            DefVal::Bits(syms.iter().map(|s| s.name.as_str().into()).collect())
         }
         ModuleDefVal::OidRef(sym) => {
             // Try to resolve the OID reference
@@ -622,7 +620,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &ModuleDefVal, module_id: M
             DefVal::OidRef {
                 node: resolved_node,
                 symbol: if resolved_node.is_none() {
-                    Some(ctx.intern(&sym.name))
+                    Some(sym.name.as_str().into())
                 } else {
                     None
                 },
@@ -646,7 +644,7 @@ fn convert_defval(ctx: &mut ResolverContext, defval: &ModuleDefVal, module_id: M
             {
                 return DefVal::OidRef {
                     node: None,
-                    symbol: Some(ctx.intern(&name.name)),
+                    symbol: Some(name.name.as_str().into()),
                 };
             }
             // Fallback for numeric-only OIDs (rare in DEFVAL)
@@ -910,8 +908,8 @@ mod tests {
 
         // Verify the unresolved type reference details
         let unresolved_type = &unresolved.types[0];
-        assert_eq!(ctx.model.get_str(unresolved_type.referrer), "testObject");
-        assert_eq!(ctx.model.get_str(unresolved_type.referenced), "FakeType");
+        assert_eq!(unresolved_type.referrer.as_ref(), "testObject");
+        assert_eq!(unresolved_type.referenced.as_ref(), "FakeType");
     }
 
     #[test]
@@ -1079,7 +1077,7 @@ mod tests {
             .get_notification(crate::model::NotificationId::from_raw(1).unwrap());
         assert!(notif.is_some());
         let notif = notif.unwrap();
-        assert_eq!(ctx.model.get_str(notif.name), "testNotification");
+        assert_eq!(notif.name.as_ref(), "testNotification");
         assert_eq!(notif.status, ModelStatus::Current);
         assert!(notif.description.is_some());
         assert!(notif.reference.is_some());
@@ -1132,7 +1130,7 @@ mod tests {
         // Verify the object reference points to testObject
         let obj_node = ctx.model.get_node(notif.objects[0]).unwrap();
         let def = obj_node.definitions.first().unwrap();
-        assert_eq!(ctx.model.get_str(def.label), "testObject");
+        assert_eq!(def.label.as_ref(), "testObject");
     }
 
     #[test]
@@ -1238,14 +1236,8 @@ mod tests {
 
         // Verify the unresolved reference details
         let unresolved_obj = &unresolved.notification_objects[0];
-        assert_eq!(
-            ctx.model.get_str(unresolved_obj.notification),
-            "testNotification"
-        );
-        assert_eq!(
-            ctx.model.get_str(unresolved_obj.object),
-            "nonExistentObject"
-        );
+        assert_eq!(unresolved_obj.notification.as_ref(), "testNotification");
+        assert_eq!(unresolved_obj.object.as_ref(), "nonExistentObject");
     }
 
     #[test]
@@ -1299,7 +1291,7 @@ mod tests {
             "should have one unresolved notification object"
         );
         assert_eq!(
-            ctx.model.get_str(unresolved.notification_objects[0].object),
+            unresolved.notification_objects[0].object.as_ref(),
             "missingObject"
         );
     }
@@ -1404,7 +1396,7 @@ mod tests {
         let resolved_type = ctx.model.get_type(type_id).expect("type should exist");
 
         // The type should be from TC-A (with hint "255a"), not TC-B (with hint "1x:")
-        let hint = resolved_type.hint.map(|h| ctx.model.get_str(h));
+        let hint = resolved_type.hint.as_ref().map(|h| h.as_ref());
         assert_eq!(
             hint,
             Some("255a"),
@@ -1414,7 +1406,7 @@ mod tests {
         // Also verify the type's module
         let type_module = ctx.model.get_module(resolved_type.module).unwrap();
         assert_eq!(
-            ctx.model.get_str(type_module.name),
+            type_module.name.as_ref(),
             "TC-A",
             "Type should be from TC-A module"
         );

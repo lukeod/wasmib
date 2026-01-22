@@ -13,7 +13,8 @@
 //! Definitions that share module name and label but differ semantically
 //! are kept as separate definitions (e.g., vendor extension adds enum value).
 
-use crate::model::{Model, NodeDefinition, NodeId, ResolvedObject, StrId, TypeId};
+use crate::model::{Model, NodeDefinition, NodeId, ResolvedObject, TypeId};
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -51,16 +52,16 @@ pub fn deduplicate_definitions(model: &mut Model) -> usize {
 /// 3. Third pass (mutable): remove duplicates
 fn deduplicate_node_definitions(model: &mut Model, node_id: NodeId) -> usize {
     // Phase 1: Early check and group definition indices by module name (read-only)
-    let module_groups: BTreeMap<StrId, Vec<usize>> = {
+    let module_groups: BTreeMap<Box<str>, Vec<usize>> = {
         let node = match model.get_node(node_id) {
             Some(node) if node.definitions.len() > 1 => node,
             _ => return 0,
         };
 
-        let mut groups: BTreeMap<StrId, Vec<usize>> = BTreeMap::new();
+        let mut groups: BTreeMap<Box<str>, Vec<usize>> = BTreeMap::new();
         for (idx, def) in node.definitions.iter().enumerate() {
             if let Some(module) = model.get_module(def.module) {
-                groups.entry(module.name).or_default().push(idx);
+                groups.entry(module.name.clone()).or_default().push(idx);
             }
         }
         groups

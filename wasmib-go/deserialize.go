@@ -12,7 +12,7 @@ import (
 var ErrUnsupportedVersion = errors.New("unsupported schema version")
 
 const (
-	schemaVersion = 1
+	schemaVersion = 2
 )
 
 // Deserialize parses a protobuf-encoded SerializedModel.
@@ -26,12 +26,6 @@ func Deserialize(data []byte) (*Model, error) {
 	// Check version
 	if msg.Version != schemaVersion {
 		return nil, fmt.Errorf("%w: got %d, expected %d", ErrUnsupportedVersion, msg.Version, schemaVersion)
-	}
-
-	// Build string table from offsets
-	strings, err := buildStrings(msg.StringsData, msg.StringsOffsets)
-	if err != nil {
-		return nil, fmt.Errorf("building string table: %w", err)
 	}
 
 	// Convert protobuf types to internal types
@@ -50,7 +44,6 @@ func Deserialize(data []byte) (*Model, error) {
 
 	m := &Model{
 		version:                       msg.Version,
-		strings:                       strings,
 		modules:                       modules,
 		nodes:                         nodes,
 		types:                         types,
@@ -71,22 +64,6 @@ func Deserialize(data []byte) (*Model, error) {
 
 	m.buildIndices()
 	return m, nil
-}
-
-func buildStrings(data string, offsets []*proto.StringOffset) ([]string, error) {
-	if len(offsets) == 0 {
-		return nil, nil
-	}
-
-	strings := make([]string, len(offsets))
-	for i, offset := range offsets {
-		if offset.Start > offset.End || int(offset.End) > len(data) {
-			return nil, fmt.Errorf("invalid string offset %d: %d..%d exceeds data len %d",
-				i, offset.Start, offset.End, len(data))
-		}
-		strings[i] = data[offset.Start:offset.End]
-	}
-	return strings, nil
 }
 
 func convertModules(pbModules []*proto.SerializedModule) []Module {
@@ -261,7 +238,7 @@ func convertDefVal(pb *proto.SerializedDefVal) *DefVal {
 		d.UintVal = *pb.UintVal
 	}
 	if pb.StrVal != nil {
-		d.StrID = *pb.StrVal
+		d.StrVal = *pb.StrVal
 	}
 	if pb.RawStr != nil {
 		d.RawStr = *pb.RawStr

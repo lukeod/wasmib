@@ -37,37 +37,37 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     };
 
     // INTEGER - base integer type
-    let name = ctx.intern("INTEGER");
-    let typ = ResolvedType::new(name, module_id, BaseType::Integer32);
+    let name: alloc::boxed::Box<str> = "INTEGER".into();
+    let typ = ResolvedType::new(name.clone(), module_id, BaseType::Integer32);
     let type_id = ctx.model.add_type(typ).unwrap();
     ctx.register_module_type_symbol(module_id, name, type_id);
 
     // OCTET STRING - base octet string type
-    let name = ctx.intern("OCTET STRING");
-    let typ = ResolvedType::new(name, module_id, BaseType::OctetString);
+    let name: alloc::boxed::Box<str> = "OCTET STRING".into();
+    let typ = ResolvedType::new(name.clone(), module_id, BaseType::OctetString);
     let type_id = ctx.model.add_type(typ).unwrap();
     ctx.register_module_type_symbol(module_id, name, type_id);
 
     // OBJECT IDENTIFIER - base OID type
-    let name = ctx.intern("OBJECT IDENTIFIER");
-    let typ = ResolvedType::new(name, module_id, BaseType::ObjectIdentifier);
+    let name: alloc::boxed::Box<str> = "OBJECT IDENTIFIER".into();
+    let typ = ResolvedType::new(name.clone(), module_id, BaseType::ObjectIdentifier);
     let type_id = ctx.model.add_type(typ).unwrap();
     ctx.register_module_type_symbol(module_id, name, type_id);
 
     // BITS - bit string type
-    let name = ctx.intern("BITS");
-    let typ = ResolvedType::new(name, module_id, BaseType::Bits);
+    let name: alloc::boxed::Box<str> = "BITS".into();
+    let typ = ResolvedType::new(name.clone(), module_id, BaseType::Bits);
     let type_id = ctx.model.add_type(typ).unwrap();
     ctx.register_module_type_symbol(module_id, name, type_id);
 }
 
 /// Create type nodes for all user-defined types.
 ///
-/// Uses split borrows to intern strings directly from `hir_modules` without
+/// Uses split borrows to box strings directly from `hir_modules` without
 /// intermediate cloning, reducing peak memory usage for large MIB corpora.
 fn create_user_types(ctx: &mut ResolverContext) {
     // Split borrows: immutable access to hir data, mutable access to model/indices.
-    // This allows us to intern strings directly without cloning into intermediate structs.
+    // This allows us to box strings directly without cloning into intermediate structs.
     let hir_modules = &ctx.hir_modules;
     let hir_index_to_module_id = &ctx.hir_index_to_module_id;
     let model = &mut ctx.model;
@@ -83,44 +83,44 @@ fn create_user_types(ctx: &mut ResolverContext) {
                 continue;
             };
 
-            // Intern name directly - no clone needed
-            let name = model.intern(&td.name.name);
+            // Box name directly - no clone needed
+            let name: alloc::boxed::Box<str> = td.name.name.as_str().into();
 
             // Determine base type
             let base_from_syntax = td.base_type.or_else(|| syntax_to_base_type(&td.syntax));
             let base = base_from_syntax.unwrap_or(BaseType::Integer32);
 
-            let mut typ = ResolvedType::new(name, module_id, base);
+            let mut typ = ResolvedType::new(name.clone(), module_id, base);
 
             // Track if base type needs resolution from parent
             typ.needs_base_resolution = base_from_syntax.is_none();
             typ.is_textual_convention = td.is_textual_convention;
             typ.status = hir_status_to_status(td.status);
 
-            // Intern hint directly if present
+            // Box hint directly if present
             if let Some(ref hint) = td.display_hint {
-                typ.hint = Some(model.intern(hint));
+                typ.hint = Some(hint.as_str().into());
             }
 
-            // Intern description directly if present
+            // Box description directly if present
             if let Some(ref desc) = td.description {
-                typ.description = Some(model.intern(desc));
+                typ.description = Some(desc.as_str().into());
             }
 
-            // Handle enum values - intern names directly
+            // Handle enum values - box names directly
             if let TypeSyntax::IntegerEnum(e) = &td.syntax {
                 let values: Vec<_> = e
                     .iter()
-                    .map(|nn| (nn.value, model.intern(&nn.name.name)))
+                    .map(|nn| (nn.value, nn.name.name.as_str().into()))
                     .collect();
                 typ.enum_values = Some(EnumValues::new(values));
             }
 
-            // Handle BITS - intern names directly
+            // Handle BITS - box names directly
             if let TypeSyntax::Bits(b) = &td.syntax {
                 let defs: Vec<_> = b
                     .iter()
-                    .map(|nb| (nb.position, model.intern(&nb.name.name)))
+                    .map(|nb| (nb.position, nb.name.name.as_str().into()))
                     .collect();
                 typ.bit_defs = Some(BitDefinitions::new(defs));
             }
@@ -798,9 +798,9 @@ mod tests {
         );
 
         // First should be MyString
-        assert_eq!(ctx.model.get_str(chain[0].name), "MyString");
+        assert_eq!(chain[0].name.as_ref(), "MyString");
         // Second should be DisplayString
-        assert_eq!(ctx.model.get_str(chain[1].name), "DisplayString");
+        assert_eq!(chain[1].name.as_ref(), "DisplayString");
     }
 
     #[test]
@@ -869,7 +869,7 @@ mod tests {
             effective_hint.is_some(),
             "should find hint from parent chain"
         );
-        assert_eq!(ctx.model.get_str(effective_hint.unwrap()), "255a");
+        assert_eq!(effective_hint.unwrap(), "255a");
     }
 
     #[test]
@@ -947,7 +947,7 @@ mod tests {
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+        assert_eq!(parent.name.as_ref(), "OCTET STRING");
     }
 
     #[test]
@@ -994,7 +994,7 @@ mod tests {
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+        assert_eq!(parent.name.as_ref(), "OCTET STRING");
     }
 
     #[test]
@@ -1034,7 +1034,7 @@ mod tests {
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "OBJECT IDENTIFIER");
+        assert_eq!(parent.name.as_ref(), "OBJECT IDENTIFIER");
     }
 
     #[test]
@@ -1077,7 +1077,7 @@ mod tests {
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "INTEGER");
+        assert_eq!(parent.name.as_ref(), "INTEGER");
     }
 
     #[test]
@@ -1118,7 +1118,7 @@ mod tests {
 
         let parent_id = typ.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "BITS");
+        assert_eq!(parent.name.as_ref(), "BITS");
     }
 
     #[test]
@@ -1145,7 +1145,7 @@ mod tests {
         );
         let parent_id = display_string.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "OCTET STRING");
+        assert_eq!(parent.name.as_ref(), "OCTET STRING");
 
         // TruthValue should have INTEGER as parent
         let truth_value_id = ctx
@@ -1162,7 +1162,7 @@ mod tests {
         );
         let parent_id = truth_value.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "INTEGER");
+        assert_eq!(parent.name.as_ref(), "INTEGER");
 
         // AutonomousType should have OBJECT IDENTIFIER as parent
         let autonomous_type_id = ctx
@@ -1179,7 +1179,7 @@ mod tests {
         );
         let parent_id = autonomous_type.parent_type.unwrap();
         let parent = ctx.model.get_type(parent_id).expect("parent should exist");
-        assert_eq!(ctx.model.get_str(parent.name), "OBJECT IDENTIFIER");
+        assert_eq!(parent.name.as_ref(), "OBJECT IDENTIFIER");
     }
 
     #[test]
@@ -1218,7 +1218,7 @@ mod tests {
             chain.len()
         );
 
-        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
+        let names: Vec<_> = chain.iter().map(|t| t.name.as_ref()).collect();
 
         assert_eq!(names[0], "MyString");
         assert_eq!(names[1], "DisplayString");
@@ -1313,7 +1313,7 @@ mod tests {
             chain.len() >= 3,
             "chain should have at least DerivedString, BaseString, OCTET STRING"
         );
-        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
+        let names: Vec<_> = chain.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(names[0], "DerivedString");
         assert_eq!(names[1], "BaseString");
         assert_eq!(names[2], "OCTET STRING");
@@ -1394,7 +1394,7 @@ mod tests {
             chain.len() >= 4,
             "chain should have at least Level1, Level2, Level3, DisplayString"
         );
-        let names: Vec<_> = chain.iter().map(|t| ctx.model.get_str(t.name)).collect();
+        let names: Vec<_> = chain.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(names[0], "Level1");
         assert_eq!(names[1], "Level2");
         assert_eq!(names[2], "Level3");
@@ -1486,7 +1486,7 @@ mod tests {
             "should find hint from SNMPv2-TC via parent chain"
         );
         assert_eq!(
-            ctx.model.get_str(effective_hint.unwrap()),
+            effective_hint.unwrap(),
             "255a",
             "effective hint should be '255a' from SNMPv2-TC"
         );
@@ -1544,6 +1544,6 @@ mod tests {
         // get_effective_hint should find SNMPv2-TC's "1x:" hint
         let effective_hint = ctx.model.get_effective_hint(rfc1213_pa_id);
         assert!(effective_hint.is_some());
-        assert_eq!(ctx.model.get_str(effective_hint.unwrap()), "1x:");
+        assert_eq!(effective_hint.unwrap(), "1x:");
     }
 }

@@ -13,9 +13,6 @@ import (
 type Model struct {
 	version uint32
 
-	// String table (1-indexed: StrId N maps to strings[N-1])
-	strings []string
-
 	// Data arrays (1-indexed: NodeId N maps to nodes[N-1])
 	modules       []Module
 	nodes         []Node
@@ -49,18 +46,18 @@ type Model struct {
 
 // Module represents a resolved MIB module.
 type Module struct {
-	Name         uint32 // StrId
-	LastUpdated  uint32 // StrId, 0 = none
-	ContactInfo  uint32 // StrId, 0 = none
-	Organization uint32 // StrId, 0 = none
-	Description  uint32 // StrId, 0 = none
+	Name         string
+	LastUpdated  string // empty = none
+	ContactInfo  string // empty = none
+	Organization string // empty = none
+	Description  string // empty = none
 	Revisions    []Revision
 }
 
 // Revision represents a module revision entry.
 type Revision struct {
-	Date        uint32 // StrId
-	Description uint32 // StrId
+	Date        string
+	Description string
 }
 
 // Node represents a position in the OID tree.
@@ -76,7 +73,7 @@ type Node struct {
 // NodeDef links a node to its definition(s).
 type NodeDef struct {
 	Module       uint32 // ModuleId
-	Label        uint32 // StrId
+	Label        string
 	Object       uint32 // ObjectId, 0 = none
 	Notification uint32 // NotificationId, 0 = none
 }
@@ -85,13 +82,13 @@ type NodeDef struct {
 type Object struct {
 	Node        uint32      // NodeId
 	Module      uint32      // ModuleId
-	Name        uint32      // StrId
+	Name        string
 	TypeID      uint32      // TypeId, 0 = unresolved
 	Access      Access      // Access level
 	Status      Status      // Definition status
-	Description uint32      // StrId, 0 = none
-	Units       uint32      // StrId, 0 = none
-	Reference   uint32      // StrId, 0 = none
+	Description string      // empty = none
+	Units       string      // empty = none
+	Reference   string      // empty = none
 	Index       *IndexSpec  // INDEX clause, nil if not a row
 	Augments    uint32      // NodeId, 0 = none
 	DefVal      *DefVal     // DEFVAL clause, nil if none
@@ -115,22 +112,22 @@ type DefVal struct {
 	Kind     DefValKind // Type of default value
 	IntVal   int64      // For Integer kind
 	UintVal  uint64     // For Unsigned kind
-	StrID    uint32     // StrId for String/Enum kinds
+	StrVal   string     // For String/Enum kinds
 	RawStr   string     // For HexString/BinaryString kinds
 	NodeID   uint32     // NodeId for resolved OID ref
-	BitsVals []uint32   // StrIds for Bits kind
+	BitsVals []string   // For Bits kind
 }
 
 // Type represents a type definition.
 type Type struct {
 	Module      uint32      // ModuleId
-	Name        uint32      // StrId
+	Name        string
 	Base        BaseType    // Base type
 	Parent      uint32      // TypeId for TC inheritance, 0 = none
 	Status      Status      // Definition status
 	IsTC        bool        // Is textual convention
-	Hint        uint32      // StrId, 0 = none
-	Description uint32      // StrId, 0 = none
+	Hint        string      // empty = none
+	Description string      // empty = none
 	Size        *Constraint // Size constraint
 	Range       *Constraint // Value range constraint
 	EnumValues  []EnumValue // Enumeration values
@@ -145,31 +142,31 @@ type Constraint struct {
 // EnumValue is a named integer value.
 type EnumValue struct {
 	Value int64  // Integer value
-	Name  uint32 // StrId
+	Name  string
 }
 
 // BitDef is a named bit position.
 type BitDef struct {
 	Position uint32 // Bit position
-	Name     uint32 // StrId
+	Name     string
 }
 
 // Notification represents a NOTIFICATION-TYPE.
 type Notification struct {
 	Node        uint32   // NodeId
 	Module      uint32   // ModuleId
-	Name        uint32   // StrId
+	Name        string
 	Status      Status   // Definition status
-	Description uint32   // StrId, 0 = none
-	Reference   uint32   // StrId, 0 = none
+	Description string   // empty = none
+	Reference   string   // empty = none
 	Objects     []uint32 // []NodeId - OBJECTS clause
 }
 
 // UnresolvedImport represents an import that could not be resolved.
 type UnresolvedImport struct {
 	ImportingModule uint32                 // ModuleId of the importing module
-	FromModule      uint32                 // StrId of the module being imported from
-	Symbol          uint32                 // StrId of the symbol being imported
+	FromModule      string                 // Module being imported from
+	Symbol          string                 // Symbol being imported
 	Reason          UnresolvedImportReason // Why it could not be resolved
 }
 
@@ -186,41 +183,32 @@ const (
 // UnresolvedType represents a type reference that could not be resolved.
 type UnresolvedType struct {
 	Module     uint32 // ModuleId containing the reference
-	Referrer   uint32 // StrId of the definition referencing the type
-	Referenced uint32 // StrId of the type being referenced
+	Referrer   string // Definition referencing the type
+	Referenced string // Type being referenced
 }
 
 // UnresolvedOid represents an OID component that could not be resolved.
 type UnresolvedOid struct {
 	Module     uint32 // ModuleId containing the definition
-	Definition uint32 // StrId of the definition with the OID
-	Component  uint32 // StrId of the unresolved component name
+	Definition string // Definition with the OID
+	Component  string // Unresolved component name
 }
 
 // UnresolvedIndex represents an index object that could not be resolved.
 type UnresolvedIndex struct {
 	Module      uint32 // ModuleId containing the row
-	Row         uint32 // StrId of the row definition
-	IndexObject uint32 // StrId of the unresolved index object name
+	Row         string // Row definition name
+	IndexObject string // Unresolved index object name
 }
 
 // UnresolvedNotificationObject represents a notification object that could not be resolved.
 type UnresolvedNotificationObject struct {
 	Module       uint32 // ModuleId containing the notification
-	Notification uint32 // StrId of the notification definition
-	Object       uint32 // StrId of the unresolved object name
+	Notification string // Notification definition name
+	Object       string // Unresolved object name
 }
 
 // === Query Methods ===
-
-// GetStr returns the interned string for an ID.
-// Returns empty string if ID is 0 or invalid.
-func (m *Model) GetStr(id uint32) string {
-	if id == 0 || int(id) > len(m.strings) {
-		return ""
-	}
-	return m.strings[id-1]
-}
 
 // GetNodeByOID looks up a node by dotted OID string (e.g., "1.3.6.1.2.1.1.1").
 // Returns nil if not found.
@@ -452,8 +440,8 @@ func (m *Model) GetEffectiveHint(typeID uint32) string {
 		if t == nil {
 			break
 		}
-		if t.Hint != 0 {
-			return m.GetStr(t.Hint)
+		if t.Hint != "" {
+			return t.Hint
 		}
 		typeID = t.Parent
 	}
@@ -810,7 +798,7 @@ func (m *Model) buildIndices() {
 
 	// Build module index
 	for i := range m.modules {
-		name := m.GetStr(m.modules[i].Name)
+		name := m.modules[i].Name
 		if name != "" {
 			m.moduleIndex[name] = uint32(i + 1)
 		}
@@ -852,12 +840,12 @@ func (m *Model) buildNodeIndices(nodeID uint32, parentOID string) {
 
 	// Name and qualified name indices
 	for _, def := range node.Definitions {
-		name := m.GetStr(def.Label)
+		name := def.Label
 		if name != "" {
 			m.nameIndex[name] = append(m.nameIndex[name], node.ID)
 
 			if def.Module > 0 && int(def.Module) <= len(m.modules) {
-				modName := m.GetStr(m.modules[def.Module-1].Name)
+				modName := m.modules[def.Module-1].Name
 				if modName != "" {
 					// Use strings.Builder for qualified name construction
 					var b strings.Builder

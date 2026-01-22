@@ -36,11 +36,11 @@ pub fn register_modules(ctx: &mut ResolverContext) {
     // Register each HIR module (iterate by index to avoid borrow issues)
     for hir_idx in 0..ctx.hir_modules.len() {
         let module_name = ctx.hir_modules[hir_idx].name.name.clone();
-        // Intern module name
-        let name_str = ctx.intern(&module_name);
+        // Box module name
+        let name_str: alloc::boxed::Box<str> = module_name.as_str().into();
 
         // Create resolved module (ID assigned by add_module)
-        let module = ResolvedModule::new(name_str);
+        let module = ResolvedModule::new(name_str.clone());
 
         let module_id = ctx.model.add_module(module).unwrap();
 
@@ -54,7 +54,7 @@ pub fn register_modules(ctx: &mut ResolverContext) {
         ctx.hir_index_to_module_id.insert(hir_idx, module_id);
 
         // Append to candidates list (handles duplicate module names)
-        // Uses StrId key for memory efficiency
+        // Uses Box<str> key for memory efficiency
         ctx.module_index
             .entry(name_str)
             .or_default()

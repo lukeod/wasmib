@@ -190,9 +190,8 @@ func TestModelQueries(t *testing.T) {
 	if mod == nil {
 		t.Error("GetModuleByName('TEST-MIB') returned nil")
 	} else {
-		name := model.GetStr(mod.Name)
-		if name != "TEST-MIB" {
-			t.Errorf("Module name = %q, want 'TEST-MIB'", name)
+		if mod.Name != "TEST-MIB" {
+			t.Errorf("Module name = %q, want 'TEST-MIB'", mod.Name)
 		}
 	}
 
@@ -496,7 +495,7 @@ func TestGetNotificationObjects(t *testing.T) {
 			t.Errorf("objects[%d] has no definitions", i)
 			continue
 		}
-		name := model.GetStr(node.Definitions[0].Label)
+		name := node.Definitions[0].Label
 		if name != expectedNames[i] {
 			t.Errorf("objects[%d] name = %q, want %q", i, name, expectedNames[i])
 		}
@@ -692,7 +691,7 @@ func TestGetIndexObjects(t *testing.T) {
 	if len(indexNode.Definitions) == 0 {
 		t.Fatal("indexNode has no definitions")
 	}
-	name := model.GetStr(indexNode.Definitions[0].Label)
+	name := indexNode.Definitions[0].Label
 	if name != "testIndex" {
 		t.Errorf("index object name = %q, want %q", name, "testIndex")
 	}
@@ -800,7 +799,7 @@ func TestGetAugmentsTarget(t *testing.T) {
 	if len(target.Definitions) == 0 {
 		t.Fatal("target has no definitions")
 	}
-	name := model.GetStr(target.Definitions[0].Label)
+	name := target.Definitions[0].Label
 	if name != "baseEntry" {
 		t.Errorf("augments target name = %q, want %q", name, "baseEntry")
 	}
@@ -904,7 +903,7 @@ func TestGetParent(t *testing.T) {
 	if len(parent.Definitions) == 0 {
 		t.Fatal("parent has no definitions")
 	}
-	name := model.GetStr(parent.Definitions[0].Label)
+	name := parent.Definitions[0].Label
 	if name != "testEntry" {
 		t.Errorf("parent name = %q, want %q", name, "testEntry")
 	}
@@ -1005,8 +1004,7 @@ func TestGetChildren(t *testing.T) {
 	childNames := make(map[string]bool)
 	for _, child := range children {
 		if child != nil && len(child.Definitions) > 0 {
-			name := model.GetStr(child.Definitions[0].Label)
-			childNames[name] = true
+			childNames[child.Definitions[0].Label] = true
 		}
 	}
 

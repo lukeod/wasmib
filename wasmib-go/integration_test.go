@@ -121,8 +121,7 @@ func TestOIDLookups(t *testing.T) {
 			// Check name in definitions
 			foundName := false
 			for _, def := range node.Definitions {
-				name := model.GetStr(def.Label)
-				if name == tt.name {
+				if def.Label == tt.name {
 					foundName = true
 					break
 				}
@@ -130,7 +129,7 @@ func TestOIDLookups(t *testing.T) {
 			if !foundName {
 				var names []string
 				for _, def := range node.Definitions {
-					names = append(names, model.GetStr(def.Label))
+					names = append(names, def.Label)
 				}
 				t.Errorf("expected name %q not found in definitions %v", tt.name, names)
 			}
@@ -261,7 +260,7 @@ func TestEnumValues(t *testing.T) {
 	// Build map for checking
 	valueMap := make(map[int64]string)
 	for _, ev := range enums {
-		valueMap[ev.Value] = model.GetStr(ev.Name)
+		valueMap[ev.Value] = ev.Name
 	}
 
 	expectedEnums := map[int64]string{

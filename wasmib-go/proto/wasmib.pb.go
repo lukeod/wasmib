@@ -32,10 +32,6 @@ type SerializedModel struct {
 	// Optional fingerprint of source MIB files (for cache validation).
 	// Empty bytes means no fingerprint.
 	Fingerprint []byte `protobuf:"bytes,2,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
-	// Concatenated string data.
-	StringsData string `protobuf:"bytes,3,opt,name=strings_data,json=stringsData,proto3" json:"strings_data,omitempty"`
-	// Offsets into strings_data for each StrId (1-indexed in Model).
-	StringsOffsets []*StringOffset `protobuf:"bytes,4,rep,name=strings_offsets,json=stringsOffsets,proto3" json:"strings_offsets,omitempty"`
 	// Resolved modules.
 	Modules []*SerializedModule `protobuf:"bytes,5,rep,name=modules,proto3" json:"modules,omitempty"`
 	// OID tree nodes.
@@ -104,20 +100,6 @@ func (x *SerializedModel) GetVersion() uint32 {
 func (x *SerializedModel) GetFingerprint() []byte {
 	if x != nil {
 		return x.Fingerprint
-	}
-	return nil
-}
-
-func (x *SerializedModel) GetStringsData() string {
-	if x != nil {
-		return x.StringsData
-	}
-	return ""
-}
-
-func (x *SerializedModel) GetStringsOffsets() []*StringOffset {
-	if x != nil {
-		return x.StringsOffsets
 	}
 	return nil
 }
@@ -234,72 +216,19 @@ func (x *SerializedModel) GetUnresolvedNotifDetails() []*UnresolvedNotificationO
 	return nil
 }
 
-// String offset pair (start, end) into strings_data.
-type StringOffset struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Start         uint32                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
-	End           uint32                 `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StringOffset) Reset() {
-	*x = StringOffset{}
-	mi := &file_proto_wasmib_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StringOffset) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StringOffset) ProtoMessage() {}
-
-func (x *StringOffset) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StringOffset.ProtoReflect.Descriptor instead.
-func (*StringOffset) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *StringOffset) GetStart() uint32 {
-	if x != nil {
-		return x.Start
-	}
-	return 0
-}
-
-func (x *StringOffset) GetEnd() uint32 {
-	if x != nil {
-		return x.End
-	}
-	return 0
-}
-
 // Serialized module definition.
 type SerializedModule struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Module name (StrId).
-	Name uint32 `protobuf:"varint,1,opt,name=name,proto3" json:"name,omitempty"`
-	// LAST-UPDATED value (StrId, 0 = none).
-	LastUpdated uint32 `protobuf:"varint,2,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
-	// CONTACT-INFO value (StrId, 0 = none).
-	ContactInfo uint32 `protobuf:"varint,3,opt,name=contact_info,json=contactInfo,proto3" json:"contact_info,omitempty"`
-	// ORGANIZATION value (StrId, 0 = none).
-	Organization uint32 `protobuf:"varint,4,opt,name=organization,proto3" json:"organization,omitempty"`
-	// Description text (StrId, 0 = none).
-	Description uint32 `protobuf:"varint,5,opt,name=description,proto3" json:"description,omitempty"`
+	// Module name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// LAST-UPDATED value (empty = none).
+	LastUpdated string `protobuf:"bytes,2,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
+	// CONTACT-INFO value (empty = none).
+	ContactInfo string `protobuf:"bytes,3,opt,name=contact_info,json=contactInfo,proto3" json:"contact_info,omitempty"`
+	// ORGANIZATION value (empty = none).
+	Organization string `protobuf:"bytes,4,opt,name=organization,proto3" json:"organization,omitempty"`
+	// Description text (empty = none).
+	Description string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	// Revision history.
 	Revisions     []*SerializedRevision `protobuf:"bytes,6,rep,name=revisions,proto3" json:"revisions,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -308,7 +237,7 @@ type SerializedModule struct {
 
 func (x *SerializedModule) Reset() {
 	*x = SerializedModule{}
-	mi := &file_proto_wasmib_proto_msgTypes[2]
+	mi := &file_proto_wasmib_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -320,7 +249,7 @@ func (x *SerializedModule) String() string {
 func (*SerializedModule) ProtoMessage() {}
 
 func (x *SerializedModule) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[2]
+	mi := &file_proto_wasmib_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -333,42 +262,42 @@ func (x *SerializedModule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedModule.ProtoReflect.Descriptor instead.
 func (*SerializedModule) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{2}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *SerializedModule) GetName() uint32 {
+func (x *SerializedModule) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedModule) GetLastUpdated() uint32 {
+func (x *SerializedModule) GetLastUpdated() string {
 	if x != nil {
 		return x.LastUpdated
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedModule) GetContactInfo() uint32 {
+func (x *SerializedModule) GetContactInfo() string {
 	if x != nil {
 		return x.ContactInfo
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedModule) GetOrganization() uint32 {
+func (x *SerializedModule) GetOrganization() string {
 	if x != nil {
 		return x.Organization
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedModule) GetDescription() uint32 {
+func (x *SerializedModule) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedModule) GetRevisions() []*SerializedRevision {
@@ -381,17 +310,17 @@ func (x *SerializedModule) GetRevisions() []*SerializedRevision {
 // Serialized revision entry.
 type SerializedRevision struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Revision date (StrId).
-	Date uint32 `protobuf:"varint,1,opt,name=date,proto3" json:"date,omitempty"`
-	// Revision description (StrId).
-	Description   uint32 `protobuf:"varint,2,opt,name=description,proto3" json:"description,omitempty"`
+	// Revision date.
+	Date string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	// Revision description.
+	Description   string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SerializedRevision) Reset() {
 	*x = SerializedRevision{}
-	mi := &file_proto_wasmib_proto_msgTypes[3]
+	mi := &file_proto_wasmib_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -403,7 +332,7 @@ func (x *SerializedRevision) String() string {
 func (*SerializedRevision) ProtoMessage() {}
 
 func (x *SerializedRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[3]
+	mi := &file_proto_wasmib_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -416,21 +345,21 @@ func (x *SerializedRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedRevision.ProtoReflect.Descriptor instead.
 func (*SerializedRevision) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{3}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SerializedRevision) GetDate() uint32 {
+func (x *SerializedRevision) GetDate() string {
 	if x != nil {
 		return x.Date
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedRevision) GetDescription() uint32 {
+func (x *SerializedRevision) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
-	return 0
+	return ""
 }
 
 // Serialized OID tree node.
@@ -452,7 +381,7 @@ type SerializedNode struct {
 
 func (x *SerializedNode) Reset() {
 	*x = SerializedNode{}
-	mi := &file_proto_wasmib_proto_msgTypes[4]
+	mi := &file_proto_wasmib_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -464,7 +393,7 @@ func (x *SerializedNode) String() string {
 func (*SerializedNode) ProtoMessage() {}
 
 func (x *SerializedNode) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[4]
+	mi := &file_proto_wasmib_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -477,7 +406,7 @@ func (x *SerializedNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedNode.ProtoReflect.Descriptor instead.
 func (*SerializedNode) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{4}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SerializedNode) GetSubid() uint32 {
@@ -520,8 +449,8 @@ type SerializedNodeDef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module where this definition appears (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Object name/label (StrId).
-	Label uint32 `protobuf:"varint,2,opt,name=label,proto3" json:"label,omitempty"`
+	// Object name/label.
+	Label string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	// Associated object (ObjectId, 0 = none).
 	Object uint32 `protobuf:"varint,3,opt,name=object,proto3" json:"object,omitempty"`
 	// Associated notification (NotificationId, 0 = none).
@@ -532,7 +461,7 @@ type SerializedNodeDef struct {
 
 func (x *SerializedNodeDef) Reset() {
 	*x = SerializedNodeDef{}
-	mi := &file_proto_wasmib_proto_msgTypes[5]
+	mi := &file_proto_wasmib_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +473,7 @@ func (x *SerializedNodeDef) String() string {
 func (*SerializedNodeDef) ProtoMessage() {}
 
 func (x *SerializedNodeDef) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[5]
+	mi := &file_proto_wasmib_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +486,7 @@ func (x *SerializedNodeDef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedNodeDef.ProtoReflect.Descriptor instead.
 func (*SerializedNodeDef) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{5}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SerializedNodeDef) GetModule() uint32 {
@@ -567,11 +496,11 @@ func (x *SerializedNodeDef) GetModule() uint32 {
 	return 0
 }
 
-func (x *SerializedNodeDef) GetLabel() uint32 {
+func (x *SerializedNodeDef) GetLabel() string {
 	if x != nil {
 		return x.Label
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedNodeDef) GetObject() uint32 {
@@ -595,20 +524,20 @@ type SerializedObject struct {
 	Node uint32 `protobuf:"varint,1,opt,name=node,proto3" json:"node,omitempty"`
 	// Defining module (ModuleId).
 	Module uint32 `protobuf:"varint,2,opt,name=module,proto3" json:"module,omitempty"`
-	// Object name (StrId).
-	Name uint32 `protobuf:"varint,3,opt,name=name,proto3" json:"name,omitempty"`
+	// Object name.
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	// Resolved type (TypeId, 0 = unresolved).
 	TypeId uint32 `protobuf:"varint,4,opt,name=type_id,json=typeId,proto3" json:"type_id,omitempty"`
 	// Access level (0-5, see Access enum).
 	Access uint32 `protobuf:"varint,5,opt,name=access,proto3" json:"access,omitempty"`
 	// Definition status (0-2, see Status enum).
 	Status uint32 `protobuf:"varint,6,opt,name=status,proto3" json:"status,omitempty"`
-	// Description text (StrId, 0 = none).
-	Description uint32 `protobuf:"varint,7,opt,name=description,proto3" json:"description,omitempty"`
-	// Units string (StrId, 0 = none).
-	Units uint32 `protobuf:"varint,8,opt,name=units,proto3" json:"units,omitempty"`
-	// Reference text (StrId, 0 = none).
-	Reference uint32 `protobuf:"varint,9,opt,name=reference,proto3" json:"reference,omitempty"`
+	// Description text (empty = none).
+	Description string `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
+	// Units string (empty = none).
+	Units string `protobuf:"bytes,8,opt,name=units,proto3" json:"units,omitempty"`
+	// Reference text (empty = none).
+	Reference string `protobuf:"bytes,9,opt,name=reference,proto3" json:"reference,omitempty"`
 	// Index specification (for row objects).
 	Index *SerializedIndex `protobuf:"bytes,10,opt,name=index,proto3,oneof" json:"index,omitempty"`
 	// AUGMENTS target (NodeId, 0 = none).
@@ -625,7 +554,7 @@ type SerializedObject struct {
 
 func (x *SerializedObject) Reset() {
 	*x = SerializedObject{}
-	mi := &file_proto_wasmib_proto_msgTypes[6]
+	mi := &file_proto_wasmib_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -637,7 +566,7 @@ func (x *SerializedObject) String() string {
 func (*SerializedObject) ProtoMessage() {}
 
 func (x *SerializedObject) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[6]
+	mi := &file_proto_wasmib_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -650,7 +579,7 @@ func (x *SerializedObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedObject.ProtoReflect.Descriptor instead.
 func (*SerializedObject) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{6}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SerializedObject) GetNode() uint32 {
@@ -667,11 +596,11 @@ func (x *SerializedObject) GetModule() uint32 {
 	return 0
 }
 
-func (x *SerializedObject) GetName() uint32 {
+func (x *SerializedObject) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedObject) GetTypeId() uint32 {
@@ -695,25 +624,25 @@ func (x *SerializedObject) GetStatus() uint32 {
 	return 0
 }
 
-func (x *SerializedObject) GetDescription() uint32 {
+func (x *SerializedObject) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedObject) GetUnits() uint32 {
+func (x *SerializedObject) GetUnits() string {
 	if x != nil {
 		return x.Units
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedObject) GetReference() uint32 {
+func (x *SerializedObject) GetReference() string {
 	if x != nil {
 		return x.Reference
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedObject) GetIndex() *SerializedIndex {
@@ -762,7 +691,7 @@ type SerializedIndex struct {
 
 func (x *SerializedIndex) Reset() {
 	*x = SerializedIndex{}
-	mi := &file_proto_wasmib_proto_msgTypes[7]
+	mi := &file_proto_wasmib_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +703,7 @@ func (x *SerializedIndex) String() string {
 func (*SerializedIndex) ProtoMessage() {}
 
 func (x *SerializedIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[7]
+	mi := &file_proto_wasmib_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +716,7 @@ func (x *SerializedIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedIndex.ProtoReflect.Descriptor instead.
 func (*SerializedIndex) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{7}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SerializedIndex) GetItems() []*SerializedIndexItem {
@@ -810,7 +739,7 @@ type SerializedIndexItem struct {
 
 func (x *SerializedIndexItem) Reset() {
 	*x = SerializedIndexItem{}
-	mi := &file_proto_wasmib_proto_msgTypes[8]
+	mi := &file_proto_wasmib_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +751,7 @@ func (x *SerializedIndexItem) String() string {
 func (*SerializedIndexItem) ProtoMessage() {}
 
 func (x *SerializedIndexItem) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[8]
+	mi := &file_proto_wasmib_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -835,7 +764,7 @@ func (x *SerializedIndexItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedIndexItem.ProtoReflect.Descriptor instead.
 func (*SerializedIndexItem) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{8}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SerializedIndexItem) GetObject() uint32 {
@@ -861,21 +790,21 @@ type SerializedDefVal struct {
 	IntVal *int64 `protobuf:"varint,2,opt,name=int_val,json=intVal,proto3,oneof" json:"int_val,omitempty"`
 	// Unsigned value (for kind 1).
 	UintVal *uint64 `protobuf:"varint,3,opt,name=uint_val,json=uintVal,proto3,oneof" json:"uint_val,omitempty"`
-	// String ID (for kinds 2, 5, or unresolved OID symbol).
-	StrVal *uint32 `protobuf:"varint,4,opt,name=str_val,json=strVal,proto3,oneof" json:"str_val,omitempty"`
+	// String value (for kinds 2, 5, or unresolved OID symbol).
+	StrVal *string `protobuf:"bytes,4,opt,name=str_val,json=strVal,proto3,oneof" json:"str_val,omitempty"`
 	// Raw string (for kinds 3, 4 - hex/binary strings).
 	RawStr *string `protobuf:"bytes,5,opt,name=raw_str,json=rawStr,proto3,oneof" json:"raw_str,omitempty"`
 	// Node ID (for kind 7 - resolved OID ref).
 	NodeVal *uint32 `protobuf:"varint,6,opt,name=node_val,json=nodeVal,proto3,oneof" json:"node_val,omitempty"`
-	// Bit names as StrIds (for kind 6).
-	BitsVal       []uint32 `protobuf:"varint,7,rep,packed,name=bits_val,json=bitsVal,proto3" json:"bits_val,omitempty"`
+	// Bit names (for kind 6).
+	BitsVal       []string `protobuf:"bytes,7,rep,name=bits_val,json=bitsVal,proto3" json:"bits_val,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SerializedDefVal) Reset() {
 	*x = SerializedDefVal{}
-	mi := &file_proto_wasmib_proto_msgTypes[9]
+	mi := &file_proto_wasmib_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -887,7 +816,7 @@ func (x *SerializedDefVal) String() string {
 func (*SerializedDefVal) ProtoMessage() {}
 
 func (x *SerializedDefVal) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[9]
+	mi := &file_proto_wasmib_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +829,7 @@ func (x *SerializedDefVal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedDefVal.ProtoReflect.Descriptor instead.
 func (*SerializedDefVal) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{9}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SerializedDefVal) GetKind() uint32 {
@@ -924,11 +853,11 @@ func (x *SerializedDefVal) GetUintVal() uint64 {
 	return 0
 }
 
-func (x *SerializedDefVal) GetStrVal() uint32 {
+func (x *SerializedDefVal) GetStrVal() string {
 	if x != nil && x.StrVal != nil {
 		return *x.StrVal
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedDefVal) GetRawStr() string {
@@ -945,7 +874,7 @@ func (x *SerializedDefVal) GetNodeVal() uint32 {
 	return 0
 }
 
-func (x *SerializedDefVal) GetBitsVal() []uint32 {
+func (x *SerializedDefVal) GetBitsVal() []string {
 	if x != nil {
 		return x.BitsVal
 	}
@@ -957,8 +886,8 @@ type SerializedType struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Defining module (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Type name (StrId).
-	Name uint32 `protobuf:"varint,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Type name.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// Base type (0-11, see BaseType enum).
 	Base uint32 `protobuf:"varint,3,opt,name=base,proto3" json:"base,omitempty"`
 	// Parent type (TypeId, 0 = none, for TC inheritance).
@@ -967,10 +896,10 @@ type SerializedType struct {
 	Status uint32 `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
 	// Is this a textual convention?
 	IsTc bool `protobuf:"varint,6,opt,name=is_tc,json=isTc,proto3" json:"is_tc,omitempty"`
-	// Display hint (StrId, 0 = none).
-	Hint uint32 `protobuf:"varint,7,opt,name=hint,proto3" json:"hint,omitempty"`
-	// Description text (StrId, 0 = none).
-	Description uint32 `protobuf:"varint,8,opt,name=description,proto3" json:"description,omitempty"`
+	// Display hint (empty = none).
+	Hint string `protobuf:"bytes,7,opt,name=hint,proto3" json:"hint,omitempty"`
+	// Description text (empty = none).
+	Description string `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
 	// Size constraint.
 	Size *SerializedConstraint `protobuf:"bytes,9,opt,name=size,proto3,oneof" json:"size,omitempty"`
 	// Value range constraint.
@@ -985,7 +914,7 @@ type SerializedType struct {
 
 func (x *SerializedType) Reset() {
 	*x = SerializedType{}
-	mi := &file_proto_wasmib_proto_msgTypes[10]
+	mi := &file_proto_wasmib_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -997,7 +926,7 @@ func (x *SerializedType) String() string {
 func (*SerializedType) ProtoMessage() {}
 
 func (x *SerializedType) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[10]
+	mi := &file_proto_wasmib_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1010,7 +939,7 @@ func (x *SerializedType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedType.ProtoReflect.Descriptor instead.
 func (*SerializedType) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{10}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SerializedType) GetModule() uint32 {
@@ -1020,11 +949,11 @@ func (x *SerializedType) GetModule() uint32 {
 	return 0
 }
 
-func (x *SerializedType) GetName() uint32 {
+func (x *SerializedType) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedType) GetBase() uint32 {
@@ -1055,18 +984,18 @@ func (x *SerializedType) GetIsTc() bool {
 	return false
 }
 
-func (x *SerializedType) GetHint() uint32 {
+func (x *SerializedType) GetHint() string {
 	if x != nil {
 		return x.Hint
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedType) GetDescription() uint32 {
+func (x *SerializedType) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedType) GetSize() *SerializedConstraint {
@@ -1097,18 +1026,18 @@ func (x *SerializedType) GetBitDefs() []*BitDef {
 	return nil
 }
 
-// Enumeration value: (value, name StrId).
+// Enumeration value: (value, name).
 type EnumValue struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Value         int64                  `protobuf:"varint,1,opt,name=value,proto3" json:"value,omitempty"`
-	Name          uint32                 `protobuf:"varint,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EnumValue) Reset() {
 	*x = EnumValue{}
-	mi := &file_proto_wasmib_proto_msgTypes[11]
+	mi := &file_proto_wasmib_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1120,7 +1049,7 @@ func (x *EnumValue) String() string {
 func (*EnumValue) ProtoMessage() {}
 
 func (x *EnumValue) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[11]
+	mi := &file_proto_wasmib_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1133,7 +1062,7 @@ func (x *EnumValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnumValue.ProtoReflect.Descriptor instead.
 func (*EnumValue) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{11}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *EnumValue) GetValue() int64 {
@@ -1143,25 +1072,25 @@ func (x *EnumValue) GetValue() int64 {
 	return 0
 }
 
-func (x *EnumValue) GetName() uint32 {
+func (x *EnumValue) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
-// Bit definition: (position, name StrId).
+// Bit definition: (position, name).
 type BitDef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Position      uint32                 `protobuf:"varint,1,opt,name=position,proto3" json:"position,omitempty"`
-	Name          uint32                 `protobuf:"varint,2,opt,name=name,proto3" json:"name,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BitDef) Reset() {
 	*x = BitDef{}
-	mi := &file_proto_wasmib_proto_msgTypes[12]
+	mi := &file_proto_wasmib_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1173,7 +1102,7 @@ func (x *BitDef) String() string {
 func (*BitDef) ProtoMessage() {}
 
 func (x *BitDef) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[12]
+	mi := &file_proto_wasmib_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1186,7 +1115,7 @@ func (x *BitDef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BitDef.ProtoReflect.Descriptor instead.
 func (*BitDef) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{12}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *BitDef) GetPosition() uint32 {
@@ -1196,11 +1125,11 @@ func (x *BitDef) GetPosition() uint32 {
 	return 0
 }
 
-func (x *BitDef) GetName() uint32 {
+func (x *BitDef) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
 // Serialized constraint (for size or value ranges).
@@ -1214,7 +1143,7 @@ type SerializedConstraint struct {
 
 func (x *SerializedConstraint) Reset() {
 	*x = SerializedConstraint{}
-	mi := &file_proto_wasmib_proto_msgTypes[13]
+	mi := &file_proto_wasmib_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1226,7 +1155,7 @@ func (x *SerializedConstraint) String() string {
 func (*SerializedConstraint) ProtoMessage() {}
 
 func (x *SerializedConstraint) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[13]
+	mi := &file_proto_wasmib_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1239,7 +1168,7 @@ func (x *SerializedConstraint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedConstraint.ProtoReflect.Descriptor instead.
 func (*SerializedConstraint) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{13}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SerializedConstraint) GetRanges() []*Range {
@@ -1260,7 +1189,7 @@ type Range struct {
 
 func (x *Range) Reset() {
 	*x = Range{}
-	mi := &file_proto_wasmib_proto_msgTypes[14]
+	mi := &file_proto_wasmib_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1272,7 +1201,7 @@ func (x *Range) String() string {
 func (*Range) ProtoMessage() {}
 
 func (x *Range) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[14]
+	mi := &file_proto_wasmib_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1285,7 +1214,7 @@ func (x *Range) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Range.ProtoReflect.Descriptor instead.
 func (*Range) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{14}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Range) GetMin() int64 {
@@ -1319,7 +1248,7 @@ type Diagnostic struct {
 
 func (x *Diagnostic) Reset() {
 	*x = Diagnostic{}
-	mi := &file_proto_wasmib_proto_msgTypes[15]
+	mi := &file_proto_wasmib_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1331,7 +1260,7 @@ func (x *Diagnostic) String() string {
 func (*Diagnostic) ProtoMessage() {}
 
 func (x *Diagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[15]
+	mi := &file_proto_wasmib_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1344,7 +1273,7 @@ func (x *Diagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostic.ProtoReflect.Descriptor instead.
 func (*Diagnostic) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{15}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Diagnostic) GetSeverity() uint32 {
@@ -1385,7 +1314,7 @@ type Diagnostics struct {
 
 func (x *Diagnostics) Reset() {
 	*x = Diagnostics{}
-	mi := &file_proto_wasmib_proto_msgTypes[16]
+	mi := &file_proto_wasmib_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1397,7 +1326,7 @@ func (x *Diagnostics) String() string {
 func (*Diagnostics) ProtoMessage() {}
 
 func (x *Diagnostics) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[16]
+	mi := &file_proto_wasmib_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1410,7 +1339,7 @@ func (x *Diagnostics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostics.ProtoReflect.Descriptor instead.
 func (*Diagnostics) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{16}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Diagnostics) GetItems() []*Diagnostic {
@@ -1427,14 +1356,14 @@ type SerializedNotification struct {
 	Node uint32 `protobuf:"varint,1,opt,name=node,proto3" json:"node,omitempty"`
 	// Defining module (ModuleId).
 	Module uint32 `protobuf:"varint,2,opt,name=module,proto3" json:"module,omitempty"`
-	// Notification name (StrId).
-	Name uint32 `protobuf:"varint,3,opt,name=name,proto3" json:"name,omitempty"`
+	// Notification name.
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	// Definition status (0-2, see Status enum).
 	Status uint32 `protobuf:"varint,4,opt,name=status,proto3" json:"status,omitempty"`
-	// Description text (StrId, 0 = none).
-	Description uint32 `protobuf:"varint,5,opt,name=description,proto3" json:"description,omitempty"`
-	// Reference text (StrId, 0 = none).
-	Reference uint32 `protobuf:"varint,6,opt,name=reference,proto3" json:"reference,omitempty"`
+	// Description text (empty = none).
+	Description string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	// Reference text (empty = none).
+	Reference string `protobuf:"bytes,6,opt,name=reference,proto3" json:"reference,omitempty"`
 	// Objects included in the notification (Vec<NodeId>).
 	Objects       []uint32 `protobuf:"varint,7,rep,packed,name=objects,proto3" json:"objects,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1443,7 +1372,7 @@ type SerializedNotification struct {
 
 func (x *SerializedNotification) Reset() {
 	*x = SerializedNotification{}
-	mi := &file_proto_wasmib_proto_msgTypes[17]
+	mi := &file_proto_wasmib_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1455,7 +1384,7 @@ func (x *SerializedNotification) String() string {
 func (*SerializedNotification) ProtoMessage() {}
 
 func (x *SerializedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[17]
+	mi := &file_proto_wasmib_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1468,7 +1397,7 @@ func (x *SerializedNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SerializedNotification.ProtoReflect.Descriptor instead.
 func (*SerializedNotification) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{17}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SerializedNotification) GetNode() uint32 {
@@ -1485,11 +1414,11 @@ func (x *SerializedNotification) GetModule() uint32 {
 	return 0
 }
 
-func (x *SerializedNotification) GetName() uint32 {
+func (x *SerializedNotification) GetName() string {
 	if x != nil {
 		return x.Name
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedNotification) GetStatus() uint32 {
@@ -1499,18 +1428,18 @@ func (x *SerializedNotification) GetStatus() uint32 {
 	return 0
 }
 
-func (x *SerializedNotification) GetDescription() uint32 {
+func (x *SerializedNotification) GetDescription() string {
 	if x != nil {
 		return x.Description
 	}
-	return 0
+	return ""
 }
 
-func (x *SerializedNotification) GetReference() uint32 {
+func (x *SerializedNotification) GetReference() string {
 	if x != nil {
 		return x.Reference
 	}
-	return 0
+	return ""
 }
 
 func (x *SerializedNotification) GetObjects() []uint32 {
@@ -1525,10 +1454,10 @@ type UnresolvedImport struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module requesting the import (ModuleId).
 	ImportingModule uint32 `protobuf:"varint,1,opt,name=importing_module,json=importingModule,proto3" json:"importing_module,omitempty"`
-	// Module being imported from (StrId - may not exist).
-	FromModule uint32 `protobuf:"varint,2,opt,name=from_module,json=fromModule,proto3" json:"from_module,omitempty"`
-	// Symbol being imported (StrId).
-	Symbol uint32 `protobuf:"varint,3,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// Module being imported from (may not exist).
+	FromModule string `protobuf:"bytes,2,opt,name=from_module,json=fromModule,proto3" json:"from_module,omitempty"`
+	// Symbol being imported.
+	Symbol string `protobuf:"bytes,3,opt,name=symbol,proto3" json:"symbol,omitempty"`
 	// Reason: 0=ModuleNotFound, 1=SymbolNotExported.
 	Reason        uint32 `protobuf:"varint,4,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1537,7 +1466,7 @@ type UnresolvedImport struct {
 
 func (x *UnresolvedImport) Reset() {
 	*x = UnresolvedImport{}
-	mi := &file_proto_wasmib_proto_msgTypes[18]
+	mi := &file_proto_wasmib_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1549,7 +1478,7 @@ func (x *UnresolvedImport) String() string {
 func (*UnresolvedImport) ProtoMessage() {}
 
 func (x *UnresolvedImport) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[18]
+	mi := &file_proto_wasmib_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1562,7 +1491,7 @@ func (x *UnresolvedImport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedImport.ProtoReflect.Descriptor instead.
 func (*UnresolvedImport) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{18}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UnresolvedImport) GetImportingModule() uint32 {
@@ -1572,18 +1501,18 @@ func (x *UnresolvedImport) GetImportingModule() uint32 {
 	return 0
 }
 
-func (x *UnresolvedImport) GetFromModule() uint32 {
+func (x *UnresolvedImport) GetFromModule() string {
 	if x != nil {
 		return x.FromModule
 	}
-	return 0
+	return ""
 }
 
-func (x *UnresolvedImport) GetSymbol() uint32 {
+func (x *UnresolvedImport) GetSymbol() string {
 	if x != nil {
 		return x.Symbol
 	}
-	return 0
+	return ""
 }
 
 func (x *UnresolvedImport) GetReason() uint32 {
@@ -1598,17 +1527,17 @@ type UnresolvedType struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module containing the reference (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Definition referencing the type (StrId).
-	Referrer uint32 `protobuf:"varint,2,opt,name=referrer,proto3" json:"referrer,omitempty"`
-	// Type being referenced (StrId).
-	Referenced    uint32 `protobuf:"varint,3,opt,name=referenced,proto3" json:"referenced,omitempty"`
+	// Definition referencing the type.
+	Referrer string `protobuf:"bytes,2,opt,name=referrer,proto3" json:"referrer,omitempty"`
+	// Type being referenced.
+	Referenced    string `protobuf:"bytes,3,opt,name=referenced,proto3" json:"referenced,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnresolvedType) Reset() {
 	*x = UnresolvedType{}
-	mi := &file_proto_wasmib_proto_msgTypes[19]
+	mi := &file_proto_wasmib_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1620,7 +1549,7 @@ func (x *UnresolvedType) String() string {
 func (*UnresolvedType) ProtoMessage() {}
 
 func (x *UnresolvedType) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[19]
+	mi := &file_proto_wasmib_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1633,7 +1562,7 @@ func (x *UnresolvedType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedType.ProtoReflect.Descriptor instead.
 func (*UnresolvedType) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{19}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UnresolvedType) GetModule() uint32 {
@@ -1643,18 +1572,18 @@ func (x *UnresolvedType) GetModule() uint32 {
 	return 0
 }
 
-func (x *UnresolvedType) GetReferrer() uint32 {
+func (x *UnresolvedType) GetReferrer() string {
 	if x != nil {
 		return x.Referrer
 	}
-	return 0
+	return ""
 }
 
-func (x *UnresolvedType) GetReferenced() uint32 {
+func (x *UnresolvedType) GetReferenced() string {
 	if x != nil {
 		return x.Referenced
 	}
-	return 0
+	return ""
 }
 
 // Unresolved OID component.
@@ -1662,17 +1591,17 @@ type UnresolvedOid struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module containing the definition (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Definition with the OID (StrId).
-	Definition uint32 `protobuf:"varint,2,opt,name=definition,proto3" json:"definition,omitempty"`
-	// Unresolved component name (StrId).
-	Component     uint32 `protobuf:"varint,3,opt,name=component,proto3" json:"component,omitempty"`
+	// Definition with the OID.
+	Definition string `protobuf:"bytes,2,opt,name=definition,proto3" json:"definition,omitempty"`
+	// Unresolved component name.
+	Component     string `protobuf:"bytes,3,opt,name=component,proto3" json:"component,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnresolvedOid) Reset() {
 	*x = UnresolvedOid{}
-	mi := &file_proto_wasmib_proto_msgTypes[20]
+	mi := &file_proto_wasmib_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1684,7 +1613,7 @@ func (x *UnresolvedOid) String() string {
 func (*UnresolvedOid) ProtoMessage() {}
 
 func (x *UnresolvedOid) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[20]
+	mi := &file_proto_wasmib_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1697,7 +1626,7 @@ func (x *UnresolvedOid) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedOid.ProtoReflect.Descriptor instead.
 func (*UnresolvedOid) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{20}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *UnresolvedOid) GetModule() uint32 {
@@ -1707,18 +1636,18 @@ func (x *UnresolvedOid) GetModule() uint32 {
 	return 0
 }
 
-func (x *UnresolvedOid) GetDefinition() uint32 {
+func (x *UnresolvedOid) GetDefinition() string {
 	if x != nil {
 		return x.Definition
 	}
-	return 0
+	return ""
 }
 
-func (x *UnresolvedOid) GetComponent() uint32 {
+func (x *UnresolvedOid) GetComponent() string {
 	if x != nil {
 		return x.Component
 	}
-	return 0
+	return ""
 }
 
 // Unresolved index object.
@@ -1726,17 +1655,17 @@ type UnresolvedIndex struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module containing the row (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Row definition name (StrId).
-	Row uint32 `protobuf:"varint,2,opt,name=row,proto3" json:"row,omitempty"`
-	// Unresolved index object name (StrId).
-	IndexObject   uint32 `protobuf:"varint,3,opt,name=index_object,json=indexObject,proto3" json:"index_object,omitempty"`
+	// Row definition name.
+	Row string `protobuf:"bytes,2,opt,name=row,proto3" json:"row,omitempty"`
+	// Unresolved index object name.
+	IndexObject   string `protobuf:"bytes,3,opt,name=index_object,json=indexObject,proto3" json:"index_object,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnresolvedIndex) Reset() {
 	*x = UnresolvedIndex{}
-	mi := &file_proto_wasmib_proto_msgTypes[21]
+	mi := &file_proto_wasmib_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1748,7 +1677,7 @@ func (x *UnresolvedIndex) String() string {
 func (*UnresolvedIndex) ProtoMessage() {}
 
 func (x *UnresolvedIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[21]
+	mi := &file_proto_wasmib_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1761,7 +1690,7 @@ func (x *UnresolvedIndex) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedIndex.ProtoReflect.Descriptor instead.
 func (*UnresolvedIndex) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{21}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *UnresolvedIndex) GetModule() uint32 {
@@ -1771,18 +1700,18 @@ func (x *UnresolvedIndex) GetModule() uint32 {
 	return 0
 }
 
-func (x *UnresolvedIndex) GetRow() uint32 {
+func (x *UnresolvedIndex) GetRow() string {
 	if x != nil {
 		return x.Row
 	}
-	return 0
+	return ""
 }
 
-func (x *UnresolvedIndex) GetIndexObject() uint32 {
+func (x *UnresolvedIndex) GetIndexObject() string {
 	if x != nil {
 		return x.IndexObject
 	}
-	return 0
+	return ""
 }
 
 // Unresolved notification object.
@@ -1790,17 +1719,17 @@ type UnresolvedNotificationObject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Module containing the notification (ModuleId).
 	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
-	// Notification definition name (StrId).
-	Notification uint32 `protobuf:"varint,2,opt,name=notification,proto3" json:"notification,omitempty"`
-	// Unresolved object name (StrId).
-	Object        uint32 `protobuf:"varint,3,opt,name=object,proto3" json:"object,omitempty"`
+	// Notification definition name.
+	Notification string `protobuf:"bytes,2,opt,name=notification,proto3" json:"notification,omitempty"`
+	// Unresolved object name.
+	Object        string `protobuf:"bytes,3,opt,name=object,proto3" json:"object,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UnresolvedNotificationObject) Reset() {
 	*x = UnresolvedNotificationObject{}
-	mi := &file_proto_wasmib_proto_msgTypes[22]
+	mi := &file_proto_wasmib_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1812,7 +1741,7 @@ func (x *UnresolvedNotificationObject) String() string {
 func (*UnresolvedNotificationObject) ProtoMessage() {}
 
 func (x *UnresolvedNotificationObject) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_wasmib_proto_msgTypes[22]
+	mi := &file_proto_wasmib_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1825,7 +1754,7 @@ func (x *UnresolvedNotificationObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnresolvedNotificationObject.ProtoReflect.Descriptor instead.
 func (*UnresolvedNotificationObject) Descriptor() ([]byte, []int) {
-	return file_proto_wasmib_proto_rawDescGZIP(), []int{22}
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *UnresolvedNotificationObject) GetModule() uint32 {
@@ -1835,30 +1764,28 @@ func (x *UnresolvedNotificationObject) GetModule() uint32 {
 	return 0
 }
 
-func (x *UnresolvedNotificationObject) GetNotification() uint32 {
+func (x *UnresolvedNotificationObject) GetNotification() string {
 	if x != nil {
 		return x.Notification
 	}
-	return 0
+	return ""
 }
 
-func (x *UnresolvedNotificationObject) GetObject() uint32 {
+func (x *UnresolvedNotificationObject) GetObject() string {
 	if x != nil {
 		return x.Object
 	}
-	return 0
+	return ""
 }
 
 var File_proto_wasmib_proto protoreflect.FileDescriptor
 
 const file_proto_wasmib_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/wasmib.proto\x12\x06wasmib\"\xef\b\n" +
+	"\x12proto/wasmib.proto\x12\x06wasmib\"\x8d\b\n" +
 	"\x0fSerializedModel\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12 \n" +
-	"\vfingerprint\x18\x02 \x01(\fR\vfingerprint\x12!\n" +
-	"\fstrings_data\x18\x03 \x01(\tR\vstringsData\x12=\n" +
-	"\x0fstrings_offsets\x18\x04 \x03(\v2\x14.wasmib.StringOffsetR\x0estringsOffsets\x122\n" +
+	"\vfingerprint\x18\x02 \x01(\fR\vfingerprint\x122\n" +
 	"\amodules\x18\x05 \x03(\v2\x18.wasmib.SerializedModuleR\amodules\x12,\n" +
 	"\x05nodes\x18\x06 \x03(\v2\x16.wasmib.SerializedNodeR\x05nodes\x12,\n" +
 	"\x05types\x18\a \x03(\v2\x16.wasmib.SerializedTypeR\x05types\x122\n" +
@@ -1875,20 +1802,17 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x17unresolved_type_details\x18\x11 \x03(\v2\x16.wasmib.UnresolvedTypeR\x15unresolvedTypeDetails\x12K\n" +
 	"\x16unresolved_oid_details\x18\x12 \x03(\v2\x15.wasmib.UnresolvedOidR\x14unresolvedOidDetails\x12Q\n" +
 	"\x18unresolved_index_details\x18\x13 \x03(\v2\x17.wasmib.UnresolvedIndexR\x16unresolvedIndexDetails\x12^\n" +
-	"\x18unresolved_notif_details\x18\x14 \x03(\v2$.wasmib.UnresolvedNotificationObjectR\x16unresolvedNotifDetails\"6\n" +
-	"\fStringOffset\x12\x14\n" +
-	"\x05start\x18\x01 \x01(\rR\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\rR\x03end\"\xec\x01\n" +
+	"\x18unresolved_notif_details\x18\x14 \x03(\v2$.wasmib.UnresolvedNotificationObjectR\x16unresolvedNotifDetails\"\xec\x01\n" +
 	"\x10SerializedModule\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\rR\x04name\x12!\n" +
-	"\flast_updated\x18\x02 \x01(\rR\vlastUpdated\x12!\n" +
-	"\fcontact_info\x18\x03 \x01(\rR\vcontactInfo\x12\"\n" +
-	"\forganization\x18\x04 \x01(\rR\forganization\x12 \n" +
-	"\vdescription\x18\x05 \x01(\rR\vdescription\x128\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
+	"\flast_updated\x18\x02 \x01(\tR\vlastUpdated\x12!\n" +
+	"\fcontact_info\x18\x03 \x01(\tR\vcontactInfo\x12\"\n" +
+	"\forganization\x18\x04 \x01(\tR\forganization\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x128\n" +
 	"\trevisions\x18\x06 \x03(\v2\x1a.wasmib.SerializedRevisionR\trevisions\"J\n" +
 	"\x12SerializedRevision\x12\x12\n" +
-	"\x04date\x18\x01 \x01(\rR\x04date\x12 \n" +
-	"\vdescription\x18\x02 \x01(\rR\vdescription\"\xab\x01\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"\xab\x01\n" +
 	"\x0eSerializedNode\x12\x14\n" +
 	"\x05subid\x18\x01 \x01(\rR\x05subid\x12\x16\n" +
 	"\x06parent\x18\x02 \x01(\rR\x06parent\x12\x1a\n" +
@@ -1897,19 +1821,19 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\vdefinitions\x18\x05 \x03(\v2\x19.wasmib.SerializedNodeDefR\vdefinitions\"}\n" +
 	"\x11SerializedNodeDef\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\x14\n" +
-	"\x05label\x18\x02 \x01(\rR\x05label\x12\x16\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x16\n" +
 	"\x06object\x18\x03 \x01(\rR\x06object\x12\"\n" +
 	"\fnotification\x18\x04 \x01(\rR\fnotification\"\xf2\x03\n" +
 	"\x10SerializedObject\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\rR\x04node\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\rR\x06module\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\rR\x04name\x12\x17\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x17\n" +
 	"\atype_id\x18\x04 \x01(\rR\x06typeId\x12\x16\n" +
 	"\x06access\x18\x05 \x01(\rR\x06access\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\rR\x06status\x12 \n" +
-	"\vdescription\x18\a \x01(\rR\vdescription\x12\x14\n" +
-	"\x05units\x18\b \x01(\rR\x05units\x12\x1c\n" +
-	"\treference\x18\t \x01(\rR\treference\x122\n" +
+	"\vdescription\x18\a \x01(\tR\vdescription\x12\x14\n" +
+	"\x05units\x18\b \x01(\tR\x05units\x12\x1c\n" +
+	"\treference\x18\t \x01(\tR\treference\x122\n" +
 	"\x05index\x18\n" +
 	" \x01(\v2\x17.wasmib.SerializedIndexH\x00R\x05index\x88\x01\x01\x12\x1a\n" +
 	"\baugments\x18\v \x01(\rR\baugments\x125\n" +
@@ -1929,10 +1853,10 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x04kind\x18\x01 \x01(\rR\x04kind\x12\x1c\n" +
 	"\aint_val\x18\x02 \x01(\x03H\x00R\x06intVal\x88\x01\x01\x12\x1e\n" +
 	"\buint_val\x18\x03 \x01(\x04H\x01R\auintVal\x88\x01\x01\x12\x1c\n" +
-	"\astr_val\x18\x04 \x01(\rH\x02R\x06strVal\x88\x01\x01\x12\x1c\n" +
+	"\astr_val\x18\x04 \x01(\tH\x02R\x06strVal\x88\x01\x01\x12\x1c\n" +
 	"\araw_str\x18\x05 \x01(\tH\x03R\x06rawStr\x88\x01\x01\x12\x1e\n" +
 	"\bnode_val\x18\x06 \x01(\rH\x04R\anodeVal\x88\x01\x01\x12\x19\n" +
-	"\bbits_val\x18\a \x03(\rR\abitsValB\n" +
+	"\bbits_val\x18\a \x03(\tR\abitsValB\n" +
 	"\n" +
 	"\b_int_valB\v\n" +
 	"\t_uint_valB\n" +
@@ -1943,13 +1867,13 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\t_node_val\"\xad\x03\n" +
 	"\x0eSerializedType\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\rR\x04name\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04base\x18\x03 \x01(\rR\x04base\x12\x16\n" +
 	"\x06parent\x18\x04 \x01(\rR\x06parent\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\rR\x06status\x12\x13\n" +
 	"\x05is_tc\x18\x06 \x01(\bR\x04isTc\x12\x12\n" +
-	"\x04hint\x18\a \x01(\rR\x04hint\x12 \n" +
-	"\vdescription\x18\b \x01(\rR\vdescription\x125\n" +
+	"\x04hint\x18\a \x01(\tR\x04hint\x12 \n" +
+	"\vdescription\x18\b \x01(\tR\vdescription\x125\n" +
 	"\x04size\x18\t \x01(\v2\x1c.wasmib.SerializedConstraintH\x00R\x04size\x88\x01\x01\x127\n" +
 	"\x05range\x18\n" +
 	" \x01(\v2\x1c.wasmib.SerializedConstraintH\x01R\x05range\x88\x01\x01\x122\n" +
@@ -1960,10 +1884,10 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x06_range\"5\n" +
 	"\tEnumValue\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x03R\x05value\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\rR\x04name\"8\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"8\n" +
 	"\x06BitDef\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\rR\bposition\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\rR\x04name\"=\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"=\n" +
 	"\x14SerializedConstraint\x12%\n" +
 	"\x06ranges\x18\x01 \x03(\v2\r.wasmib.RangeR\x06ranges\"+\n" +
 	"\x05Range\x12\x10\n" +
@@ -1980,37 +1904,37 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x16SerializedNotification\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\rR\x04node\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\rR\x06module\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\rR\x04name\x12\x16\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\rR\x06status\x12 \n" +
-	"\vdescription\x18\x05 \x01(\rR\vdescription\x12\x1c\n" +
-	"\treference\x18\x06 \x01(\rR\treference\x12\x18\n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x1c\n" +
+	"\treference\x18\x06 \x01(\tR\treference\x12\x18\n" +
 	"\aobjects\x18\a \x03(\rR\aobjects\"\x8e\x01\n" +
 	"\x10UnresolvedImport\x12)\n" +
 	"\x10importing_module\x18\x01 \x01(\rR\x0fimportingModule\x12\x1f\n" +
-	"\vfrom_module\x18\x02 \x01(\rR\n" +
+	"\vfrom_module\x18\x02 \x01(\tR\n" +
 	"fromModule\x12\x16\n" +
-	"\x06symbol\x18\x03 \x01(\rR\x06symbol\x12\x16\n" +
+	"\x06symbol\x18\x03 \x01(\tR\x06symbol\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\rR\x06reason\"d\n" +
 	"\x0eUnresolvedType\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\x1a\n" +
-	"\breferrer\x18\x02 \x01(\rR\breferrer\x12\x1e\n" +
+	"\breferrer\x18\x02 \x01(\tR\breferrer\x12\x1e\n" +
 	"\n" +
-	"referenced\x18\x03 \x01(\rR\n" +
+	"referenced\x18\x03 \x01(\tR\n" +
 	"referenced\"e\n" +
 	"\rUnresolvedOid\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\x1e\n" +
 	"\n" +
-	"definition\x18\x02 \x01(\rR\n" +
+	"definition\x18\x02 \x01(\tR\n" +
 	"definition\x12\x1c\n" +
-	"\tcomponent\x18\x03 \x01(\rR\tcomponent\"^\n" +
+	"\tcomponent\x18\x03 \x01(\tR\tcomponent\"^\n" +
 	"\x0fUnresolvedIndex\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\x10\n" +
-	"\x03row\x18\x02 \x01(\rR\x03row\x12!\n" +
-	"\findex_object\x18\x03 \x01(\rR\vindexObject\"r\n" +
+	"\x03row\x18\x02 \x01(\tR\x03row\x12!\n" +
+	"\findex_object\x18\x03 \x01(\tR\vindexObject\"r\n" +
 	"\x1cUnresolvedNotificationObject\x12\x16\n" +
 	"\x06module\x18\x01 \x01(\rR\x06module\x12\"\n" +
-	"\fnotification\x18\x02 \x01(\rR\fnotification\x12\x16\n" +
-	"\x06object\x18\x03 \x01(\rR\x06objectB*Z(github.com/lukeod/wasmib/wasmib-go/protob\x06proto3"
+	"\fnotification\x18\x02 \x01(\tR\fnotification\x12\x16\n" +
+	"\x06object\x18\x03 \x01(\tR\x06objectB*Z(github.com/lukeod/wasmib/wasmib-go/protob\x06proto3"
 
 var (
 	file_proto_wasmib_proto_rawDescOnce sync.Once
@@ -2024,62 +1948,60 @@ func file_proto_wasmib_proto_rawDescGZIP() []byte {
 	return file_proto_wasmib_proto_rawDescData
 }
 
-var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_proto_wasmib_proto_goTypes = []any{
 	(*SerializedModel)(nil),              // 0: wasmib.SerializedModel
-	(*StringOffset)(nil),                 // 1: wasmib.StringOffset
-	(*SerializedModule)(nil),             // 2: wasmib.SerializedModule
-	(*SerializedRevision)(nil),           // 3: wasmib.SerializedRevision
-	(*SerializedNode)(nil),               // 4: wasmib.SerializedNode
-	(*SerializedNodeDef)(nil),            // 5: wasmib.SerializedNodeDef
-	(*SerializedObject)(nil),             // 6: wasmib.SerializedObject
-	(*SerializedIndex)(nil),              // 7: wasmib.SerializedIndex
-	(*SerializedIndexItem)(nil),          // 8: wasmib.SerializedIndexItem
-	(*SerializedDefVal)(nil),             // 9: wasmib.SerializedDefVal
-	(*SerializedType)(nil),               // 10: wasmib.SerializedType
-	(*EnumValue)(nil),                    // 11: wasmib.EnumValue
-	(*BitDef)(nil),                       // 12: wasmib.BitDef
-	(*SerializedConstraint)(nil),         // 13: wasmib.SerializedConstraint
-	(*Range)(nil),                        // 14: wasmib.Range
-	(*Diagnostic)(nil),                   // 15: wasmib.Diagnostic
-	(*Diagnostics)(nil),                  // 16: wasmib.Diagnostics
-	(*SerializedNotification)(nil),       // 17: wasmib.SerializedNotification
-	(*UnresolvedImport)(nil),             // 18: wasmib.UnresolvedImport
-	(*UnresolvedType)(nil),               // 19: wasmib.UnresolvedType
-	(*UnresolvedOid)(nil),                // 20: wasmib.UnresolvedOid
-	(*UnresolvedIndex)(nil),              // 21: wasmib.UnresolvedIndex
-	(*UnresolvedNotificationObject)(nil), // 22: wasmib.UnresolvedNotificationObject
+	(*SerializedModule)(nil),             // 1: wasmib.SerializedModule
+	(*SerializedRevision)(nil),           // 2: wasmib.SerializedRevision
+	(*SerializedNode)(nil),               // 3: wasmib.SerializedNode
+	(*SerializedNodeDef)(nil),            // 4: wasmib.SerializedNodeDef
+	(*SerializedObject)(nil),             // 5: wasmib.SerializedObject
+	(*SerializedIndex)(nil),              // 6: wasmib.SerializedIndex
+	(*SerializedIndexItem)(nil),          // 7: wasmib.SerializedIndexItem
+	(*SerializedDefVal)(nil),             // 8: wasmib.SerializedDefVal
+	(*SerializedType)(nil),               // 9: wasmib.SerializedType
+	(*EnumValue)(nil),                    // 10: wasmib.EnumValue
+	(*BitDef)(nil),                       // 11: wasmib.BitDef
+	(*SerializedConstraint)(nil),         // 12: wasmib.SerializedConstraint
+	(*Range)(nil),                        // 13: wasmib.Range
+	(*Diagnostic)(nil),                   // 14: wasmib.Diagnostic
+	(*Diagnostics)(nil),                  // 15: wasmib.Diagnostics
+	(*SerializedNotification)(nil),       // 16: wasmib.SerializedNotification
+	(*UnresolvedImport)(nil),             // 17: wasmib.UnresolvedImport
+	(*UnresolvedType)(nil),               // 18: wasmib.UnresolvedType
+	(*UnresolvedOid)(nil),                // 19: wasmib.UnresolvedOid
+	(*UnresolvedIndex)(nil),              // 20: wasmib.UnresolvedIndex
+	(*UnresolvedNotificationObject)(nil), // 21: wasmib.UnresolvedNotificationObject
 }
 var file_proto_wasmib_proto_depIdxs = []int32{
-	1,  // 0: wasmib.SerializedModel.strings_offsets:type_name -> wasmib.StringOffset
-	2,  // 1: wasmib.SerializedModel.modules:type_name -> wasmib.SerializedModule
-	4,  // 2: wasmib.SerializedModel.nodes:type_name -> wasmib.SerializedNode
-	10, // 3: wasmib.SerializedModel.types:type_name -> wasmib.SerializedType
-	6,  // 4: wasmib.SerializedModel.objects:type_name -> wasmib.SerializedObject
-	17, // 5: wasmib.SerializedModel.notifications:type_name -> wasmib.SerializedNotification
-	18, // 6: wasmib.SerializedModel.unresolved_import_details:type_name -> wasmib.UnresolvedImport
-	19, // 7: wasmib.SerializedModel.unresolved_type_details:type_name -> wasmib.UnresolvedType
-	20, // 8: wasmib.SerializedModel.unresolved_oid_details:type_name -> wasmib.UnresolvedOid
-	21, // 9: wasmib.SerializedModel.unresolved_index_details:type_name -> wasmib.UnresolvedIndex
-	22, // 10: wasmib.SerializedModel.unresolved_notif_details:type_name -> wasmib.UnresolvedNotificationObject
-	3,  // 11: wasmib.SerializedModule.revisions:type_name -> wasmib.SerializedRevision
-	5,  // 12: wasmib.SerializedNode.definitions:type_name -> wasmib.SerializedNodeDef
-	7,  // 13: wasmib.SerializedObject.index:type_name -> wasmib.SerializedIndex
-	9,  // 14: wasmib.SerializedObject.defval:type_name -> wasmib.SerializedDefVal
-	11, // 15: wasmib.SerializedObject.inline_enum:type_name -> wasmib.EnumValue
-	12, // 16: wasmib.SerializedObject.inline_bits:type_name -> wasmib.BitDef
-	8,  // 17: wasmib.SerializedIndex.items:type_name -> wasmib.SerializedIndexItem
-	13, // 18: wasmib.SerializedType.size:type_name -> wasmib.SerializedConstraint
-	13, // 19: wasmib.SerializedType.range:type_name -> wasmib.SerializedConstraint
-	11, // 20: wasmib.SerializedType.enum_values:type_name -> wasmib.EnumValue
-	12, // 21: wasmib.SerializedType.bit_defs:type_name -> wasmib.BitDef
-	14, // 22: wasmib.SerializedConstraint.ranges:type_name -> wasmib.Range
-	15, // 23: wasmib.Diagnostics.items:type_name -> wasmib.Diagnostic
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	1,  // 0: wasmib.SerializedModel.modules:type_name -> wasmib.SerializedModule
+	3,  // 1: wasmib.SerializedModel.nodes:type_name -> wasmib.SerializedNode
+	9,  // 2: wasmib.SerializedModel.types:type_name -> wasmib.SerializedType
+	5,  // 3: wasmib.SerializedModel.objects:type_name -> wasmib.SerializedObject
+	16, // 4: wasmib.SerializedModel.notifications:type_name -> wasmib.SerializedNotification
+	17, // 5: wasmib.SerializedModel.unresolved_import_details:type_name -> wasmib.UnresolvedImport
+	18, // 6: wasmib.SerializedModel.unresolved_type_details:type_name -> wasmib.UnresolvedType
+	19, // 7: wasmib.SerializedModel.unresolved_oid_details:type_name -> wasmib.UnresolvedOid
+	20, // 8: wasmib.SerializedModel.unresolved_index_details:type_name -> wasmib.UnresolvedIndex
+	21, // 9: wasmib.SerializedModel.unresolved_notif_details:type_name -> wasmib.UnresolvedNotificationObject
+	2,  // 10: wasmib.SerializedModule.revisions:type_name -> wasmib.SerializedRevision
+	4,  // 11: wasmib.SerializedNode.definitions:type_name -> wasmib.SerializedNodeDef
+	6,  // 12: wasmib.SerializedObject.index:type_name -> wasmib.SerializedIndex
+	8,  // 13: wasmib.SerializedObject.defval:type_name -> wasmib.SerializedDefVal
+	10, // 14: wasmib.SerializedObject.inline_enum:type_name -> wasmib.EnumValue
+	11, // 15: wasmib.SerializedObject.inline_bits:type_name -> wasmib.BitDef
+	7,  // 16: wasmib.SerializedIndex.items:type_name -> wasmib.SerializedIndexItem
+	12, // 17: wasmib.SerializedType.size:type_name -> wasmib.SerializedConstraint
+	12, // 18: wasmib.SerializedType.range:type_name -> wasmib.SerializedConstraint
+	10, // 19: wasmib.SerializedType.enum_values:type_name -> wasmib.EnumValue
+	11, // 20: wasmib.SerializedType.bit_defs:type_name -> wasmib.BitDef
+	13, // 21: wasmib.SerializedConstraint.ranges:type_name -> wasmib.Range
+	14, // 22: wasmib.Diagnostics.items:type_name -> wasmib.Diagnostic
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_proto_wasmib_proto_init() }
@@ -2087,16 +2009,16 @@ func file_proto_wasmib_proto_init() {
 	if File_proto_wasmib_proto != nil {
 		return
 	}
-	file_proto_wasmib_proto_msgTypes[6].OneofWrappers = []any{}
+	file_proto_wasmib_proto_msgTypes[5].OneofWrappers = []any{}
+	file_proto_wasmib_proto_msgTypes[8].OneofWrappers = []any{}
 	file_proto_wasmib_proto_msgTypes[9].OneofWrappers = []any{}
-	file_proto_wasmib_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_wasmib_proto_rawDesc), len(file_proto_wasmib_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

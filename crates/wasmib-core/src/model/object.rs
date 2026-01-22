@@ -1,14 +1,15 @@
 //! Object definition types for the resolved model.
 
-use super::ids::{ModuleId, NodeId, ObjectId, StrId, TypeId};
+use super::ids::{ModuleId, NodeId, ObjectId, TypeId};
 use super::types::{Access, BitDefinitions, EnumValues, Status};
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Default value for an OBJECT-TYPE.
 ///
 /// This represents the resolved DEFVAL clause content. Symbol references
-/// (enum labels, bit names) are stored as interned strings; full semantic
+/// (enum labels, bit names) are stored as strings; full semantic
 /// resolution (mapping to numeric values) would require type context.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -20,7 +21,7 @@ pub enum DefVal {
     Unsigned(u64),
 
     /// String value: `DEFVAL { "public" }`, `DEFVAL { "" }`
-    String(StrId),
+    String(Box<str>),
 
     /// Hex string: `DEFVAL { 'FF00'H }`
     /// Stored as raw hex digits (uppercase).
@@ -31,12 +32,12 @@ pub enum DefVal {
     BinaryString(String),
 
     /// Enum label reference: `DEFVAL { enabled }`, `DEFVAL { true }`
-    /// The `StrId` refers to an enumeration value name defined in the object's type.
-    Enum(StrId),
+    /// The string refers to an enumeration value name defined in the object's type.
+    Enum(Box<str>),
 
     /// BITS value (set of bit labels): `DEFVAL { { flag1, flag2 } }`, `DEFVAL { {} }`
-    /// Each `StrId` refers to a bit name defined in the object's BITS type.
-    Bits(Vec<StrId>),
+    /// Each string refers to a bit name defined in the object's BITS type.
+    Bits(Vec<Box<str>>),
 
     /// OID reference: `DEFVAL { sysName }` or `DEFVAL { { iso 3 6 1 } }`
     /// If the OID could be resolved, contains the `NodeId`; otherwise None with
@@ -45,7 +46,7 @@ pub enum DefVal {
         /// Resolved node (if found).
         node: Option<NodeId>,
         /// Original symbolic reference (if unresolved).
-        symbol: Option<StrId>,
+        symbol: Option<Box<str>>,
     },
 }
 
@@ -100,7 +101,7 @@ pub struct ResolvedObject {
     /// Defining module.
     pub module: ModuleId,
     /// Object name.
-    pub name: StrId,
+    pub name: Box<str>,
     /// Resolved type (None if type reference couldn't be resolved).
     pub type_id: Option<TypeId>,
     /// Inline enumeration values (not from type).
@@ -112,9 +113,9 @@ pub struct ResolvedObject {
     /// Definition status.
     pub status: Status,
     /// Description text.
-    pub description: Option<StrId>,
+    pub description: Option<Box<str>>,
     /// Units string.
-    pub units: Option<StrId>,
+    pub units: Option<Box<str>>,
     /// Index specification (for row objects).
     pub index: Option<IndexSpec>,
     /// AUGMENTS target (for row objects).
@@ -122,7 +123,7 @@ pub struct ResolvedObject {
     /// Default value (DEFVAL clause).
     pub defval: Option<DefVal>,
     /// Reference text.
-    pub reference: Option<StrId>,
+    pub reference: Option<Box<str>>,
 }
 
 impl ResolvedObject {
@@ -134,7 +135,7 @@ impl ResolvedObject {
     pub fn new(
         node: NodeId,
         module: ModuleId,
-        name: StrId,
+        name: Box<str>,
         type_id: Option<TypeId>,
         access: Access,
     ) -> Self {
@@ -181,15 +182,15 @@ pub struct ResolvedNotification {
     /// Defining module.
     pub module: ModuleId,
     /// Notification name.
-    pub name: StrId,
+    pub name: Box<str>,
     /// Objects included in the notification.
     pub objects: Vec<NodeId>,
     /// Definition status.
     pub status: Status,
     /// Description text.
-    pub description: Option<StrId>,
+    pub description: Option<Box<str>>,
     /// Reference text.
-    pub reference: Option<StrId>,
+    pub reference: Option<Box<str>>,
 }
 
 impl ResolvedNotification {
@@ -198,7 +199,7 @@ impl ResolvedNotification {
     /// The `id` field is initialized to a placeholder and will be assigned
     /// by `Model::add_notification()` when the notification is added to the model.
     #[must_use]
-    pub fn new(node: NodeId, module: ModuleId, name: StrId) -> Self {
+    pub fn new(node: NodeId, module: ModuleId, name: Box<str>) -> Self {
         Self {
             id: super::ids::NotificationId::placeholder(),
             node,

@@ -1,6 +1,7 @@
 //! OID tree node types.
 
-use super::ids::{ModuleId, NodeId, NotificationId, ObjectId, StrId};
+use super::ids::{ModuleId, NodeId, NotificationId, ObjectId};
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// Node kind inferred from definition context.
@@ -116,8 +117,8 @@ impl OidNode {
 
     /// Get the label from the primary definition.
     #[must_use]
-    pub fn label(&self) -> Option<StrId> {
-        self.primary_definition().map(|d| d.label)
+    pub fn label(&self) -> Option<&str> {
+        self.primary_definition().map(|d| d.label.as_ref())
     }
 
     /// Check if this node has any definitions.
@@ -150,7 +151,7 @@ pub struct NodeDefinition {
     /// Module where this definition appears.
     pub module: ModuleId,
     /// Object name/label.
-    pub label: StrId,
+    pub label: Box<str>,
     /// Associated object (for OBJECT-TYPE).
     pub object: Option<ObjectId>,
     /// Associated notification (for NOTIFICATION-TYPE/TRAP-TYPE).
@@ -160,7 +161,7 @@ pub struct NodeDefinition {
 impl NodeDefinition {
     /// Create a new node definition.
     #[must_use]
-    pub fn new(module: ModuleId, label: StrId) -> Self {
+    pub fn new(module: ModuleId, label: Box<str>) -> Self {
         Self {
             module,
             label,
@@ -171,7 +172,7 @@ impl NodeDefinition {
 
     /// Create a node definition with an object.
     #[must_use]
-    pub fn with_object(module: ModuleId, label: StrId, object: ObjectId) -> Self {
+    pub fn with_object(module: ModuleId, label: Box<str>, object: ObjectId) -> Self {
         Self {
             module,
             label,
@@ -182,7 +183,11 @@ impl NodeDefinition {
 
     /// Create a node definition with a notification.
     #[must_use]
-    pub fn with_notification(module: ModuleId, label: StrId, notification: NotificationId) -> Self {
+    pub fn with_notification(
+        module: ModuleId,
+        label: Box<str>,
+        notification: NotificationId,
+    ) -> Self {
         Self {
             module,
             label,

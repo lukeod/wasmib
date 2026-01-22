@@ -158,8 +158,7 @@ func TestValidationAgainstSmidump(t *testing.T) {
 				// Check name exists in definitions
 				foundName := false
 				for _, def := range node.Definitions {
-					name := model.GetStr(def.Label)
-					if name == entry.Name {
+					if def.Label == entry.Name {
 						foundName = true
 						break
 					}
@@ -168,7 +167,7 @@ func TestValidationAgainstSmidump(t *testing.T) {
 					mismatches++
 					var names []string
 					for _, def := range node.Definitions {
-						names = append(names, model.GetStr(def.Label))
+						names = append(names, def.Label)
 					}
 					t.Logf("NAME MISMATCH: %s at %s - smidump=%s wasmib=%v",
 						entry.Module, entry.OID, entry.Name, names)
@@ -239,7 +238,7 @@ func TestValidationOIDDetails(t *testing.T) {
 			// Check name
 			foundName := false
 			for _, def := range node.Definitions {
-				if model.GetStr(def.Label) == tt.name {
+				if def.Label == tt.name {
 					foundName = true
 					break
 				}
@@ -350,7 +349,7 @@ func TestValidationEnumValues(t *testing.T) {
 	for val, name := range expected {
 		found := false
 		for _, ev := range enums {
-			if ev.Value == val && model.GetStr(ev.Name) == name {
+			if ev.Value == val && ev.Name == name {
 				found = true
 				break
 			}

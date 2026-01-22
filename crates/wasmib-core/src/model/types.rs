@@ -1,6 +1,7 @@
 //! Type system types for the resolved model.
 
-use super::ids::{ModuleId, StrId, TypeId};
+use super::ids::{ModuleId, TypeId};
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -172,31 +173,31 @@ impl ValueConstraint {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumValues {
     /// (value, label) pairs.
-    pub values: Vec<(i64, StrId)>,
+    pub values: Vec<(i64, Box<str>)>,
 }
 
 impl EnumValues {
     /// Create new enum values.
     #[must_use]
-    pub fn new(values: Vec<(i64, StrId)>) -> Self {
+    pub fn new(values: Vec<(i64, Box<str>)>) -> Self {
         Self { values }
     }
 
     /// Get the label for a numeric value.
     #[must_use]
-    pub fn get_label(&self, value: i64) -> Option<StrId> {
+    pub fn get_label(&self, value: i64) -> Option<&str> {
         self.values
             .iter()
             .find(|(v, _)| *v == value)
-            .map(|(_, l)| *l)
+            .map(|(_, l)| l.as_ref())
     }
 
     /// Get the value for a label.
     #[must_use]
-    pub fn get_value(&self, label: StrId) -> Option<i64> {
+    pub fn get_value(&self, label: &str) -> Option<i64> {
         self.values
             .iter()
-            .find(|(_, l)| *l == label)
+            .find(|(_, l)| l.as_ref() == label)
             .map(|(v, _)| *v)
     }
 }
@@ -206,13 +207,13 @@ impl EnumValues {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitDefinitions {
     /// (bit position, label) pairs.
-    pub bits: Vec<(u32, StrId)>,
+    pub bits: Vec<(u32, Box<str>)>,
 }
 
 impl BitDefinitions {
     /// Create new bit definitions.
     #[must_use]
-    pub fn new(bits: Vec<(u32, StrId)>) -> Self {
+    pub fn new(bits: Vec<(u32, Box<str>)>) -> Self {
         Self { bits }
     }
 }
@@ -336,7 +337,7 @@ pub struct ResolvedType {
     /// Type identifier.
     pub id: TypeId,
     /// Type name.
-    pub name: StrId,
+    pub name: Box<str>,
     /// Defining module.
     pub module: ModuleId,
     /// Underlying primitive type.
@@ -344,7 +345,7 @@ pub struct ResolvedType {
     /// Parent type for textual conventions.
     pub parent_type: Option<TypeId>,
     /// Display hint.
-    pub hint: Option<StrId>,
+    pub hint: Option<Box<str>>,
     /// Size constraint.
     pub size: Option<SizeConstraint>,
     /// Value range constraint.
@@ -354,7 +355,7 @@ pub struct ResolvedType {
     /// Bit definitions.
     pub bit_defs: Option<BitDefinitions>,
     /// Description text.
-    pub description: Option<StrId>,
+    pub description: Option<Box<str>>,
     /// Is this a textual convention?
     pub is_textual_convention: bool,
     /// Definition status.
@@ -372,7 +373,7 @@ impl ResolvedType {
     /// The `id` field is initialized to a placeholder and will be assigned
     /// by `Model::add_type()` when the type is added to the model.
     #[must_use]
-    pub fn new(name: StrId, module: ModuleId, base: BaseType) -> Self {
+    pub fn new(name: Box<str>, module: ModuleId, base: BaseType) -> Self {
         Self {
             id: TypeId::placeholder(),
             name,

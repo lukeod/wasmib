@@ -491,13 +491,13 @@ fn test_resolver_tier1_builtin_only() {
     // Print unresolved details
     let unresolved = result.model.unresolved();
     for imp in unresolved.imports.iter().take(5) {
-        let from = result.model.get_str(imp.from_module);
-        let sym = result.model.get_str(imp.symbol);
+        let from = imp.from_module.as_ref();
+        let sym = imp.symbol.as_ref();
         println!("  Unresolved import: {from}::{sym}");
     }
     for oid in unresolved.oids.iter().take(5) {
-        let def = result.model.get_str(oid.definition);
-        let comp = result.model.get_str(oid.component);
+        let def = oid.definition.as_ref();
+        let comp = oid.component.as_ref();
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
@@ -577,8 +577,8 @@ fn test_resolver_tier2_basic_deps() {
     // Print unresolved details for debugging
     let unresolved = result.model.unresolved();
     for imp in unresolved.imports.iter().take(5) {
-        let from = result.model.get_str(imp.from_module);
-        let sym = result.model.get_str(imp.symbol);
+        let from = imp.from_module.as_ref();
+        let sym = imp.symbol.as_ref();
         println!("  Unresolved import: {from}::{sym}");
     }
 
@@ -664,13 +664,13 @@ fn test_resolver_tier3_complex() {
     // Print unresolved for debugging
     let unresolved = result.model.unresolved();
     for imp in unresolved.imports.iter().take(3) {
-        let from = result.model.get_str(imp.from_module);
-        let sym = result.model.get_str(imp.symbol);
+        let from = imp.from_module.as_ref();
+        let sym = imp.symbol.as_ref();
         println!("  Unresolved import: {from}::{sym}");
     }
     for oid in unresolved.oids.iter().take(3) {
-        let def = result.model.get_str(oid.definition);
-        let comp = result.model.get_str(oid.component);
+        let def = oid.definition.as_ref();
+        let comp = oid.component.as_ref();
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
@@ -778,7 +778,7 @@ fn test_oid_values_match_libsmi() {
         if let Some(n) = node
             && let Some(def) = n.primary_definition()
         {
-            let label = result.model.get_str(def.label);
+            let label = def.label.as_ref();
             assert_eq!(
                 label, name,
                 "OID {expected_oid} should be named '{name}', got '{label}'"

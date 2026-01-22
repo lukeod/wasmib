@@ -386,9 +386,7 @@ func TestFormatOctetString_HexCase(t *testing.T) {
 }
 
 func TestFormatBits(t *testing.T) {
-	m := &Model{
-		strings: []string{"bit0Name", "bit3Name", "bit7Name"},
-	}
+	m := &Model{}
 
 	tests := []struct {
 		name    string
@@ -410,7 +408,7 @@ func TestFormatBits(t *testing.T) {
 			name:  "bit 0 set (MSB)",
 			value: []byte{0x80},
 			bitDefs: []BitDef{
-				{Position: 0, Name: 1},
+				{Position: 0, Name: "bit0Name"},
 			},
 			want: "{bit0Name}",
 		},
@@ -418,8 +416,8 @@ func TestFormatBits(t *testing.T) {
 			name:  "bits 0 and 7 set",
 			value: []byte{0x81},
 			bitDefs: []BitDef{
-				{Position: 0, Name: 1},
-				{Position: 7, Name: 3},
+				{Position: 0, Name: "bit0Name"},
+				{Position: 7, Name: "bit7Name"},
 			},
 			want: "{bit0Name, bit7Name}",
 		},
@@ -450,13 +448,12 @@ func TestFormatBits(t *testing.T) {
 
 func TestFormatInteger(t *testing.T) {
 	m := &Model{
-		strings: []string{"up", "down", "testing", "seconds"},
 		types: []Type{
 			{
 				EnumValues: []EnumValue{
-					{Value: 1, Name: 1},
-					{Value: 2, Name: 2},
-					{Value: 3, Name: 3},
+					{Value: 1, Name: "up"},
+					{Value: 2, Name: "down"},
+					{Value: 3, Name: "testing"},
 				},
 			},
 		},
@@ -467,7 +464,7 @@ func TestFormatInteger(t *testing.T) {
 		value      int64
 		typeID     uint32
 		inlineEnum []EnumValue
-		units      uint32
+		units      string
 		want       string
 	}{
 		{
@@ -498,7 +495,7 @@ func TestFormatInteger(t *testing.T) {
 			name:  "inline enum overrides type",
 			value: 1,
 			inlineEnum: []EnumValue{
-				{Value: 1, Name: 2},
+				{Value: 1, Name: "down"},
 			},
 			typeID: 1,
 			want:   "down(1)",
@@ -507,14 +504,14 @@ func TestFormatInteger(t *testing.T) {
 			name:   "with units",
 			value:  100,
 			typeID: 0,
-			units:  4,
+			units:  "seconds",
 			want:   "100 seconds",
 		},
 		{
 			name:   "enum with units",
 			value:  1,
 			typeID: 1,
-			units:  4,
+			units:  "seconds",
 			want:   "up(1) seconds",
 		},
 		{
@@ -528,7 +525,7 @@ func TestFormatInteger(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var obj *Object
-			if tt.typeID != 0 || len(tt.inlineEnum) > 0 || tt.units != 0 {
+			if tt.typeID != 0 || len(tt.inlineEnum) > 0 || tt.units != "" {
 				obj = &Object{
 					TypeID:     tt.typeID,
 					InlineEnum: tt.inlineEnum,
@@ -585,19 +582,18 @@ func TestIsPrintableASCII(t *testing.T) {
 
 func TestFormatValue(t *testing.T) {
 	m := &Model{
-		strings: []string{"seconds", "enabled", "disabled"},
 		types: []Type{
 			{Base: BaseTypeInteger32},
 			{Base: BaseTypeTimeTicks},
 			{
 				Base: BaseTypeBits,
 				BitDefs: []BitDef{
-					{Position: 0, Name: 2},
+					{Position: 0, Name: "enabled"},
 				},
 			},
 			{
 				Base: BaseTypeOctetString,
-				Hint: 1,
+				Hint: "255a",
 			},
 		},
 	}
@@ -650,12 +646,11 @@ func TestFormatValue(t *testing.T) {
 
 func TestFormatBits_WithTypeLevel(t *testing.T) {
 	m := &Model{
-		strings: []string{"adminStatus", "operStatus"},
 		types: []Type{
 			{
 				BitDefs: []BitDef{
-					{Position: 0, Name: 1},
-					{Position: 1, Name: 2},
+					{Position: 0, Name: "adminStatus"},
+					{Position: 1, Name: "operStatus"},
 				},
 			},
 		},

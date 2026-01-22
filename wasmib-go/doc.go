@@ -17,7 +17,7 @@
 //	// Query by OID
 //	node := model.GetNodeByOID("1.3.6.1.2.1.2.2.1.1")
 //	obj := model.GetObject(node)
-//	fmt.Println(model.GetStr(obj.Name)) // "ifIndex"
+//	fmt.Println(obj.Name) // "ifIndex"
 //
 // # Loading MIBs
 //
@@ -28,16 +28,6 @@
 //   - [LoadBytes] loads from in-memory byte slices
 //   - [LoadFS] loads from an [fs.FS] (e.g., embed.FS)
 //   - [NewCompiler] provides low-level control over parsing
-//
-// # String Interning
-//
-// All strings in the model are interned for memory efficiency. String fields
-// store uint32 IDs that must be resolved via [Model.GetStr]:
-//
-//	name := model.GetStr(obj.Name)        // "ifIndex"
-//	desc := model.GetStr(obj.Description) // "A unique value..."
-//
-// A zero ID always returns an empty string.
 //
 // # Concurrency
 //

@@ -10,7 +10,6 @@
 //! # Features
 //!
 //! - Arena-based storage with stable index IDs
-//! - Global string interner for identifiers, descriptions, etc.
 //! - OID tree with multiple definitions per OID
 //! - Fast lookups by OID, name, `Module::Name`
 //! - Resolved type chains and inheritance
@@ -36,15 +35,13 @@
 //! ```
 
 mod ids;
-mod interner;
 mod module;
 mod node;
 mod object;
 mod oid;
 mod types;
 
-pub use ids::{ModuleId, NodeId, NotificationId, ObjectId, StrId, TypeId};
-pub use interner::{InternerMemoryUsage, StringInterner};
+pub use ids::{ModuleId, NodeId, NotificationId, ObjectId, TypeId};
 pub use module::{ResolvedModule, Revision};
 pub use node::{NodeDefinition, NodeKind, OidNode};
 pub use object::{DefVal, IndexItem, IndexSpec, ResolvedNotification, ResolvedObject};
@@ -55,8 +52,8 @@ pub use types::{
 };
 
 use crate::lexer::Span;
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, VecDeque};
-use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Unresolved reference tracking.
@@ -116,9 +113,9 @@ pub struct UnresolvedImport {
     /// Module requesting the import.
     pub importing_module: ModuleId,
     /// Module being imported from.
-    pub from_module: StrId,
+    pub from_module: Box<str>,
     /// Symbol being imported.
-    pub symbol: StrId,
+    pub symbol: Box<str>,
     /// Reason the import could not be resolved.
     pub reason: UnresolvedImportReason,
     /// Source location of the import.
@@ -132,9 +129,9 @@ pub struct UnresolvedType {
     /// Module containing the reference.
     pub module: ModuleId,
     /// Definition referencing the type.
-    pub referrer: StrId,
+    pub referrer: Box<str>,
     /// Type being referenced.
-    pub referenced: StrId,
+    pub referenced: Box<str>,
     /// Source location of the type reference.
     pub span: Span,
 }
@@ -146,9 +143,9 @@ pub struct UnresolvedOid {
     /// Module containing the definition.
     pub module: ModuleId,
     /// Definition with the OID.
-    pub definition: StrId,
+    pub definition: Box<str>,
     /// Unresolved component name.
-    pub component: StrId,
+    pub component: Box<str>,
     /// Source location of the OID reference.
     pub span: Span,
 }
@@ -160,9 +157,9 @@ pub struct UnresolvedIndex {
     /// Module containing the row.
     pub module: ModuleId,
     /// Row definition name.
-    pub row: StrId,
+    pub row: Box<str>,
     /// Unresolved index object name.
-    pub index_object: StrId,
+    pub index_object: Box<str>,
     /// Source location of the index reference.
     pub span: Span,
 }
@@ -178,9 +175,9 @@ pub struct UnresolvedNotificationObject {
     /// Module containing the notification.
     pub module: ModuleId,
     /// Notification definition name.
-    pub notification: StrId,
+    pub notification: Box<str>,
     /// Unresolved object name.
-    pub object: StrId,
+    pub object: Box<str>,
     /// Source location of the notification.
     pub span: Span,
 }
@@ -235,10 +232,6 @@ impl core::fmt::Display for CapacityError {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ModelParts {
-    /// String interner data (concatenated strings).
-    pub strings_data: String,
-    /// String interner offsets.
-    pub strings_offsets: Vec<u32>,
     /// All resolved modules.
     pub modules: Vec<ResolvedModule>,
     /// All OID tree nodes.
@@ -259,7 +252,6 @@ pub struct ModelParts {
 #[derive(Clone, Debug)]
 pub struct Model {
     // Storage
-    strings: StringInterner,
     modules: Vec<ResolvedModule>,
     nodes: Vec<OidNode>,
     types: Vec<ResolvedType>,
@@ -268,8 +260,8 @@ pub struct Model {
 
     // Lookup indices (rebuilt on load)
     oid_to_node: BTreeMap<Oid, NodeId>,
-    module_name_to_id: BTreeMap<StrId, ModuleId>,
-    name_to_nodes: BTreeMap<StrId, Vec<NodeId>>,
+    module_name_to_id: BTreeMap<Box<str>, ModuleId>,
+    name_to_nodes: BTreeMap<Box<str>, Vec<NodeId>>,
 
     // Tree roots
     roots: Vec<NodeId>,
@@ -289,7 +281,6 @@ impl Model {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            strings: StringInterner::new(),
             modules: Vec::new(),
             nodes: Vec::new(),
             types: Vec::new(),
@@ -301,25 +292,6 @@ impl Model {
             roots: Vec::new(),
             unresolved: UnresolvedReferences::default(),
         }
-    }
-
-    // === String Operations ===
-
-    /// Intern a string and return its ID.
-    pub fn intern(&mut self, s: &str) -> StrId {
-        self.strings.intern(s)
-    }
-
-    /// Get a string by its ID.
-    #[must_use]
-    pub fn get_str(&self, id: StrId) -> &str {
-        self.strings.get(id)
-    }
-
-    /// Get the string interner.
-    #[must_use]
-    pub fn strings(&self) -> &StringInterner {
-        &self.strings
     }
 
     // === Module Operations ===
@@ -335,7 +307,7 @@ impl Model {
             kind: CapacityErrorKind::Modules,
         })?;
         module.id = id;
-        self.module_name_to_id.insert(module.name, id);
+        self.module_name_to_id.insert(module.name.clone(), id);
         self.modules.push(module);
         Ok(id)
     }
@@ -356,8 +328,7 @@ impl Model {
     /// Uses the module name index for O(log n) lookup.
     #[must_use]
     pub fn get_module_by_name(&self, name: &str) -> Option<&ResolvedModule> {
-        let str_id = self.strings.find(name)?;
-        let module_id = self.module_name_to_id.get(&str_id)?;
+        let module_id = self.module_name_to_id.get(name)?;
         self.get_module(*module_id)
     }
 
@@ -418,14 +389,11 @@ impl Model {
     }
 
     /// Get all nodes with a given name.
-    /// Uses the name index for O(1) lookup after finding the `StrId`.
+    /// Uses the name index for O(log n) lookup.
     #[must_use]
     pub fn get_nodes_by_name(&self, name: &str) -> Vec<&OidNode> {
-        let Some(str_id) = self.strings.find(name) else {
-            return Vec::new();
-        };
         self.name_to_nodes
-            .get(&str_id)
+            .get(name)
             .map(|ids| ids.iter().filter_map(|id| self.get_node(*id)).collect())
             .unwrap_or_default()
     }
@@ -435,9 +403,8 @@ impl Model {
     #[must_use]
     pub fn get_node_by_qualified_name(&self, module: &str, name: &str) -> Option<&OidNode> {
         let module_id = self.get_module_by_name(module)?.id;
-        let str_id = self.strings.find(name)?;
 
-        if let Some(node_ids) = self.name_to_nodes.get(&str_id) {
+        if let Some(node_ids) = self.name_to_nodes.get(name) {
             for &node_id in node_ids {
                 if let Some(node) = self.get_node(node_id) {
                     for def in &node.definitions {
@@ -574,11 +541,12 @@ impl Model {
     }
 
     /// Get the effective display hint by walking the type chain.
+    /// Returns a reference to the hint string.
     #[must_use]
-    pub fn get_effective_hint(&self, id: TypeId) -> Option<StrId> {
+    pub fn get_effective_hint(&self, id: TypeId) -> Option<&str> {
         for typ in self.get_type_chain(id) {
-            if typ.hint.is_some() {
-                return typ.hint;
+            if let Some(ref hint) = typ.hint {
+                return Some(hint);
             }
         }
         None
@@ -676,10 +644,7 @@ impl Model {
     /// Indices are not serialized; they are rebuilt on load.
     #[must_use]
     pub fn into_parts(self) -> ModelParts {
-        let (strings_data, strings_offsets) = self.strings.into_parts();
         ModelParts {
-            strings_data,
-            strings_offsets,
             modules: self.modules,
             nodes: self.nodes,
             types: self.types,
@@ -695,7 +660,6 @@ impl Model {
     #[must_use]
     pub fn from_parts(parts: ModelParts) -> Self {
         let mut model = Self {
-            strings: StringInterner::from_parts(parts.strings_data, parts.strings_offsets),
             modules: parts.modules,
             nodes: parts.nodes,
             types: parts.types,
@@ -724,7 +688,7 @@ impl Model {
         // Module name index
         for (idx, module) in self.modules.iter().enumerate() {
             if let Some(id) = ModuleId::from_index(idx) {
-                self.module_name_to_id.insert(module.name, id);
+                self.module_name_to_id.insert(module.name.clone(), id);
             }
         }
 
@@ -748,7 +712,7 @@ impl Model {
             // Add to name index
             for def in &node.definitions {
                 self.name_to_nodes
-                    .entry(def.label)
+                    .entry(def.label.clone())
                     .or_default()
                     .push(node_id);
             }
@@ -781,16 +745,9 @@ mod tests {
     }
 
     #[test]
-    fn test_intern_and_get_str() {
-        let mut model = Model::new();
-        let id = model.intern("hello");
-        assert_eq!(model.get_str(id), "hello");
-    }
-
-    #[test]
     fn test_add_module() {
         let mut model = Model::new();
-        let name = model.intern("IF-MIB");
+        let name: Box<str> = "IF-MIB".into();
         let module = ResolvedModule::new(name);
 
         let id = model.add_module(module).unwrap();
@@ -801,7 +758,7 @@ mod tests {
     #[test]
     fn test_get_module_by_name() {
         let mut model = Model::new();
-        let name = model.intern("IF-MIB");
+        let name: Box<str> = "IF-MIB".into();
         let module = ResolvedModule::new(name);
 
         model.add_module(module).unwrap();

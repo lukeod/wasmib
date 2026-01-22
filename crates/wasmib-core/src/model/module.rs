@@ -1,6 +1,7 @@
 //! Module definition types for the resolved model.
 
-use super::ids::{ModuleId, NodeId, NotificationId, ObjectId, StrId, TypeId};
+use super::ids::{ModuleId, NodeId, NotificationId, ObjectId, TypeId};
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 /// A revision entry in a module.
@@ -8,15 +9,15 @@ use alloc::vec::Vec;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Revision {
     /// Revision date string.
-    pub date: StrId,
+    pub date: Box<str>,
     /// Revision description.
-    pub description: StrId,
+    pub description: Box<str>,
 }
 
 impl Revision {
     /// Create a new revision.
     #[must_use]
-    pub fn new(date: StrId, description: StrId) -> Self {
+    pub fn new(date: Box<str>, description: Box<str>) -> Self {
         Self { date, description }
     }
 }
@@ -28,15 +29,15 @@ pub struct ResolvedModule {
     /// Module identifier.
     pub id: ModuleId,
     /// Module name.
-    pub name: StrId,
+    pub name: Box<str>,
     /// LAST-UPDATED value.
-    pub last_updated: Option<StrId>,
+    pub last_updated: Option<Box<str>>,
     /// ORGANIZATION value.
-    pub organization: Option<StrId>,
+    pub organization: Option<Box<str>>,
     /// CONTACT-INFO value.
-    pub contact_info: Option<StrId>,
+    pub contact_info: Option<Box<str>>,
     /// Description text.
-    pub description: Option<StrId>,
+    pub description: Option<Box<str>>,
     /// Revision history.
     pub revisions: Vec<Revision>,
     /// MODULE-IDENTITY node.
@@ -57,7 +58,7 @@ impl ResolvedModule {
     /// The `id` field is initialized to a placeholder and will be assigned
     /// by `Model::add_module()` when the module is added to the model.
     #[must_use]
-    pub fn new(name: StrId) -> Self {
+    pub fn new(name: Box<str>) -> Self {
         Self {
             id: ModuleId::placeholder(),
             name,
@@ -101,8 +102,8 @@ mod tests {
 
     #[test]
     fn test_resolved_module_new() {
-        let name = StrId::from_raw(1).unwrap();
-        let module = ResolvedModule::new(name);
+        let name: Box<str> = "TEST-MODULE".into();
+        let module = ResolvedModule::new(name.clone());
 
         // ID is a placeholder until added to model
         assert_eq!(module.id, ModuleId::placeholder());
@@ -114,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_add_nodes() {
-        let name = StrId::from_raw(1).unwrap();
+        let name: Box<str> = "TEST-MODULE".into();
         let mut module = ResolvedModule::new(name);
 
         let node1 = NodeId::from_raw(1).unwrap();

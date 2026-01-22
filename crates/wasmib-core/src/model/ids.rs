@@ -62,11 +62,6 @@ macro_rules! define_id {
 }
 
 define_id!(
-    /// Interned string identifier.
-    StrId
-);
-
-define_id!(
     /// Module identifier.
     ModuleId
 );

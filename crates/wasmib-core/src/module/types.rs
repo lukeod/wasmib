@@ -60,7 +60,7 @@ impl SmiLanguage {
 
 /// Symbol identifier.
 ///
-/// Wraps a string name. Later can be replaced with interned strings for efficiency.
+/// Wraps a string name.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol {
     /// The symbol name.

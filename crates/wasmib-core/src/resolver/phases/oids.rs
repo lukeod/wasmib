@@ -5,6 +5,7 @@
 use crate::model::{ModuleId, NodeDefinition, NodeId, NodeKind, Oid, OidNode};
 use crate::module::{Definition, OidAssignment, OidComponent};
 use crate::resolver::context::ResolverContext;
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
@@ -396,7 +397,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         };
 
         // Add the definition to the node
-        let label = ctx.intern(&def_name);
+        let label = def_name.as_str().into();
         let node_def = NodeDefinition::new(def.module_id, label);
 
         if let Some(node) = ctx.model.get_node_mut(trap_node_id) {
@@ -405,7 +406,7 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         }
 
         // Register the name -> node mapping for this module
-        let def_name_id = ctx.intern(&def_name);
+        let def_name_id = def_name.as_str().into();
         ctx.register_module_node_symbol(def.module_id, def_name_id, trap_node_id);
 
         // Add to module
@@ -645,11 +646,11 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     // Create node at the given number
                     current_oid = current_oid.child(*number);
 
-                    let name_id = ctx.intern(&name.name);
+                    let name_id: Box<str> = name.name.as_str().into();
                     if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
                         current_node = Some(existing);
                         // Register the name mapping
-                        ctx.register_module_node_symbol(module_id, name_id, existing);
+                        ctx.register_module_node_symbol(module_id, name_id.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
                         let new_id = ctx.model.add_node(new_node).unwrap();
@@ -664,7 +665,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name_id, new_id);
+                        ctx.register_module_node_symbol(module_id, name_id.clone(), new_id);
                         current_node = Some(new_id);
                     }
 
@@ -682,7 +683,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 
                 // Also register the name
                 if let Some(node_id) = current_node {
-                    let name_id = ctx.intern(&name.name);
+                    let name_id = name.name.as_str().into();
                     ctx.register_module_node_symbol(module_id, name_id, node_id);
                 }
             }
@@ -719,11 +720,11 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     // Create node at the given number (like NamedNumber behavior)
                     current_oid = current_oid.child(*number);
 
-                    let name_id = ctx.intern(&name.name);
+                    let name_id: Box<str> = name.name.as_str().into();
                     if let Some(existing) = ctx.model.get_node_id_by_oid(&current_oid) {
                         current_node = Some(existing);
                         // Register the name mapping for this module
-                        ctx.register_module_node_symbol(module_id, name_id, existing);
+                        ctx.register_module_node_symbol(module_id, name_id.clone(), existing);
                     } else {
                         let new_node = OidNode::new(*number, current_node);
                         let new_id = ctx.model.add_node(new_node).unwrap();
@@ -738,7 +739,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                         }
 
                         ctx.model.register_oid(current_oid.clone(), new_id);
-                        ctx.register_module_node_symbol(module_id, name_id, new_id);
+                        ctx.register_module_node_symbol(module_id, name_id.clone(), new_id);
                         current_node = Some(new_id);
                     }
 
@@ -756,7 +757,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 
                 // Also register the name for this module's scope
                 if let Some(node_id) = current_node {
-                    let name_id = ctx.intern(&name.name);
+                    let name_id = name.name.as_str().into();
                     ctx.register_module_node_symbol(module_id, name_id, node_id);
                 }
             }
@@ -764,7 +765,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
 
         // If this is the last component, add the definition
         if is_last && let Some(node_id) = current_node {
-            let label = ctx.intern(&def_name);
+            let label = def_name.as_str().into();
             let node_def = NodeDefinition::new(module_id, label);
 
             if let Some(node) = ctx.model.get_node_mut(node_id) {
@@ -790,7 +791,7 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
             }
 
             // Register the name -> node mapping for this module
-            let def_name_id = ctx.intern(&def_name);
+            let def_name_id = def_name.as_str().into();
             ctx.register_module_node_symbol(module_id, def_name_id, node_id);
 
             // Add to module
@@ -1116,7 +1117,7 @@ mod tests {
         // Check the definition's label matches
         let def = &intermediate_node.definitions[0];
         assert_eq!(def.module, module_id);
-        assert_eq!(ctx.model.get_str(def.label), "intermediate");
+        assert_eq!(def.label.as_ref(), "intermediate");
 
         // Check node kind is Node (not Internal)
         assert_eq!(intermediate_node.kind, NodeKind::Node);

@@ -36,7 +36,7 @@ func FormatInteger(m *Model, obj *Object, value int64) string {
 	if m != nil && obj != nil {
 		for _, ev := range obj.InlineEnum {
 			if ev.Value == value {
-				enumName = m.GetStr(ev.Name)
+				enumName = ev.Name
 				break
 			}
 		}
@@ -44,7 +44,7 @@ func FormatInteger(m *Model, obj *Object, value int64) string {
 			if t := m.GetType(obj.TypeID); t != nil {
 				for _, ev := range t.EnumValues {
 					if ev.Value == value {
-						enumName = m.GetStr(ev.Name)
+						enumName = ev.Name
 						break
 					}
 				}
@@ -63,12 +63,9 @@ func FormatInteger(m *Model, obj *Object, value int64) string {
 	}
 
 	// Append units if present
-	if m != nil && obj != nil && obj.Units != 0 {
-		units := m.GetStr(obj.Units)
-		if units != "" {
-			b.WriteByte(' ')
-			b.WriteString(units)
-		}
+	if obj != nil && obj.Units != "" {
+		b.WriteByte(' ')
+		b.WriteString(obj.Units)
 	}
 
 	return b.String()
@@ -290,12 +287,12 @@ func FormatBits(m *Model, obj *Object, value []byte) string {
 	bitNames := make(map[uint32]string)
 	if m != nil && obj != nil {
 		for _, bd := range obj.InlineBits {
-			bitNames[bd.Position] = m.GetStr(bd.Name)
+			bitNames[bd.Position] = bd.Name
 		}
 		if len(bitNames) == 0 && obj.TypeID != 0 {
 			if t := m.GetType(obj.TypeID); t != nil {
 				for _, bd := range t.BitDefs {
-					bitNames[bd.Position] = m.GetStr(bd.Name)
+					bitNames[bd.Position] = bd.Name
 				}
 			}
 		}
@@ -398,7 +395,7 @@ func FormatOID(m *Model, value []uint32) string {
 	if m != nil {
 		if node := m.GetNodeByOIDSlice(value); node != nil {
 			if len(node.Definitions) > 0 {
-				name := m.GetStr(node.Definitions[0].Label)
+				name := node.Definitions[0].Label
 				if name != "" {
 					b.WriteByte('(')
 					b.WriteString(name)
@@ -466,10 +463,8 @@ func formatIntegerValue(m *Model, obj *Object, baseType BaseType, value int64) s
 	default:
 		// For other integer types, just format with units if available
 		s := strconv.FormatInt(value, 10)
-		if m != nil && obj != nil && obj.Units != 0 {
-			if units := m.GetStr(obj.Units); units != "" {
-				s += " " + units
-			}
+		if obj != nil && obj.Units != "" {
+			s += " " + obj.Units
 		}
 		return s
 	}
@@ -484,10 +479,8 @@ func formatUnsignedValue(m *Model, obj *Object, baseType BaseType, value uint64)
 		return FormatInteger(m, obj, int64(value))
 	default:
 		s := strconv.FormatUint(value, 10)
-		if m != nil && obj != nil && obj.Units != 0 {
-			if units := m.GetStr(obj.Units); units != "" {
-				s += " " + units
-			}
+		if obj != nil && obj.Units != "" {
+			s += " " + obj.Units
 		}
 		return s
 	}

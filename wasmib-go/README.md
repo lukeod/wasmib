@@ -95,7 +95,7 @@ func main() {
     if node != nil {
         obj := model.GetObject(node)
         fmt.Printf("OID: %s\n", model.GetOID(node))
-        fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+        fmt.Printf("Name: %s\n", obj.Name)
         fmt.Printf("Type: %s\n", model.GetType(obj.TypeID).Base)
     }
 }
@@ -204,7 +204,7 @@ node := model.GetNodeByQualifiedName("IF-MIB", "ifIndex")
 ```go
 // Walk from a specific node
 model.Walk(nodeID, func(n *wasmib.Node) bool {
-    fmt.Println(model.GetStr(n.Definitions[0].Label))
+    fmt.Println(n.Definitions[0].Label)
     return true // continue walking
 })
 
@@ -220,11 +220,11 @@ model.WalkAll(func(n *wasmib.Node) bool {
 node := model.GetNodeByOID("1.3.6.1.2.1.2.2.1.4")
 obj := model.GetObject(node)
 if obj != nil {
-    fmt.Printf("Name: %s\n", model.GetStr(obj.Name))
+    fmt.Printf("Name: %s\n", obj.Name)
     fmt.Printf("Access: %s\n", obj.Access)
     fmt.Printf("Status: %s\n", obj.Status)
-    fmt.Printf("Description: %s\n", model.GetStr(obj.Description))
-    fmt.Printf("Units: %s\n", model.GetStr(obj.Units))
+    fmt.Printf("Description: %s\n", obj.Description)
+    fmt.Printf("Units: %s\n", obj.Units)
 }
 ```
 
@@ -232,7 +232,7 @@ if obj != nil {
 
 ```go
 t := model.GetType(obj.TypeID)
-fmt.Printf("Type: %s\n", model.GetStr(t.Name))
+fmt.Printf("Type: %s\n", t.Name)
 fmt.Printf("Base: %s\n", t.Base)
 fmt.Printf("Is TC: %v\n", t.IsTC)
 
@@ -241,7 +241,7 @@ hint := model.GetEffectiveHint(obj.TypeID)
 
 // Enumeration values
 for _, ev := range t.EnumValues {
-    fmt.Printf("  %d = %s\n", ev.Value, model.GetStr(ev.Name))
+    fmt.Printf("  %d = %s\n", ev.Value, ev.Name)
 }
 ```
 
@@ -255,7 +255,7 @@ if obj.Index != nil {
     for _, idx := range obj.Index.Items {
         idxNode := model.GetNode(idx.Object)
         idxObj := model.GetObject(idxNode)
-        fmt.Printf("Index: %s (implied=%v)\n", model.GetStr(idxObj.Name), idx.Implied)
+        fmt.Printf("Index: %s (implied=%v)\n", idxObj.Name, idx.Implied)
     }
 }
 
@@ -290,21 +290,6 @@ if node.Kind.IsConformance() {
     // group, compliance, or capabilities
 }
 ```
-
-## String Table
-
-The Rust parser interns all strings into a deduplicated table for memory
-efficiency. This structure is preserved in Go: string fields store `uint32`
-IDs that must be looked up via `model.GetStr()`:
-
-```go
-obj := model.GetObject(node)
-name := model.GetStr(obj.Name)           // "ifIndex"
-desc := model.GetStr(obj.Description)    // "A unique value..."
-units := model.GetStr(obj.Units)         // "" if not set
-```
-
-A zero ID always returns an empty string.
 
 ## Concurrency
 
