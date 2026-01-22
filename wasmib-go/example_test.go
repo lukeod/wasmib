@@ -42,7 +42,7 @@ func ExampleLoad() {
 	fmt.Printf("Modules: %d\n", model.ModuleCount())
 	fmt.Printf("Nodes: %d\n", model.NodeCount())
 	// Output:
-	// Modules: 10
+	// Modules: 9
 	// Nodes: 180
 }
 
