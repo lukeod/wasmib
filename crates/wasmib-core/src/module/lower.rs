@@ -16,8 +16,8 @@ use super::definition::{
 };
 use super::module::{Import, Module};
 use super::syntax::{
-    Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,
-    SequenceField, TypeSyntax,
+    ChoiceAlternative, Constraint, DefVal, NamedBit, NamedNumber, OidAssignment, OidComponent,
+    Range, RangeValue, SequenceField, TypeSyntax,
 };
 use super::types::{Access, SmiLanguage, Status, Symbol};
 use crate::ast::{
@@ -514,6 +514,14 @@ fn lower_type_syntax(syntax: ast::TypeSyntax) -> TypeSyntax {
             fields
                 .into_iter()
                 .map(|f| SequenceField::new(Symbol::from(&f.name), lower_type_syntax(f.syntax)))
+                .collect(),
+        ),
+        ast::TypeSyntax::Choice { alternatives, .. } => TypeSyntax::Choice(
+            alternatives
+                .into_iter()
+                .map(|a| {
+                    ChoiceAlternative::new(Symbol::from(&a.name), lower_type_syntax(a.syntax))
+                })
                 .collect(),
         ),
         ast::TypeSyntax::OctetString { .. } => TypeSyntax::OctetString,

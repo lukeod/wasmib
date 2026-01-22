@@ -46,8 +46,6 @@ enum LexerState {
     InMacro,
     /// Inside an EXPORTS clause; skip until semicolon.
     InExports,
-    /// Inside a CHOICE definition; skip until closing brace.
-    InChoice,
     /// Inside a comment.
     InComment,
 }
@@ -117,7 +115,6 @@ impl<'src> Lexer<'src> {
             LexerState::Normal => self.next_normal_token(),
             LexerState::InMacro => self.skip_macro_body(),
             LexerState::InExports => self.skip_exports_body(),
-            LexerState::InChoice => self.skip_choice_body(),
             LexerState::InComment => self.skip_comment(),
         }
     }
@@ -458,28 +455,6 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    /// Skip CHOICE body until closing brace.
-    fn skip_choice_body(&mut self) -> Token {
-        loop {
-            match self.peek() {
-                None => {
-                    let start = self.pos;
-                    self.state = LexerState::Normal;
-                    return self.token(TokenKind::Eof, start);
-                }
-                Some(b'}') => {
-                    let start = self.pos;
-                    self.advance();
-                    self.state = LexerState::Normal;
-                    return self.token(TokenKind::RBrace, start);
-                }
-                _ => {
-                    self.advance();
-                }
-            }
-        }
-    }
-
     /// Skip a comment inline without changing state (for use inside skip modes).
     fn skip_comment_inline(&mut self) {
         // Skip the --
@@ -562,9 +537,6 @@ impl<'src> Lexer<'src> {
                 }
                 TokenKind::KwExports => {
                     self.state = LexerState::InExports;
-                }
-                TokenKind::KwChoice => {
-                    self.state = LexerState::InChoice;
                 }
                 _ => {}
             }
@@ -1158,8 +1130,8 @@ mod tests {
     }
 
     #[test]
-    fn test_choice_skip() {
-        // CHOICE body should be skipped
+    fn test_choice_tokenized() {
+        // CHOICE is now fully tokenized (not skipped) to support proper parsing
         let source = "NetworkAddress ::= CHOICE { internet IpAddress }Counter";
         let kinds = token_kinds(source);
         assert_eq!(
@@ -1168,7 +1140,10 @@ mod tests {
                 TokenKind::KwNetworkAddress,
                 TokenKind::ColonColonEqual,
                 TokenKind::KwChoice,
-                TokenKind::RBrace, // End of choice
+                TokenKind::LBrace,
+                TokenKind::LowercaseIdent, // internet
+                TokenKind::KwIpAddress,
+                TokenKind::RBrace,
                 TokenKind::KwCounter,
                 TokenKind::Eof,
             ]

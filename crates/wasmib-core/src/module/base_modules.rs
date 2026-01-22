@@ -33,7 +33,8 @@ use alloc::boxed::Box;
 use super::definition::{Definition, TypeDef, ValueAssignment};
 use super::module::Module;
 use super::syntax::{
-    Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax,
+    ChoiceAlternative, Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue,
+    TypeSyntax,
 };
 use super::types::{SmiLanguage, Status, Symbol};
 
@@ -250,7 +251,7 @@ fn create_rfc1215() -> Module {
 /// These are the types defined in RFC 1155:
 /// - Counter (0..4294967295)
 /// - Gauge (0..4294967295)
-/// - `NetworkAddress` (OCTET STRING SIZE (4)) - essentially `IpAddress`
+/// - `NetworkAddress` - CHOICE { internet `IpAddress` }
 /// - `IpAddress` (OCTET STRING SIZE (4))
 /// - `TimeTicks` (0..4294967295)
 /// - Opaque (OCTET STRING)
@@ -269,11 +270,13 @@ fn create_smiv1_type_definitions() -> Vec<Definition> {
             BaseType::Gauge32,
         ),
         // NetworkAddress ::= CHOICE { internet IpAddress }
-        // In practice, always IpAddress - we model it as OCTET STRING SIZE (4)
-        make_typedef_with_base(
+        // The only alternative ever defined was IpAddress
+        make_typedef(
             "NetworkAddress",
-            constrained_octet_fixed(4),
-            BaseType::IpAddress,
+            TypeSyntax::Choice(vec![ChoiceAlternative::new(
+                Symbol::from_name("internet"),
+                TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
+            )]),
         ),
         // IpAddress ::= [APPLICATION 0] IMPLICIT OCTET STRING (SIZE (4))
         make_typedef_with_base("IpAddress", constrained_octet_fixed(4), BaseType::IpAddress),
@@ -285,6 +288,9 @@ fn create_smiv1_type_definitions() -> Vec<Definition> {
         ),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
         make_typedef_with_base("Opaque", TypeSyntax::OctetString, BaseType::Opaque),
+        // ObjectName ::= OBJECT IDENTIFIER
+        // Name of an object (imported by some MIBs like COPS-PR-SPPI)
+        make_typedef("ObjectName", TypeSyntax::ObjectIdentifier),
     ]
 }
 
@@ -600,6 +606,103 @@ fn create_base_type_definitions() -> Vec<Definition> {
         make_typedef_with_base("IpAddress", constrained_octet_fixed(4), BaseType::IpAddress),
         // Opaque ::= [APPLICATION 4] IMPLICIT OCTET STRING
         make_typedef_with_base("Opaque", TypeSyntax::OctetString, BaseType::Opaque),
+        // ObjectName ::= OBJECT IDENTIFIER
+        // Name of an object (used in notification definitions)
+        make_typedef("ObjectName", TypeSyntax::ObjectIdentifier),
+        // NotificationName ::= OBJECT IDENTIFIER
+        // Name of a notification
+        make_typedef("NotificationName", TypeSyntax::ObjectIdentifier),
+        // ExtUTCTime ::= OCTET STRING (SIZE (11 | 13))
+        // Extended UTC time format (obsolete, but imported by some MIBs)
+        make_typedef_obsolete(
+            "ExtUTCTime",
+            constrained_octet_size(vec![
+                Range {
+                    min: RangeValue::Unsigned(11),
+                    max: None,
+                },
+                Range {
+                    min: RangeValue::Unsigned(13),
+                    max: None,
+                },
+            ]),
+        ),
+        // ObjectSyntax ::= CHOICE {
+        //     simple SimpleSyntax,
+        //     application-wide ApplicationSyntax
+        // }
+        make_typedef(
+            "ObjectSyntax",
+            TypeSyntax::Choice(vec![
+                ChoiceAlternative::new(
+                    Symbol::from_name("simple"),
+                    TypeSyntax::TypeRef(Symbol::from_name("SimpleSyntax")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("application-wide"),
+                    TypeSyntax::TypeRef(Symbol::from_name("ApplicationSyntax")),
+                ),
+            ]),
+        ),
+        // SimpleSyntax ::= CHOICE {
+        //     integer-value INTEGER,
+        //     string-value OCTET STRING,
+        //     objectID-value OBJECT IDENTIFIER
+        // }
+        make_typedef(
+            "SimpleSyntax",
+            TypeSyntax::Choice(vec![
+                ChoiceAlternative::new(
+                    Symbol::from_name("integer-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("INTEGER")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("string-value"),
+                    TypeSyntax::OctetString,
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("objectID-value"),
+                    TypeSyntax::ObjectIdentifier,
+                ),
+            ]),
+        ),
+        // ApplicationSyntax ::= CHOICE {
+        //     ipAddress-value IpAddress,
+        //     counter-value Counter32,
+        //     timeticks-value TimeTicks,
+        //     arbitrary-value Opaque,
+        //     big-counter-value Counter64,
+        //     unsigned-integer-value Unsigned32
+        // }
+        make_typedef(
+            "ApplicationSyntax",
+            TypeSyntax::Choice(vec![
+                ChoiceAlternative::new(
+                    Symbol::from_name("ipAddress-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("IpAddress")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("counter-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("Counter32")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("timeticks-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("TimeTicks")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("arbitrary-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("Opaque")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("big-counter-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("Counter64")),
+                ),
+                ChoiceAlternative::new(
+                    Symbol::from_name("unsigned-integer-value"),
+                    TypeSyntax::TypeRef(Symbol::from_name("Unsigned32")),
+                ),
+            ]),
+        ),
     ]
 }
 
@@ -611,6 +714,36 @@ fn make_typedef_with_base(name: &str, syntax: TypeSyntax, base: BaseType) -> Def
         base_type: Some(base),
         display_hint: None,
         status: Status::Current,
+        description: None,
+        reference: None,
+        is_textual_convention: false,
+        span: Span::SYNTHETIC,
+    })
+}
+
+/// Create a `TypeDef` for a type definition without explicit base type.
+fn make_typedef(name: &str, syntax: TypeSyntax) -> Definition {
+    Definition::TypeDef(TypeDef {
+        name: Symbol::from_name(name),
+        syntax,
+        base_type: None, // Derived from syntax during resolution
+        display_hint: None,
+        status: Status::Current,
+        description: None,
+        reference: None,
+        is_textual_convention: false,
+        span: Span::SYNTHETIC,
+    })
+}
+
+/// Create a `TypeDef` for an obsolete type definition without explicit base type.
+fn make_typedef_obsolete(name: &str, syntax: TypeSyntax) -> Definition {
+    Definition::TypeDef(TypeDef {
+        name: Symbol::from_name(name),
+        syntax,
+        base_type: None, // Derived from syntax during resolution
+        display_hint: None,
+        status: Status::Obsolete,
         description: None,
         reference: None,
         is_textual_convention: false,

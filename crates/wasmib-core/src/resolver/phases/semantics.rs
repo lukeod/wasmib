@@ -571,6 +571,11 @@ fn resolve_type_syntax(
             // (Tables and rows are identified by NodeKind, not by their type_id)
             None
         }
+        TypeSyntax::Choice(_) => {
+            // CHOICE types are abstract containers used in type definitions (like ObjectSyntax).
+            // They're not directly used as OBJECT-TYPE SYNTAX in real MIBs.
+            None
+        }
     }
 }
 

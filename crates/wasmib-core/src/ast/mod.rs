@@ -21,7 +21,7 @@ pub use definition::{
 pub use module::{DefinitionsKind, ExportsClause, ImportClause, Module};
 pub use oid::{OidAssignment, OidComponent};
 pub use syntax::{
-    AccessClause, AccessKeyword, AccessValue, AugmentsClause, Constraint, DefValClause,
-    DefValContent, IndexClause, IndexItem, Range, RangeValue, RevisionClause, SequenceField,
-    StatusClause, StatusValue, SyntaxClause, TypeSyntax,
+    AccessClause, AccessKeyword, AccessValue, AugmentsClause, ChoiceAlternative, Constraint,
+    DefValClause, DefValContent, IndexClause, IndexItem, Range, RangeValue, RevisionClause,
+    SequenceField, StatusClause, StatusValue, SyntaxClause, TypeSyntax,
 };

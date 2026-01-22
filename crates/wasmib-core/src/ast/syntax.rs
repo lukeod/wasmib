@@ -72,6 +72,14 @@ pub enum TypeSyntax {
         span: Span,
     },
 
+    /// CHOICE type: `CHOICE { simple SimpleSyntax, application ApplicationSyntax }`
+    Choice {
+        /// Choice alternatives.
+        alternatives: Vec<ChoiceAlternative>,
+        /// Source location.
+        span: Span,
+    },
+
     /// OCTET STRING (explicit form).
     OctetString {
         /// Source location.
@@ -96,6 +104,7 @@ impl TypeSyntax {
             | Self::Constrained { span, .. }
             | Self::SequenceOf { span, .. }
             | Self::Sequence { span, .. }
+            | Self::Choice { span, .. }
             | Self::OctetString { span }
             | Self::ObjectIdentifier { span } => *span,
         }
@@ -108,6 +117,17 @@ pub struct SequenceField {
     /// Field name.
     pub name: Ident,
     /// Field type.
+    pub syntax: TypeSyntax,
+    /// Source location.
+    pub span: Span,
+}
+
+/// An alternative in a CHOICE type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChoiceAlternative {
+    /// Alternative name.
+    pub name: Ident,
+    /// Alternative type.
     pub syntax: TypeSyntax,
     /// Source location.
     pub span: Span,

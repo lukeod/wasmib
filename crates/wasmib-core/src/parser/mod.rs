@@ -35,9 +35,9 @@
 //! the hundreds of other valid definitions that may exist in the same module.
 
 use crate::ast::{
-    AccessClause, AccessKeyword, AccessValue, AugmentsClause, Compliance, ComplianceGroup,
-    ComplianceModule, ComplianceObject, Constraint, DefValClause, DefValContent, Definition,
-    DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem, Module, NamedNumber,
+    AccessClause, AccessKeyword, AccessValue, AugmentsClause, ChoiceAlternative, Compliance,
+    ComplianceGroup, ComplianceModule, ComplianceObject, Constraint, DefValClause, DefValContent,
+    Definition, DefinitionsKind, Ident, ImportClause, IndexClause, IndexItem, Module, NamedNumber,
     ObjectTypeDef, ObjectVariation, OidAssignment, OidComponent, QuotedString, Range, RangeValue,
     SequenceField, StatusClause, StatusValue, SupportsModule, SyntaxClause, TextualConventionDef,
     TypeAssignmentDef, TypeSyntax, ValueAssignmentDef, Variation,
@@ -793,6 +793,15 @@ impl<'src> Parser<'src> {
                     TypeSyntax::Sequence { fields, span }
                 }
             }
+            TokenKind::KwChoice => {
+                // CHOICE { alternative1 Type1, alternative2 Type2, ... }
+                self.advance();
+                self.expect(TokenKind::LBrace)?;
+                let alternatives = self.parse_choice_alternatives()?;
+                let end_token = self.expect(TokenKind::RBrace)?;
+                let span = Span::new(start, end_token.span.end);
+                TypeSyntax::Choice { alternatives, span }
+            }
             // Other built-in type keywords
             TokenKind::KwCounter32
             | TokenKind::KwCounter64
@@ -1025,6 +1034,32 @@ impl<'src> Parser<'src> {
         }
 
         Ok(fields)
+    }
+
+    /// Parse CHOICE alternatives: `{ name1 Type1, name2 Type2, ... }`
+    fn parse_choice_alternatives(&mut self) -> Result<Vec<ChoiceAlternative>, Diagnostic> {
+        let mut alternatives = Vec::new();
+
+        loop {
+            if self.check(TokenKind::RBrace) || self.is_eof() {
+                break;
+            }
+
+            let start = self.current_span().start;
+            let name_token = self.expect_identifier()?;
+            let name = self.make_ident(name_token);
+
+            let syntax = self.parse_type_syntax()?;
+            let span = Span::new(start, syntax.span().end);
+
+            alternatives.push(ChoiceAlternative { name, syntax, span });
+
+            if self.check(TokenKind::Comma) {
+                self.advance();
+            }
+        }
+
+        Ok(alternatives)
     }
 
     /// Parse ACCESS or MAX-ACCESS clause.
