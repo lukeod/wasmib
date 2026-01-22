@@ -378,4 +378,3 @@ pub extern "C" fn wasmib_get_error() -> *const u8 {
 pub extern "C" fn wasmib_reset() {
     STATE.get().reset();
 }
-

@@ -32,7 +32,9 @@ use alloc::boxed::Box;
 
 use super::definition::{Definition, TypeDef, ValueAssignment};
 use super::module::Module;
-use super::syntax::{Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax};
+use super::syntax::{
+    Constraint, NamedNumber, OidAssignment, OidComponent, Range, RangeValue, TypeSyntax,
+};
 use super::types::{SmiLanguage, Status, Symbol};
 
 /// SMI base modules (types and MACROs, not regular MIBs).
@@ -1008,7 +1010,6 @@ mod tests {
         assert!(def_names.contains(&"internet"));
         assert!(def_names.contains(&"enterprises"));
     }
-
 
     #[test]
     fn test_empty_modules() {

@@ -865,7 +865,9 @@ fn serialize_unresolved_index(idx: &CoreUnresolvedIndex) -> UnresolvedIndex {
     }
 }
 
-fn serialize_unresolved_notif(notif: &CoreUnresolvedNotificationObject) -> UnresolvedNotificationObject {
+fn serialize_unresolved_notif(
+    notif: &CoreUnresolvedNotificationObject,
+) -> UnresolvedNotificationObject {
     UnresolvedNotificationObject {
         r#module: notif.module.to_raw(),
         r#notification: notif.notification.to_raw(),

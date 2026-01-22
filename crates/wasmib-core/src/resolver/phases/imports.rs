@@ -271,7 +271,13 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
 
     for sym in &user_symbols {
         tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
-        ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, reason, sym.span);
+        ctx.record_unresolved_import(
+            importing_module,
+            from_module_name,
+            &sym.name,
+            reason,
+            sym.span,
+        );
     }
 }
 
@@ -390,10 +396,11 @@ fn try_import_forwarding<TR: ImportTracer>(
                             // Take the first candidate for simplicity
                             // (In practice, base modules like SNMPv2-SMI have only one instance)
                             if let Some(&source_module_id) = source_candidates.first() {
-                                let sym_id = ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
-                                    // This shouldn't happen as symbols should be interned
-                                    panic!("Symbol {} not interned", sym.name)
-                                });
+                                let sym_id =
+                                    ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
+                                        // This shouldn't happen as symbols should be interned
+                                        panic!("Symbol {} not interned", sym.name)
+                                    });
                                 forwarded_symbols.push((sym_id, source_module_id));
                                 continue;
                             }
@@ -629,9 +636,7 @@ mod tests {
                 crate::module::ValueAssignment {
                     name: Symbol::from_name("mib-2"),
                     oid: crate::module::OidAssignment::new(
-                        vec![crate::module::OidComponent::Name(Symbol::from_name(
-                            "mgmt",
-                        ))],
+                        vec![crate::module::OidComponent::Name(Symbol::from_name("mgmt"))],
                         Span::new(0, 0),
                     ),
                     span: Span::new(0, 0),
@@ -697,10 +702,8 @@ mod tests {
             ));
 
         // Import from RFC1315-MIB - should use user's module, not fall back to alias
-        let test_module = make_test_module_with_imports(
-            "TEST-MIB",
-            vec![("RFC1315-MIB", "userDefinedSymbol")],
-        );
+        let test_module =
+            make_test_module_with_imports("TEST-MIB", vec![("RFC1315-MIB", "userDefinedSymbol")]);
 
         let modules = vec![user_rfc1315, frame_relay_module, test_module];
         let mut ctx = ResolverContext::new(modules);
@@ -808,10 +811,7 @@ mod tests {
         // Create USER-MIB which imports both from VENDOR-TC
         let user_mib = make_test_module_with_imports(
             "USER-MIB",
-            vec![
-                ("VENDOR-TC", "Unsigned32"),
-                ("VENDOR-TC", "DisplayString"),
-            ],
+            vec![("VENDOR-TC", "Unsigned32"), ("VENDOR-TC", "DisplayString")],
         );
 
         let modules = vec![vendor_tc, user_mib];
