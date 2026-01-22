@@ -319,7 +319,7 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
         })
         .collect();
 
-    let diagnostics = ProtoDiagnostics { r#items: items };
+    let diagnostics = ProtoDiagnostics { items };
 
     // Encode to protobuf bytes
     let mut proto_bytes = Vec::new();

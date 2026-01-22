@@ -250,16 +250,15 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     // Last resort: try import forwarding.
     // This handles cases where a module imports a symbol but doesn't re-export it
     // (a vendor bug, but common with CISCO-TC and Unsigned32).
-    if !candidates.is_empty() {
-        if let Some(forwarded_symbols) =
+    if !candidates.is_empty()
+        && let Some(forwarded_symbols) =
             try_import_forwarding(ctx, &candidates, &user_symbols, from_module_name, tracer)
-        {
-            // Register each forwarded symbol pointing to its actual source module
-            for (sym_id, source_module_id) in forwarded_symbols {
-                ctx.register_import(importing_module, sym_id, source_module_id);
-            }
-            return;
+    {
+        // Register each forwarded symbol pointing to its actual source module
+        for (sym_id, source_module_id) in forwarded_symbols {
+            ctx.register_import(importing_module, sym_id, source_module_id);
         }
+        return;
     }
 
     // No candidate (original or alias) has all symbols - mark as unresolved
@@ -366,7 +365,7 @@ fn is_macro_symbol(name: &str) -> bool {
 /// imports Unsigned32 from SNMPv2-SMI but doesn't re-export it. When a MIB
 /// tries to import Unsigned32 FROM CISCO-TC, we can forward to SNMPv2-SMI.
 ///
-/// Returns Some((forwarded_module_id, all_symbols_forwarded)) if forwarding succeeds.
+/// Returns `Some((forwarded_module_id`, `all_symbols_forwarded`)) if forwarding succeeds.
 fn try_import_forwarding<TR: ImportTracer>(
     ctx: &ResolverContext,
     candidates: &[ModuleId],
@@ -391,19 +390,18 @@ fn try_import_forwarding<TR: ImportTracer>(
                 if let Some(&source_module_name) = import_map.get(sym.name.as_str()) {
                     // This symbol is imported by the candidate - find the source module
                     let source_module_name_id = ctx.model.strings().find(source_module_name);
-                    if let Some(source_name_id) = source_module_name_id {
-                        if let Some(source_candidates) = ctx.module_index.get(&source_name_id) {
-                            // Take the first candidate for simplicity
-                            // (In practice, base modules like SNMPv2-SMI have only one instance)
-                            if let Some(&source_module_id) = source_candidates.first() {
-                                let sym_id =
-                                    ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
-                                        // This shouldn't happen as symbols should be interned
-                                        panic!("Symbol {} not interned", sym.name)
-                                    });
-                                forwarded_symbols.push((sym_id, source_module_id));
-                                continue;
-                            }
+                    if let Some(source_name_id) = source_module_name_id
+                        && let Some(source_candidates) = ctx.module_index.get(&source_name_id)
+                    {
+                        // Take the first candidate for simplicity
+                        // (In practice, base modules like SNMPv2-SMI have only one instance)
+                        if let Some(&source_module_id) = source_candidates.first() {
+                            let sym_id = ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
+                                // This shouldn't happen as symbols should be interned
+                                panic!("Symbol {} not interned", sym.name)
+                            });
+                            forwarded_symbols.push((sym_id, source_module_id));
+                            continue;
                         }
                     }
                 }

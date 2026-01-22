@@ -13,6 +13,7 @@ pub use wasmib_core;
 /// Recursively collect MIB files from a directory.
 ///
 /// Includes files with no extension, or `.mib`, `.txt`, `.my` extensions.
+#[must_use]
 pub fn collect_mib_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect_files_recursive(dir, &mut files);

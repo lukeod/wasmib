@@ -332,7 +332,7 @@ impl<'src> Lexer<'src> {
         }
 
         match self.peek_at(3) {
-            None | Some(b'\n') | Some(b'\r') => {
+            None | Some(b'\n' | b'\r') => {
                 // Consume the three dashes
                 self.advance();
                 self.advance();
