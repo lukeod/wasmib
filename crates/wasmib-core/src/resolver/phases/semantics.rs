@@ -19,6 +19,32 @@ use crate::resolver::context::ResolverContext;
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+/// Check if a name is a bare type keyword used as an anonymous INDEX.
+///
+/// Some vendor MIBs (e.g., CISCO-MIB) use bare type names like `INTEGER` in INDEX
+/// clauses instead of proper object references. This is non-compliant, but we
+/// accept it for leniency and don't report them as unresolved.
+fn is_bare_type_index(name: &str) -> bool {
+    matches!(
+        name,
+        "INTEGER"
+            | "Integer32"
+            | "Unsigned32"
+            | "Counter32"
+            | "Counter64"
+            | "Gauge32"
+            | "IpAddress"
+            | "Opaque"
+            | "TimeTicks"
+            | "BITS"
+            | "OCTET"
+            | "STRING"
+            | "Counter"
+            | "Gauge"
+            | "NetworkAddress"
+    )
+}
+
 /// Reference to a HIR definition by indices.
 ///
 /// This avoids cloning entire `ObjectType` or `Notification` structs,
@@ -263,6 +289,10 @@ fn resolve_table_semantics(ctx: &mut ResolverContext) {
                     .lookup_node_for_module(module_id, &item.object.name)
                     .is_none()
                 {
+                    // Skip bare type keywords used as anonymous indexes (vendor MIB quirk)
+                    if is_bare_type_index(&item.object.name) {
+                        continue;
+                    }
                     let row_str = ctx.intern(&table_data.name);
                     let index_str = ctx.intern(&item.object.name);
                     ctx.model.unresolved_mut().indexes.push(UnresolvedIndex {

@@ -349,6 +349,23 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Expect an index object (identifier or bare type keyword).
+    ///
+    /// Some vendor MIBs (e.g., CISCO-MIB) use bare type keywords like `INTEGER` in INDEX
+    /// clauses instead of proper object references. This is technically non-compliant,
+    /// but we accept it for leniency and treat them as anonymous indexes.
+    fn expect_index_object(&mut self) -> Result<Token, Diagnostic> {
+        let kind = self.peek().kind;
+        if kind == TokenKind::UppercaseIdent
+            || kind == TokenKind::LowercaseIdent
+            || kind.is_type_keyword()
+        {
+            Ok(self.advance())
+        } else {
+            Err(self.error("expected index object"))
+        }
+    }
+
     /// Expect an enum label (identifier or allowed keyword).
     /// In SMI enums, words like 'deprecated', 'current', 'optional' can be used as labels.
     fn expect_enum_label(&mut self) -> Result<Token, Diagnostic> {
@@ -1175,7 +1192,8 @@ impl<'src> Parser<'src> {
                     false
                 };
 
-                let obj_token = self.expect_identifier()?;
+                // Accept identifiers or bare type keywords (lenient parsing for vendor MIBs)
+                let obj_token = self.expect_index_object()?;
                 let object = self.make_ident(obj_token);
 
                 let span = Span::new(item_start, obj_token.span.end);
