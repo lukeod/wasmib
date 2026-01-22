@@ -216,6 +216,11 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
     // Primitives are always available after seed_primitive_types, so no multi-pass needed.
     link_primitive_syntax_parents(ctx);
 
+    // Link RFC1213-MIB's legacy types (DisplayString, PhysAddress) to their
+    // SNMPv2-TC textual convention equivalents. This ensures that objects using
+    // RFC1213-MIB's types inherit display hints from the TC versions.
+    link_rfc1213_types_to_tcs(ctx);
+
     // After all parents are linked, inherit base types from parent chains (single pass)
     inherit_base_types(ctx);
 }
@@ -399,6 +404,61 @@ fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
             if typ.parent_type.is_none() {
                 typ.parent_type = Some(parent_id);
             }
+        }
+    }
+}
+
+/// Link RFC1213-MIB's legacy type definitions to their SNMPv2-TC equivalents.
+///
+/// RFC1213-MIB (MIB-II, SMIv1) defines `DisplayString` and `PhysAddress` as plain
+/// type aliases without textual convention metadata. SNMPv2-TC defines the same
+/// types as TCs with display hints ("255a" and "1x:" respectively).
+///
+/// When both modules are loaded, objects defined in RFC1213-MIB use the local
+/// (hintless) type definitions. By linking RFC1213-MIB's types as children of
+/// their SNMPv2-TC counterparts, `get_effective_hint()` can walk the parent chain
+/// to find the display hints.
+///
+/// This preserves module scoping (RFC1213-MIB's types remain distinct TypeIds)
+/// while providing practical utility (hints are available via parent chain).
+fn link_rfc1213_types_to_tcs(ctx: &mut ResolverContext) {
+    // Types to link: (type_name, source_module, target_module)
+    const LEGACY_TYPE_MAPPINGS: &[(&str, &str, &str)] = &[
+        ("DisplayString", "RFC1213-MIB", "SNMPv2-TC"),
+        ("PhysAddress", "RFC1213-MIB", "SNMPv2-TC"),
+    ];
+
+    for &(type_name, source_module, target_module) in LEGACY_TYPE_MAPPINGS {
+        // Find source module (RFC1213-MIB) - may not be present
+        let Some(source_module_id) = ctx.get_module_id_by_name(source_module) else {
+            continue;
+        };
+
+        // Find target module (SNMPv2-TC) - should always be present (synthetic)
+        let Some(target_module_id) = ctx.get_module_id_by_name(target_module) else {
+            continue;
+        };
+
+        // Look up the source type (RFC1213-MIB's version)
+        let Some(source_type_id) = ctx.lookup_type_for_module(source_module_id, type_name) else {
+            continue;
+        };
+
+        // Look up the target type (SNMPv2-TC's TC version)
+        let Some(target_type_id) = ctx.lookup_type_for_module(target_module_id, type_name) else {
+            continue;
+        };
+
+        // Don't link if they're the same type (shouldn't happen, but be safe)
+        if source_type_id == target_type_id {
+            continue;
+        }
+
+        // Link the source type to the target TC
+        // We intentionally overwrite any existing parent (typically a primitive like OCTET STRING)
+        // because the TC parent provides more useful metadata (display hints, etc.)
+        if let Some(typ) = ctx.model.get_type_mut(source_type_id) {
+            typ.parent_type = Some(target_type_id);
         }
     }
 }
@@ -1341,5 +1401,151 @@ mod tests {
         assert_eq!(names[1], "Level2");
         assert_eq!(names[2], "Level3");
         assert_eq!(names[3], "DisplayString");
+    }
+
+    // ============================================================
+    // Tests for RFC1213-MIB legacy type linking
+    // ============================================================
+
+    #[test]
+    fn test_rfc1213_displaystring_links_to_snmpv2_tc() {
+        // RFC1213-MIB defines DisplayString as a plain type alias without TC metadata.
+        // This test verifies that it gets linked to SNMPv2-TC's DisplayString,
+        // allowing get_effective_hint() to find the "255a" hint.
+        use alloc::boxed::Box;
+
+        // Simulate RFC1213-MIB's DisplayString definition:
+        // DisplayString ::= OCTET STRING (SIZE (0..255))
+        let rfc1213_displaystring = TypeDef {
+            name: Symbol::from_name("DisplayString"),
+            syntax: TypeSyntax::Constrained {
+                base: Box::new(TypeSyntax::OctetString),
+                constraint: Constraint::Size(vec![Range {
+                    min: RangeValue::Unsigned(0),
+                    max: Some(RangeValue::Unsigned(255)),
+                }]),
+            },
+            base_type: None,
+            display_hint: None, // RFC1213-MIB has no hint
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: false, // Not a TC in SMIv1
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "RFC1213-MIB",
+            vec![Definition::TypeDef(rfc1213_displaystring)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+
+        // Find RFC1213-MIB's module ID
+        let rfc1213_module_id = ctx
+            .get_module_id_by_name("RFC1213-MIB")
+            .expect("RFC1213-MIB should exist");
+
+        // Find SNMPv2-TC's module ID
+        let snmpv2_tc_module_id = ctx
+            .get_module_id_by_name("SNMPv2-TC")
+            .expect("SNMPv2-TC should exist");
+
+        // Look up RFC1213-MIB's DisplayString
+        let rfc1213_ds_id = ctx
+            .lookup_type_for_module(rfc1213_module_id, "DisplayString")
+            .expect("RFC1213-MIB DisplayString should exist");
+
+        // Look up SNMPv2-TC's DisplayString
+        let snmpv2_tc_ds_id = ctx
+            .lookup_type_for_module(snmpv2_tc_module_id, "DisplayString")
+            .expect("SNMPv2-TC DisplayString should exist");
+
+        // They should be different TypeIds (module scoping preserved)
+        assert_ne!(
+            rfc1213_ds_id, snmpv2_tc_ds_id,
+            "RFC1213-MIB and SNMPv2-TC should have separate DisplayString TypeIds"
+        );
+
+        // RFC1213-MIB's DisplayString should have SNMPv2-TC's as parent
+        let rfc1213_ds = ctx
+            .model
+            .get_type(rfc1213_ds_id)
+            .expect("type should exist");
+        assert_eq!(
+            rfc1213_ds.parent_type,
+            Some(snmpv2_tc_ds_id),
+            "RFC1213-MIB DisplayString should have SNMPv2-TC DisplayString as parent"
+        );
+
+        // get_effective_hint should find SNMPv2-TC's "255a" hint
+        let effective_hint = ctx.model.get_effective_hint(rfc1213_ds_id);
+        assert!(
+            effective_hint.is_some(),
+            "should find hint from SNMPv2-TC via parent chain"
+        );
+        assert_eq!(
+            ctx.model.get_str(effective_hint.unwrap()),
+            "255a",
+            "effective hint should be '255a' from SNMPv2-TC"
+        );
+    }
+
+    #[test]
+    fn test_rfc1213_physaddress_links_to_snmpv2_tc() {
+        // Similar test for PhysAddress
+        let rfc1213_physaddress = TypeDef {
+            name: Symbol::from_name("PhysAddress"),
+            syntax: TypeSyntax::OctetString,
+            base_type: None,
+            display_hint: None, // RFC1213-MIB has no hint
+            status: ModuleStatus::Current,
+            description: None,
+            reference: None,
+            is_textual_convention: false,
+            span: Span::new(0, 0),
+        };
+
+        let modules = vec![make_test_module(
+            "RFC1213-MIB",
+            vec![Definition::TypeDef(rfc1213_physaddress)],
+        )];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_types(&mut ctx);
+
+        let rfc1213_module_id = ctx
+            .get_module_id_by_name("RFC1213-MIB")
+            .expect("RFC1213-MIB should exist");
+        let snmpv2_tc_module_id = ctx
+            .get_module_id_by_name("SNMPv2-TC")
+            .expect("SNMPv2-TC should exist");
+
+        let rfc1213_pa_id = ctx
+            .lookup_type_for_module(rfc1213_module_id, "PhysAddress")
+            .expect("RFC1213-MIB PhysAddress should exist");
+        let snmpv2_tc_pa_id = ctx
+            .lookup_type_for_module(snmpv2_tc_module_id, "PhysAddress")
+            .expect("SNMPv2-TC PhysAddress should exist");
+
+        // They should be different TypeIds
+        assert_ne!(rfc1213_pa_id, snmpv2_tc_pa_id);
+
+        // RFC1213-MIB's PhysAddress should have SNMPv2-TC's as parent
+        let rfc1213_pa = ctx
+            .model
+            .get_type(rfc1213_pa_id)
+            .expect("type should exist");
+        assert_eq!(rfc1213_pa.parent_type, Some(snmpv2_tc_pa_id));
+
+        // get_effective_hint should find SNMPv2-TC's "1x:" hint
+        let effective_hint = ctx.model.get_effective_hint(rfc1213_pa_id);
+        assert!(effective_hint.is_some());
+        assert_eq!(ctx.model.get_str(effective_hint.unwrap()), "1x:");
     }
 }
