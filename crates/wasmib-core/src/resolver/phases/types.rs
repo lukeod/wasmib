@@ -10,7 +10,7 @@ use crate::module::{
     Constraint, Definition, Range, RangeValue, Status as ModuleStatus, TypeSyntax,
 };
 use crate::resolver::context::ResolverContext;
-use alloc::string::String;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 /// Resolve all types across all modules.
@@ -61,142 +61,89 @@ fn seed_primitive_types(ctx: &mut ResolverContext) {
     ctx.register_module_type_symbol(module_id, name, type_id);
 }
 
-/// Extracted type definition data needed for creating `ResolvedType`.
-/// This is smaller than a full `TypeDef` clone (no span, no reference field).
-struct TypeDefData {
-    module_idx: usize,
-    name: String,
-    base: Option<BaseType>,
-    is_tc: bool,
-    status: ModuleStatus,
-    hint: Option<String>,
-    description: Option<String>,
-    enums: Option<Vec<(i64, String)>>,
-    bits: Option<Vec<(u32, String)>>,
-    size: Option<SizeConstraint>,
-    value_range: Option<ValueConstraint>,
-}
-
 /// Create type nodes for all user-defined types.
+///
+/// Uses split borrows to intern strings directly from `hir_modules` without
+/// intermediate cloning, reducing peak memory usage for large MIB corpora.
 fn create_user_types(ctx: &mut ResolverContext) {
-    // Extract only the data needed from type definitions.
-    // This avoids cloning the entire TypeDef (which includes reference, span, etc.)
-    // and allows us to work with owned data without borrow checker issues.
-    let type_data: Vec<TypeDefData> = ctx
-        .hir_modules
-        .iter()
-        .enumerate()
-        .flat_map(|(module_idx, module)| {
-            module.definitions.iter().filter_map(move |def| {
-                if let Definition::TypeDef(td) = def {
-                    // Extract enum values (names only)
-                    let enums = if let TypeSyntax::IntegerEnum(e) = &td.syntax {
-                        Some(
-                            e.iter()
-                                .map(|nn| (nn.value, nn.name.name.clone()))
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    };
+    // Split borrows: immutable access to hir data, mutable access to model/indices.
+    // This allows us to intern strings directly without cloning into intermediate structs.
+    let hir_modules = &ctx.hir_modules;
+    let hir_index_to_module_id = &ctx.hir_index_to_module_id;
+    let model = &mut ctx.model;
+    let module_symbol_to_type = &mut ctx.module_symbol_to_type;
 
-                    // Extract BITS definitions
-                    let bits = if let TypeSyntax::Bits(b) = &td.syntax {
-                        Some(
-                            b.iter()
-                                .map(|nb| (nb.position, nb.name.name.clone()))
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    };
-
-                    // Extract constraints
-                    let (size, value_range) = if let TypeSyntax::Constrained {
-                        constraint, ..
-                    } = &td.syntax
-                    {
-                        match constraint {
-                            Constraint::Size(r) => (Some(hir_ranges_to_size_constraint(r)), None),
-                            Constraint::Range(r) => (None, Some(hir_ranges_to_value_constraint(r))),
-                        }
-                    } else {
-                        (None, None)
-                    };
-
-                    Some(TypeDefData {
-                        module_idx,
-                        name: td.name.name.clone(),
-                        // Prefer explicit base_type if set, otherwise derive from syntax
-                        base: td.base_type.or_else(|| syntax_to_base_type(&td.syntax)),
-                        is_tc: td.is_textual_convention,
-                        status: td.status,
-                        hint: td.display_hint.clone(),
-                        description: td.description.clone(),
-                        enums,
-                        bits,
-                        size,
-                        value_range,
-                    })
-                } else {
-                    None
-                }
-            })
-        })
-        .collect();
-
-    for data in type_data {
-        let Some(module_id) = ctx.get_module_id_for_hir_index(data.module_idx) else {
+    for (module_idx, module) in hir_modules.iter().enumerate() {
+        let Some(&module_id) = hir_index_to_module_id.get(&module_idx) else {
             continue; // Skip if module not registered (shouldn't happen)
         };
 
-        let name = ctx.intern(&data.name);
-        let base = data.base.unwrap_or(BaseType::Integer32);
+        for def in &module.definitions {
+            let Definition::TypeDef(td) = def else {
+                continue;
+            };
 
-        let mut typ = ResolvedType::new(name, module_id, base);
+            // Intern name directly - no clone needed
+            let name = model.intern(&td.name.name);
 
-        // Track if base type needs resolution from parent
-        typ.needs_base_resolution = data.base.is_none();
-        typ.is_textual_convention = data.is_tc;
-        typ.status = hir_status_to_status(data.status);
+            // Determine base type
+            let base_from_syntax = td.base_type.or_else(|| syntax_to_base_type(&td.syntax));
+            let base = base_from_syntax.unwrap_or(BaseType::Integer32);
 
-        if let Some(ref hint) = data.hint {
-            typ.hint = Some(ctx.intern(hint));
-        }
+            let mut typ = ResolvedType::new(name, module_id, base);
 
-        if let Some(ref desc) = data.description {
-            typ.description = Some(ctx.intern(desc));
-        }
+            // Track if base type needs resolution from parent
+            typ.needs_base_resolution = base_from_syntax.is_none();
+            typ.is_textual_convention = td.is_textual_convention;
+            typ.status = hir_status_to_status(td.status);
 
-        // Handle enum values
-        if let Some(enums) = data.enums {
-            let values: Vec<_> = enums
-                .iter()
-                .map(|(val, name)| (*val, ctx.intern(name)))
-                .collect();
-            typ.enum_values = Some(EnumValues::new(values));
-        }
+            // Intern hint directly if present
+            if let Some(ref hint) = td.display_hint {
+                typ.hint = Some(model.intern(hint));
+            }
 
-        // Handle BITS
-        if let Some(bits) = data.bits {
-            let defs: Vec<_> = bits
-                .iter()
-                .map(|(pos, name)| (*pos, ctx.intern(name)))
-                .collect();
-            typ.bit_defs = Some(BitDefinitions::new(defs));
-        }
+            // Intern description directly if present
+            if let Some(ref desc) = td.description {
+                typ.description = Some(model.intern(desc));
+            }
 
-        // Handle constraints
-        typ.size = data.size;
-        typ.value_range = data.value_range;
+            // Handle enum values - intern names directly
+            if let TypeSyntax::IntegerEnum(e) = &td.syntax {
+                let values: Vec<_> = e
+                    .iter()
+                    .map(|nn| (nn.value, model.intern(&nn.name.name)))
+                    .collect();
+                typ.enum_values = Some(EnumValues::new(values));
+            }
 
-        let type_id = ctx.model.add_type(typ).unwrap();
-        // Register module-scoped type for import-aware lookup
-        ctx.register_module_type_symbol(module_id, name, type_id);
+            // Handle BITS - intern names directly
+            if let TypeSyntax::Bits(b) = &td.syntax {
+                let defs: Vec<_> = b
+                    .iter()
+                    .map(|nb| (nb.position, model.intern(&nb.name.name)))
+                    .collect();
+                typ.bit_defs = Some(BitDefinitions::new(defs));
+            }
 
-        // Add to module
-        if let Some(module) = ctx.model.get_module_mut(module_id) {
-            module.add_type(type_id);
+            // Handle constraints
+            if let TypeSyntax::Constrained { constraint, .. } = &td.syntax {
+                match constraint {
+                    Constraint::Size(r) => typ.size = Some(hir_ranges_to_size_constraint(r)),
+                    Constraint::Range(r) => {
+                        typ.value_range = Some(hir_ranges_to_value_constraint(r));
+                    }
+                }
+            }
+
+            let type_id = model.add_type(typ).unwrap();
+
+            // Register module-scoped type for import-aware lookup
+            module_symbol_to_type.insert((module_id, name), type_id);
+
+            // Add to module
+            if let Some(resolved_module) = model.get_module_mut(module_id) {
+                resolved_module.add_type(type_id);
+            }
         }
     }
 }
@@ -225,12 +172,11 @@ fn resolve_type_bases(ctx: &mut ResolverContext) {
     inherit_base_types(ctx);
 }
 
-/// Data needed for a type parent resolution task.
-struct TypeResolutionTask {
+/// Index-based reference to a type that needs parent resolution.
+/// Stores indices into `hir_modules` to avoid cloning strings.
+struct TypeResolutionIndex {
     module_idx: usize,
-    type_name: String,
-    base_name: String,
-    span: crate::lexer::Span,
+    def_idx: usize,
 }
 
 /// Resolve `TypeRef` parent pointers using multi-pass iteration.
@@ -239,35 +185,34 @@ struct TypeResolutionTask {
 /// their parent pointers. Types that reference forward-declared types will
 /// be resolved in subsequent passes.
 fn resolve_typeref_parents_multipass(ctx: &mut ResolverContext) {
-    // Collect all types with TypeRef syntax
-    let mut pending: Vec<TypeResolutionTask> = ctx
+    // Collect indices of types with TypeRef syntax (no string cloning).
+    let mut pending: Vec<TypeResolutionIndex> = ctx
         .hir_modules
         .iter()
         .enumerate()
         .flat_map(|(module_idx, module)| {
-            module.definitions.iter().filter_map(move |def| {
-                if let Definition::TypeDef(td) = def {
-                    if let TypeSyntax::TypeRef(ref base_name) = td.syntax {
-                        return Some(TypeResolutionTask {
-                            module_idx,
-                            type_name: td.name.name.clone(),
-                            base_name: base_name.name.clone(),
-                            span: td.span,
-                        });
+            module
+                .definitions
+                .iter()
+                .enumerate()
+                .filter_map(move |(def_idx, def)| {
+                    if let Definition::TypeDef(td) = def {
+                        // Check if this typedef has a TypeRef that needs resolution
+                        let has_typeref = matches!(td.syntax, TypeSyntax::TypeRef(_))
+                            || matches!(
+                                &td.syntax,
+                                TypeSyntax::Constrained { base, .. }
+                                    if matches!(**base, TypeSyntax::TypeRef(_))
+                            );
+                        if has_typeref {
+                            return Some(TypeResolutionIndex {
+                                module_idx,
+                                def_idx,
+                            });
+                        }
                     }
-                    if let TypeSyntax::Constrained { ref base, .. } = td.syntax
-                        && let TypeSyntax::TypeRef(ref base_name) = **base
-                    {
-                        return Some(TypeResolutionTask {
-                            module_idx,
-                            type_name: td.name.name.clone(),
-                            base_name: base_name.name.clone(),
-                            span: td.span,
-                        });
-                    }
-                }
-                None
-            })
+                    None
+                })
         })
         .collect();
 
@@ -282,19 +227,32 @@ fn resolve_typeref_parents_multipass(ctx: &mut ResolverContext) {
         let initial_count = pending.len();
         let mut still_pending = Vec::new();
 
-        for task in pending {
-            if !try_resolve_type_parent(ctx, &task) {
-                still_pending.push(task);
+        for idx in pending {
+            if !try_resolve_type_parent(ctx, &idx) {
+                still_pending.push(idx);
             }
         }
 
         // No progress - record remaining as unresolved
         if still_pending.len() == initial_count {
-            for task in still_pending {
-                let Some(module_id) = ctx.get_module_id_for_hir_index(task.module_idx) else {
+            for idx in still_pending {
+                // Extract needed data, then drop borrow on hir_modules
+                let (type_name, base_name, span) = {
+                    let Definition::TypeDef(td) =
+                        &ctx.hir_modules[idx.module_idx].definitions[idx.def_idx]
+                    else {
+                        continue;
+                    };
+                    let base = get_typeref_base_name(&td.syntax).map(ToString::to_string);
+                    (td.name.name.clone(), base, td.span)
+                };
+
+                let Some(module_id) = ctx.get_module_id_for_hir_index(idx.module_idx) else {
                     continue;
                 };
-                ctx.record_unresolved_type(module_id, &task.type_name, &task.base_name, task.span);
+                if let Some(ref base) = base_name {
+                    ctx.record_unresolved_type(module_id, &type_name, base, span);
+                }
             }
             break;
         }
@@ -303,16 +261,45 @@ fn resolve_typeref_parents_multipass(ctx: &mut ResolverContext) {
     }
 }
 
+/// Extract the base type name from a TypeRef syntax.
+fn get_typeref_base_name(syntax: &TypeSyntax) -> Option<&str> {
+    match syntax {
+        TypeSyntax::TypeRef(base) => Some(&base.name),
+        TypeSyntax::Constrained { base, .. } => {
+            if let TypeSyntax::TypeRef(base_name) = &**base {
+                Some(&base_name.name)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Attempt to resolve a type's parent pointer. Returns true if successful.
-fn try_resolve_type_parent(ctx: &mut ResolverContext, task: &TypeResolutionTask) -> bool {
-    let Some(module_id) = ctx.get_module_id_for_hir_index(task.module_idx) else {
+fn try_resolve_type_parent(ctx: &mut ResolverContext, idx: &TypeResolutionIndex) -> bool {
+    // Extract the names we need, then drop the borrow on hir_modules
+    // so we can call methods on ctx afterwards.
+    let (type_name, base_name) = {
+        let Definition::TypeDef(td) = &ctx.hir_modules[idx.module_idx].definitions[idx.def_idx]
+        else {
+            return false;
+        };
+        let Some(base) = get_typeref_base_name(&td.syntax) else {
+            return false;
+        };
+        // Clone just the short type names to release the borrow
+        (td.name.name.clone(), base.to_string())
+    };
+
+    let Some(module_id) = ctx.get_module_id_for_hir_index(idx.module_idx) else {
         return false;
     };
 
     // Look up the type being resolved (must be module-scoped to find THIS module's type)
-    let type_id = ctx.lookup_type_for_module(module_id, &task.type_name);
+    let type_id = ctx.lookup_type_for_module(module_id, &type_name);
     // Look up the parent type (respects imports)
-    let parent_id = ctx.lookup_type_for_module(module_id, &task.base_name);
+    let parent_id = ctx.lookup_type_for_module(module_id, &base_name);
 
     if let (Some(type_id), Some(parent_id)) = (type_id, parent_id) {
         // Check if parent already has its parent resolved (if it needs one)
@@ -370,25 +357,36 @@ fn get_primitive_parent_name(syntax: &TypeSyntax) -> Option<&'static str> {
 /// - `SYNTAX INTEGER { enum values }`
 /// - `SYNTAX BITS { bit values }`
 fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
-    // Collect types that need primitive parent linking, preserving module context
+    // Collect indices of types that need primitive parent linking.
+    // Stores (module_idx, def_idx, primitive_name) - no string cloning needed.
     let primitive_links: Vec<_> = ctx
         .hir_modules
         .iter()
         .enumerate()
         .flat_map(|(module_idx, module)| {
-            module.definitions.iter().filter_map(move |def| {
-                if let Definition::TypeDef(td) = def {
-                    get_primitive_parent_name(&td.syntax)
-                        .map(|primitive_name| (module_idx, td.name.name.clone(), primitive_name))
-                } else {
-                    None
-                }
-            })
+            module
+                .definitions
+                .iter()
+                .enumerate()
+                .filter_map(move |(def_idx, def)| {
+                    if let Definition::TypeDef(td) = def {
+                        get_primitive_parent_name(&td.syntax)
+                            .map(|primitive_name| (module_idx, def_idx, primitive_name))
+                    } else {
+                        None
+                    }
+                })
         })
         .collect();
 
     // Link each type to its primitive parent
-    for (module_idx, type_name, primitive_name) in primitive_links {
+    for (module_idx, def_idx, primitive_name) in primitive_links {
+        // Access the typedef by index to get the type name (no clone)
+        let Definition::TypeDef(td) = &ctx.hir_modules[module_idx].definitions[def_idx] else {
+            continue;
+        };
+        let type_name = &td.name.name;
+
         let Some(module_id) = ctx.get_module_id_for_hir_index(module_idx) else {
             continue;
         };
@@ -396,7 +394,7 @@ fn link_primitive_syntax_parents(ctx: &mut ResolverContext) {
         // Use module-scoped lookup for type_name to find THIS module's type
         // Primitive names are global (INTEGER, OCTET STRING, etc.)
         if let (Some(type_id), Some(parent_id)) = (
-            ctx.lookup_type_for_module(module_id, &type_name),
+            ctx.lookup_type_for_module(module_id, type_name),
             ctx.lookup_type(primitive_name),
         ) && let Some(typ) = ctx.model.get_type_mut(type_id)
         {
