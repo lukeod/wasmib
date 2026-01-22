@@ -28,6 +28,7 @@
 pub mod base_modules;
 mod definition;
 mod lower;
+#[allow(clippy::module_inception)] // module.rs in module/ is intentional
 mod module;
 mod syntax;
 mod types;

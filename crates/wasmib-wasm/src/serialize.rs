@@ -49,6 +49,7 @@ pub use wasmib_::*;
 
 /// Create a serialized model from a resolved Model.
 #[must_use]
+#[allow(clippy::cast_possible_truncation)] // Counts will never exceed u32::MAX
 pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedModel {
     // 1. Serialize string interner
     let (strings_data, strings_offsets) = serialize_strings(model.strings());
@@ -152,6 +153,7 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
 
 /// Serialize a model to protobuf bytes.
 #[must_use]
+#[allow(clippy::missing_panics_doc)] // Encoding only fails on OOM
 pub fn to_bytes(model: &Model, fingerprint: Option<[u8; 32]>) -> Vec<u8> {
     let serialized = from_model(model, fingerprint);
     let mut buf = Vec::new();
@@ -317,6 +319,7 @@ fn deserialize_revision(msg: SerializedRevision) -> Option<Revision> {
     Some(Revision::new(date, description))
 }
 
+#[allow(clippy::cast_possible_truncation)] // Enum values fit in u8
 fn deserialize_node(msg: SerializedNode) -> Result<OidNode, DecodeError> {
     let kind = NodeKind::from_u8(msg.r#kind as u8).ok_or(DecodeError::InvalidEnumValue {
         field: "node.kind",
@@ -348,6 +351,7 @@ fn deserialize_node_def(msg: SerializedNodeDef) -> Option<NodeDefinition> {
     Some(def)
 }
 
+#[allow(clippy::cast_possible_truncation)] // Enum values fit in u8
 fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
     let module = ModuleId::from_raw(msg.r#module).ok_or(DecodeError::InvalidId {
         field: "type.module",
@@ -406,6 +410,7 @@ fn deserialize_type(msg: SerializedType) -> Result<ResolvedType, DecodeError> {
     Ok(typ)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Protobuf uses i64, sizes fit u32
 fn deserialize_size_constraint(msg: &SerializedConstraint) -> SizeConstraint {
     SizeConstraint {
         ranges: msg
@@ -426,6 +431,7 @@ fn deserialize_value_constraint(msg: &SerializedConstraint) -> ValueConstraint {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // Enum values fit in u8
 fn deserialize_object(msg: SerializedObject) -> Result<ResolvedObject, DecodeError> {
     let node = NodeId::from_raw(msg.r#node).ok_or(DecodeError::InvalidId {
         field: "object.node",
@@ -530,6 +536,7 @@ fn deserialize_defval(msg: &SerializedDefVal) -> Option<DefVal> {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)] // Enum values fit in u8
 fn deserialize_notification(
     msg: SerializedNotification,
 ) -> Result<ResolvedNotification, DecodeError> {
@@ -561,6 +568,7 @@ fn deserialize_notification(
 }
 
 /// Serialize the string interner to (data, offsets).
+#[allow(clippy::cast_possible_truncation)] // String data won't exceed u32::MAX
 fn serialize_strings(interner: &StringInterner) -> (String, Vec<StringOffset>) {
     let (data, offsets) = interner.export_parts();
 
@@ -808,6 +816,7 @@ fn serialize_value_constraint(
     }
 }
 
+#[allow(clippy::cast_possible_wrap)] // MIB range values won't exceed i64::MAX
 fn range_bound_to_i64(bound: &wasmib_core::model::RangeBound) -> i64 {
     match bound {
         wasmib_core::model::RangeBound::Signed(v) => *v,

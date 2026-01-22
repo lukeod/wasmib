@@ -1266,38 +1266,38 @@ impl<'src> Parser<'src> {
         let content_start = self.current_span().start;
 
         match self.peek().kind {
-            TokenKind::NegativeNumber | TokenKind::Number => self.parse_defval_number(),
+            TokenKind::NegativeNumber | TokenKind::Number => Ok(self.parse_defval_number()),
             TokenKind::QuotedString => self.parse_defval_string(),
-            TokenKind::HexString => self.parse_defval_hex_string(),
-            TokenKind::BinString => self.parse_defval_binary_string(),
+            TokenKind::HexString => Ok(self.parse_defval_hex_string()),
+            TokenKind::BinString => Ok(self.parse_defval_binary_string()),
             TokenKind::LowercaseIdent | TokenKind::UppercaseIdent => {
                 let token = self.advance();
                 let ident = self.make_ident(token);
                 Ok(DefValContent::Identifier(ident))
             }
             TokenKind::LBrace => self.parse_defval_braced_content(),
-            _ => self.parse_defval_skip_unknown(content_start),
+            _ => Ok(self.parse_defval_skip_unknown(content_start)),
         }
     }
 
     /// Parse a numeric DEFVAL value (integer or unsigned).
-    fn parse_defval_number(&mut self) -> Result<DefValContent, Diagnostic> {
+    fn parse_defval_number(&mut self) -> DefValContent {
         let token = self.advance();
         if token.kind == TokenKind::NegativeNumber {
             let value = self.parse_i64(token.span, "DEFVAL integer");
-            return Ok(DefValContent::Integer(value));
+            return DefValContent::Integer(value);
         }
 
         // Positive number: try i64 first (most common), fall back to u64 for Counter64 values
         let text = self.text(token.span);
         if let Ok(value) = text.parse::<i64>() {
-            Ok(DefValContent::Integer(value))
+            DefValContent::Integer(value)
         } else if let Ok(value) = text.parse::<u64>() {
-            Ok(DefValContent::Unsigned(value))
+            DefValContent::Unsigned(value)
         } else {
             // Emit diagnostic for unparseable number
             let value = self.parse_i64(token.span, "DEFVAL integer");
-            Ok(DefValContent::Integer(value))
+            DefValContent::Integer(value)
         }
     }
 
@@ -1308,7 +1308,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse a hex string DEFVAL value: 'FF00'H
-    fn parse_defval_hex_string(&mut self) -> Result<DefValContent, Diagnostic> {
+    fn parse_defval_hex_string(&mut self) -> DefValContent {
         let token = self.advance();
         let text = self.text(token.span);
         // Strip the quotes and H suffix: 'FF00'H -> FF00
@@ -1318,14 +1318,14 @@ impl<'src> Parser<'src> {
         } else {
             String::new()
         };
-        Ok(DefValContent::HexString {
+        DefValContent::HexString {
             content,
             span: token.span,
-        })
+        }
     }
 
     /// Parse a binary string DEFVAL value: '1010'B
-    fn parse_defval_binary_string(&mut self) -> Result<DefValContent, Diagnostic> {
+    fn parse_defval_binary_string(&mut self) -> DefValContent {
         let token = self.advance();
         let text = self.text(token.span);
         // Strip the quotes and B suffix: '1010'B -> 1010
@@ -1335,10 +1335,10 @@ impl<'src> Parser<'src> {
         } else {
             String::new()
         };
-        Ok(DefValContent::BinaryString {
+        DefValContent::BinaryString {
             content,
             span: token.span,
-        })
+        }
     }
 
     /// Parse braced DEFVAL content (BITS or OID).
@@ -1511,10 +1511,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Skip unknown DEFVAL content outside braces.
-    fn parse_defval_skip_unknown(
-        &mut self,
-        content_start: u32,
-    ) -> Result<DefValContent, Diagnostic> {
+    fn parse_defval_skip_unknown(&mut self, content_start: u32) -> DefValContent {
         let mut depth = 0;
         while !self.is_eof() {
             match self.peek().kind {
@@ -1536,10 +1533,10 @@ impl<'src> Parser<'src> {
         }
         // Return empty BITS as fallback for unparseable content
         let span = Span::new(content_start, self.current_span().start);
-        Ok(DefValContent::Bits {
+        DefValContent::Bits {
             labels: Vec::new(),
             span,
-        })
+        }
     }
 
     /// Parse a quoted string.

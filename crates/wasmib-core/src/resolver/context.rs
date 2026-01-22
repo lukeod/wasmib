@@ -470,6 +470,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::similar_names)] // node_a_id/node_b_id are intentionally similar
     fn test_lookup_node_for_module_local_takes_precedence() {
         // Create a context where A has local "foo" and also imports "foo" from B
         // Local should take precedence

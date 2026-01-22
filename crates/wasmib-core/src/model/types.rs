@@ -431,7 +431,7 @@ mod tests {
     fn test_base_type_as_u8_round_trip() {
         for i in 0..12u8 {
             let base = BaseType::from_u8(i).unwrap();
-            assert_eq!(base.as_u8(), i, "Round-trip failed for value {}", i);
+            assert_eq!(base.as_u8(), i, "Round-trip failed for value {i}");
         }
         assert!(BaseType::from_u8(12).is_none());
         assert!(BaseType::from_u8(255).is_none());
@@ -441,7 +441,7 @@ mod tests {
     fn test_status_as_u8_round_trip() {
         for i in 0..3u8 {
             let status = Status::from_u8(i).unwrap();
-            assert_eq!(status.as_u8(), i, "Round-trip failed for value {}", i);
+            assert_eq!(status.as_u8(), i, "Round-trip failed for value {i}");
         }
         assert!(Status::from_u8(3).is_none());
         assert!(Status::from_u8(255).is_none());
@@ -451,7 +451,7 @@ mod tests {
     fn test_access_as_u8_round_trip() {
         for i in 0..6u8 {
             let access = Access::from_u8(i).unwrap();
-            assert_eq!(access.as_u8(), i, "Round-trip failed for value {}", i);
+            assert_eq!(access.as_u8(), i, "Round-trip failed for value {i}");
         }
         assert!(Access::from_u8(6).is_none());
         assert!(Access::from_u8(255).is_none());

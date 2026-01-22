@@ -136,9 +136,8 @@ pub extern "C" fn wasmib_alloc(size: u32) -> *mut u8 {
         return core::ptr::null_mut();
     }
 
-    let layout = match Layout::from_size_align(size as usize, 8) {
-        Ok(l) => l,
-        Err(_) => return core::ptr::null_mut(),
+    let Ok(layout) = Layout::from_size_align(size as usize, 8) else {
+        return core::ptr::null_mut();
     };
 
     // SAFETY: Layout is valid, checked above
@@ -149,14 +148,14 @@ pub extern "C" fn wasmib_alloc(size: u32) -> *mut u8 {
 ///
 /// The pointer must have been returned by `wasmib_alloc` with the same size.
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // FFI: caller responsible for valid pointer
 pub extern "C" fn wasmib_dealloc(ptr: *mut u8, size: u32) {
     if ptr.is_null() || size == 0 {
         return;
     }
 
-    let layout = match Layout::from_size_align(size as usize, 8) {
-        Ok(l) => l,
-        Err(_) => return,
+    let Ok(layout) = Layout::from_size_align(size as usize, 8) else {
+        return;
     };
 
     // SAFETY: Caller guarantees ptr was allocated with wasmib_alloc
@@ -176,6 +175,7 @@ pub extern "C" fn wasmib_dealloc(ptr: *mut u8, size: u32) {
 /// Returns: 0 = success, non-zero = error code.
 /// On error, call `wasmib_get_error` for details.
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // FFI: caller responsible for valid pointer
 pub extern "C" fn wasmib_load_module(ptr: *const u8, len: u32) -> u32 {
     if ptr.is_null() {
         STATE.get().set_error("null pointer");
@@ -247,9 +247,7 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     let bytes = crate::serialize::to_bytes(&result.model, None);
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = if let Ok(len) = u32::try_from(bytes.len()) {
-        len
-    } else {
+    let Ok(len) = u32::try_from(bytes.len()) else {
         state.set_error("serialized model too large (exceeds 4GB)");
         return error::INTERNAL_ERROR;
     };
@@ -292,6 +290,7 @@ pub extern "C" fn wasmib_get_model() -> *const u8 {
 ///
 /// The returned pointer is valid until the next `wasmib_reset()` or `wasmib_resolve()`.
 #[unsafe(no_mangle)]
+#[allow(clippy::missing_panics_doc)] // Encoding only fails on OOM
 pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     use crate::serialize::{Diagnostic as ProtoDiagnostic, Diagnostics as ProtoDiagnostics};
     use micropb::MessageEncode;
@@ -328,9 +327,7 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
         .expect("encoding should not fail");
 
     // Check serialized size fits in u32 (only fails on 64-bit with >4GB output)
-    let len = if let Ok(len) = u32::try_from(proto_bytes.len()) {
-        len
-    } else {
+    let Ok(len) = u32::try_from(proto_bytes.len()) else {
         // Diagnostics too large - return empty message
         static EMPTY_MSG: &[u8] = b"\x00\x00\x00\x00";
         return EMPTY_MSG.as_ptr();

@@ -1314,7 +1314,7 @@ mod tests {
             name: Symbol::from_name(name),
             syntax,
             base_type: None,
-            display_hint: hint.map(|s| s.into()),
+            display_hint: hint.map(Into::into),
             status: Status::Current,
             description: None,
             reference: None,
@@ -1324,6 +1324,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::similar_names)] // tc_a_typedef/tc_b_typedef are intentionally similar
     fn test_type_resolution_respects_imports() {
         // This test verifies that when multiple modules define the same type name,
         // objects get assigned the type from the module they explicitly imported from.

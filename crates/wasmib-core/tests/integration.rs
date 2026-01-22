@@ -602,6 +602,7 @@ fn test_resolver_tier2_basic_deps() {
 
 /// Test tier3: complex dependencies.
 #[test]
+#[allow(clippy::too_many_lines)] // Comprehensive test
 fn test_resolver_tier3_complex() {
     let files = [
         (
@@ -791,10 +792,11 @@ fn test_oid_values_match_libsmi() {
 /// Test parsing MIB with obsolete module OID in header (pre-RFC 2578 format).
 /// This format was valid ASN.1 but prohibited by SMIv2.
 #[test]
+#[allow(clippy::doc_markdown)] // SMIv2 is an acronym, not code
 fn test_parse_obsolete_module_oid_header() {
     // Format: ModuleName { oid-value } DEFINITIONS ::= BEGIN
     // The OID between the name and DEFINITIONS should be skipped.
-    let source = br#"
+    let source = br"
 TEST-MIB { iso org(3) dod(6) internet(1) private(4) enterprises(1) 9999 }
 DEFINITIONS ::= BEGIN
 
@@ -805,7 +807,7 @@ IMPORTS
 testRoot OBJECT IDENTIFIER ::= { enterprises 9999 }
 
 END
-"#;
+";
 
     let parser = Parser::new(source);
     let module = parser.parse_module();
@@ -838,7 +840,7 @@ END
         .iter()
         .filter(|d| d.severity == Severity::Error)
         .collect();
-    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+    assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
 
     println!("Obsolete module OID header parsed successfully with warning");
 }

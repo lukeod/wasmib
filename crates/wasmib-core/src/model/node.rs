@@ -241,7 +241,7 @@ mod tests {
         // Test all valid values round-trip correctly
         for i in 0..10u8 {
             let kind = NodeKind::from_u8(i).unwrap();
-            assert_eq!(kind.as_u8(), i, "Round-trip failed for value {}", i);
+            assert_eq!(kind.as_u8(), i, "Round-trip failed for value {i}");
         }
         // Test invalid value returns None
         assert!(NodeKind::from_u8(10).is_none());
