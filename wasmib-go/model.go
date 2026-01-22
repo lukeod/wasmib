@@ -740,31 +740,63 @@ func (m *Model) buildIndices() {
 		}
 	}
 
-	// Build node indices via tree walk
+	// Build node indices via tree walk, computing OIDs incrementally
+	// to avoid O(n*depth) tree walks. We pass the parent's OID string
+	// down to children and append each node's subid.
 	for _, rootID := range m.roots {
-		m.Walk(rootID, func(n *Node) bool {
-			// OID index
-			oid := m.GetOID(n)
-			if oid != "" {
-				m.oidIndex[oid] = n.ID
-			}
+		m.buildNodeIndices(rootID, "")
+	}
+}
 
-			// Name and qualified name indices
-			for _, def := range n.Definitions {
-				name := m.GetStr(def.Label)
-				if name != "" {
-					m.nameIndex[name] = append(m.nameIndex[name], n.ID)
+// buildNodeIndices recursively indexes nodes, computing OIDs incrementally.
+// parentOID is the OID string of the parent node (empty for roots).
+func (m *Model) buildNodeIndices(nodeID uint32, parentOID string) {
+	if nodeID == 0 || int(nodeID) > len(m.nodes) {
+		return
+	}
+	node := &m.nodes[nodeID-1]
 
-					if def.Module > 0 && int(def.Module) <= len(m.modules) {
-						modName := m.GetStr(m.modules[def.Module-1].Name)
-						if modName != "" {
-							qualName := modName + "::" + name
-							m.qualIndex[qualName] = n.ID
-						}
-					}
+	// Compute this node's OID by appending subid to parent
+	var oid string
+	subidStr := strconv.FormatUint(uint64(node.Subid), 10)
+	if parentOID == "" {
+		oid = subidStr
+	} else {
+		// Use strings.Builder to avoid repeated allocations
+		var b strings.Builder
+		b.Grow(len(parentOID) + 1 + len(subidStr))
+		b.WriteString(parentOID)
+		b.WriteByte('.')
+		b.WriteString(subidStr)
+		oid = b.String()
+	}
+
+	// OID index
+	m.oidIndex[oid] = node.ID
+
+	// Name and qualified name indices
+	for _, def := range node.Definitions {
+		name := m.GetStr(def.Label)
+		if name != "" {
+			m.nameIndex[name] = append(m.nameIndex[name], node.ID)
+
+			if def.Module > 0 && int(def.Module) <= len(m.modules) {
+				modName := m.GetStr(m.modules[def.Module-1].Name)
+				if modName != "" {
+					// Use strings.Builder for qualified name construction
+					var b strings.Builder
+					b.Grow(len(modName) + 2 + len(name))
+					b.WriteString(modName)
+					b.WriteString("::")
+					b.WriteString(name)
+					m.qualIndex[b.String()] = node.ID
 				}
 			}
-			return true
-		})
+		}
+	}
+
+	// Recurse to children, passing this node's OID
+	for _, childID := range node.Children {
+		m.buildNodeIndices(childID, oid)
 	}
 }

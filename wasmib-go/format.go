@@ -28,12 +28,12 @@ func hexTable(hexCase HexCase) string {
 }
 
 // FormatInteger formats an integer value with enum lookup and units.
-// If obj is nil, returns the plain numeric value.
+// If obj or m is nil, returns the plain numeric value.
 func FormatInteger(m *Model, obj *Object, value int64) string {
 	var enumName string
 
 	// Check inline enum first, then type-level enum
-	if obj != nil {
+	if m != nil && obj != nil {
 		for _, ev := range obj.InlineEnum {
 			if ev.Value == value {
 				enumName = m.GetStr(ev.Name)
@@ -63,7 +63,7 @@ func FormatInteger(m *Model, obj *Object, value int64) string {
 	}
 
 	// Append units if present
-	if obj != nil && obj.Units != 0 {
+	if m != nil && obj != nil && obj.Units != 0 {
 		units := m.GetStr(obj.Units)
 		if units != "" {
 			b.WriteByte(' ')
@@ -280,6 +280,7 @@ func FormatOctetString(value []byte, hint string, hexCase HexCase) string {
 
 // FormatBits formats a BITS value with named bit positions.
 // SNMP BITS encoding: MSB first (bit 0 = 0x80 of first byte).
+// If m is nil, bit positions are shown without names.
 func FormatBits(m *Model, obj *Object, value []byte) string {
 	if len(value) == 0 {
 		return "(none)"
@@ -287,7 +288,7 @@ func FormatBits(m *Model, obj *Object, value []byte) string {
 
 	// Build map of position -> name
 	bitNames := make(map[uint32]string)
-	if obj != nil {
+	if m != nil && obj != nil {
 		for _, bd := range obj.InlineBits {
 			bitNames[bd.Position] = m.GetStr(bd.Name)
 		}
@@ -412,6 +413,7 @@ func FormatOID(m *Model, value []uint32) string {
 
 // FormatValue formats any SNMP value based on object type information.
 // Dispatches to the appropriate formatter based on base type.
+// If m is nil, formatting proceeds with default/unknown type handling.
 func FormatValue(m *Model, obj *Object, value any) string {
 	if value == nil {
 		return ""
@@ -420,7 +422,7 @@ func FormatValue(m *Model, obj *Object, value any) string {
 	baseType := BaseTypeUnknown
 	var hint string
 
-	if obj != nil && obj.TypeID != 0 {
+	if m != nil && obj != nil && obj.TypeID != 0 {
 		if t := m.GetType(obj.TypeID); t != nil {
 			baseType = t.Base
 			hint = m.GetEffectiveHint(obj.TypeID)
@@ -464,7 +466,7 @@ func formatIntegerValue(m *Model, obj *Object, baseType BaseType, value int64) s
 	default:
 		// For other integer types, just format with units if available
 		s := strconv.FormatInt(value, 10)
-		if obj != nil && obj.Units != 0 {
+		if m != nil && obj != nil && obj.Units != 0 {
 			if units := m.GetStr(obj.Units); units != "" {
 				s += " " + units
 			}
@@ -482,7 +484,7 @@ func formatUnsignedValue(m *Model, obj *Object, baseType BaseType, value uint64)
 		return FormatInteger(m, obj, int64(value))
 	default:
 		s := strconv.FormatUint(value, 10)
-		if obj != nil && obj.Units != 0 {
+		if m != nil && obj != nil && obj.Units != 0 {
 			if units := m.GetStr(obj.Units); units != "" {
 				s += " " + units
 			}
