@@ -203,31 +203,74 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
         return;
     }
 
-    // Apply base module aliasing for non-standard vendor module names
-    // (e.g., SNMPv2-SMI-v1 → SNMPv2-SMI)
-    let effective_module_name = base_module_import_alias(from_module_name)
-        .unwrap_or(from_module_name);
-
     // Get candidate modules for this source name
-    let from_module_name_id = ctx.model.strings().find(effective_module_name);
+    let from_module_name_id = ctx.model.strings().find(from_module_name);
     let candidates: Vec<ModuleId> = from_module_name_id
         .and_then(|id| ctx.module_index.get(&id))
         .cloned()
         .unwrap_or_default();
 
-    if candidates.is_empty() {
-        // No candidates at all - mark all as unresolved
+    // Score candidates and find one with all symbols
+    if let Some(chosen_id) =
+        find_candidate_with_all_symbols(ctx, &candidates, &user_symbols, from_module_name, tracer)
+    {
+        tracer.trace_candidate_chosen(from_module_name, chosen_id);
         for sym in &user_symbols {
-            tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
-            ctx.record_unresolved_import(
-                importing_module,
-                from_module_name,
-                &sym.name,
-                UnresolvedImportReason::ModuleNotFound,
-                sym.span,
-            );
+            let sym_id = ctx.intern(&sym.name);
+            ctx.register_import(importing_module, sym_id, chosen_id);
         }
         return;
+    }
+
+    // No candidate has all symbols. Try module aliasing as fallback.
+    // This handles cases like SNMPv2-SMI-v1 files that exist but lack type definitions.
+    if let Some(aliased_name) = base_module_import_alias(from_module_name) {
+        let aliased_name_id = ctx.model.strings().find(aliased_name);
+        let alias_candidates: Vec<ModuleId> = aliased_name_id
+            .and_then(|id| ctx.module_index.get(&id))
+            .cloned()
+            .unwrap_or_default();
+
+        if let Some(chosen_id) = find_candidate_with_all_symbols(
+            ctx,
+            &alias_candidates,
+            &user_symbols,
+            aliased_name,
+            tracer,
+        ) {
+            tracer.trace_candidate_chosen(from_module_name, chosen_id);
+            for sym in &user_symbols {
+                let sym_id = ctx.intern(&sym.name);
+                ctx.register_import(importing_module, sym_id, chosen_id);
+            }
+            return;
+        }
+    }
+
+    // No candidate (original or alias) has all symbols - mark as unresolved
+    let reason = if candidates.is_empty() {
+        UnresolvedImportReason::ModuleNotFound
+    } else {
+        UnresolvedImportReason::SymbolNotExported
+    };
+
+    for sym in &user_symbols {
+        tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
+        ctx.record_unresolved_import(importing_module, from_module_name, &sym.name, reason, sym.span);
+    }
+}
+
+/// Find the best candidate that has ALL required symbols.
+/// Returns None if no candidate has all symbols.
+fn find_candidate_with_all_symbols<TR: ImportTracer>(
+    ctx: &ResolverContext,
+    candidates: &[ModuleId],
+    user_symbols: &[&ImportSymbol],
+    from_module_name: &str,
+    tracer: &mut TR,
+) -> Option<ModuleId> {
+    if candidates.is_empty() {
+        return None;
     }
 
     // Score candidates by:
@@ -236,7 +279,7 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
     let mut scored_candidates: Vec<(ModuleId, usize, Option<String>)> = Vec::new();
     let total_symbols = user_symbols.len();
 
-    for &candidate_id in &candidates {
+    for &candidate_id in candidates {
         if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
             // Build set of definition names once for O(1) lookup
             let def_names: BTreeSet<&str> = hir_module
@@ -245,7 +288,7 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
                 .filter_map(|def| def.name().map(|n| n.name.as_str()))
                 .collect();
 
-            // Count how many symbols this candidate has (O(symbols) instead of O(symbols × definitions))
+            // Count how many symbols this candidate has
             let symbol_count = user_symbols
                 .iter()
                 .filter(|sym| def_names.contains(sym.name.as_str()))
@@ -271,31 +314,11 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
             .then_with(|| b.2.cmp(&a.2)) // More recent LAST-UPDATED first
     });
 
-    // Try candidates in order until we find one with ALL symbols
-    for (candidate_id, symbol_count, _last_updated) in &scored_candidates {
-        if *symbol_count == user_symbols.len() {
-            // This candidate has all the symbols - use it for everything
-            tracer.trace_candidate_chosen(from_module_name, *candidate_id);
-            for sym in &user_symbols {
-                let sym_id = ctx.intern(&sym.name);
-                ctx.register_import(importing_module, sym_id, *candidate_id);
-            }
-            return;
-        }
-    }
-
-    // No single candidate has all symbols.
-    // Mark all as unresolved to maintain atomicity.
-    for sym in &user_symbols {
-        tracer.trace_unresolved(importing_module, from_module_name, &sym.name);
-        ctx.record_unresolved_import(
-            importing_module,
-            from_module_name,
-            &sym.name,
-            UnresolvedImportReason::SymbolNotExported,
-            sym.span,
-        );
-    }
+    // Return first candidate with ALL symbols
+    scored_candidates
+        .into_iter()
+        .find(|(_, count, _)| *count == total_symbols)
+        .map(|(id, _, _)| id)
 }
 
 /// Check if a symbol name is a MACRO (no runtime resolution needed).
@@ -315,19 +338,27 @@ fn is_macro_symbol(name: &str) -> bool {
     )
 }
 
-/// Check if a module name should be aliased to a base module for import resolution.
+/// Returns an alias for a module name, used as a **fallback** during import resolution.
 ///
-/// Some vendor MIBs (notably Cisco) import from non-standard module names like
-/// `SNMPv2-SMI-v1` that are functionally equivalent to `SNMPv2-SMI`. These files
-/// typically contain the same definitions but use ASN.1 syntax that wasmib doesn't
-/// parse (e.g., `[APPLICATION n] IMPLICIT` tagged types).
+/// The alias is consulted when:
+/// 1. No module with the original name exists, OR
+/// 2. The original module exists but doesn't export all required symbols
 ///
-/// This alias allows imports from such modules to resolve against the synthetic
-/// base modules, without treating the vendor variants as canonical base modules.
+/// This handles cases like `SNMPv2-SMI-v1` files that exist in MIB corpora but
+/// lack type definitions (they use ASN.1 syntax we don't parse).
+///
+/// Use cases:
+/// - Vendor variants: `SNMPv2-SMI-v1` → `SNMPv2-SMI` (Cisco uses ASN.1 syntax we don't parse)
+/// - Renamed modules: `RFC1315-MIB` → `FRAME-RELAY-DTE-MIB` (obsoleted and renamed)
+/// - Typo variants: `RFC-1213` → `RFC1213-MIB` (hyphen vs no-hyphen inconsistency)
 fn base_module_import_alias(name: &str) -> Option<&'static str> {
     match name {
         "SNMPv2-SMI-v1" => Some("SNMPv2-SMI"),
         "SNMPv2-TC-v1" => Some("SNMPv2-TC"),
+        // RFC1315-MIB was obsoleted and renamed to FRAME-RELAY-DTE-MIB
+        "RFC1315-MIB" => Some("FRAME-RELAY-DTE-MIB"),
+        // DNS-SERVER-MIB uses RFC-1213 (with hyphen) instead of RFC1213-MIB
+        "RFC-1213" => Some("RFC1213-MIB"),
         _ => None,
     }
 }
@@ -464,6 +495,147 @@ mod tests {
         assert!(
             ctx.model.unresolved().imports.is_empty(),
             "expected SNMPv2-TC-v1 imports to resolve via alias, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
+    }
+
+    #[test]
+    fn test_base_module_import_alias_rfc1315() {
+        // Test that imports from RFC1315-MIB resolve to FRAME-RELAY-DTE-MIB
+        // RFC1315-MIB was renamed to FRAME-RELAY-DTE-MIB
+
+        // First create a module named FRAME-RELAY-DTE-MIB with the exported symbol
+        let mut frame_relay_module =
+            Module::new(Symbol::from_name("FRAME-RELAY-DTE-MIB"), Span::new(0, 0));
+        frame_relay_module
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("frDlcmiTable"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Create a test module that imports from RFC1315-MIB (the old name)
+        let test_module =
+            make_test_module_with_imports("TEST-MIB", vec![("RFC1315-MIB", "frDlcmiTable")]);
+
+        let modules = vec![frame_relay_module, test_module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Aliased imports should resolve (RFC1315-MIB -> FRAME-RELAY-DTE-MIB)
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected RFC1315-MIB imports to resolve via alias to FRAME-RELAY-DTE-MIB, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
+    }
+
+    #[test]
+    fn test_base_module_import_alias_rfc_1213() {
+        // Test that imports from RFC-1213 (with hyphen) resolve to RFC1213-MIB
+        // DNS-SERVER-MIB uses this variant naming
+
+        // First create a module named RFC1213-MIB with the exported symbol
+        let mut rfc1213_module = Module::new(Symbol::from_name("RFC1213-MIB"), Span::new(0, 0));
+        rfc1213_module
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("mib-2"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "mgmt",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Create a test module that imports from RFC-1213 (with hyphen, the typo variant)
+        let test_module = make_test_module_with_imports("TEST-MIB", vec![("RFC-1213", "mib-2")]);
+
+        let modules = vec![rfc1213_module, test_module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Aliased imports should resolve (RFC-1213 -> RFC1213-MIB)
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected RFC-1213 imports to resolve via alias to RFC1213-MIB, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
+    }
+
+    #[test]
+    fn test_user_module_takes_precedence_over_alias() {
+        // Test that user-provided modules take precedence over alias fallback.
+        // If a user has an actual RFC1315-MIB file, it should be used instead of
+        // falling back to FRAME-RELAY-DTE-MIB.
+
+        // Create user's RFC1315-MIB with a unique symbol
+        let mut user_rfc1315 = Module::new(Symbol::from_name("RFC1315-MIB"), Span::new(0, 0));
+        user_rfc1315
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("userDefinedSymbol"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Create FRAME-RELAY-DTE-MIB with a different symbol
+        let mut frame_relay_module =
+            Module::new(Symbol::from_name("FRAME-RELAY-DTE-MIB"), Span::new(0, 0));
+        frame_relay_module
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("frDlcmiTable"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Import from RFC1315-MIB - should use user's module, not fall back to alias
+        let test_module = make_test_module_with_imports(
+            "TEST-MIB",
+            vec![("RFC1315-MIB", "userDefinedSymbol")],
+        );
+
+        let modules = vec![user_rfc1315, frame_relay_module, test_module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Should resolve from user's RFC1315-MIB, not fall back to FRAME-RELAY-DTE-MIB
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "user-provided RFC1315-MIB should take precedence over alias, got {} unresolved",
             ctx.model.unresolved().imports.len()
         );
     }

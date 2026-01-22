@@ -175,6 +175,8 @@ const SMI_GLOBAL_OID_ROOTS: &[&str] = &[
     "snmpProxys",
     "snmpModules",
     "zeroDotZero",
+    // RFC1213-MIB / SNMPv2-MIB (commonly used without import)
+    "snmp",
 ];
 
 /// Check if a symbol name is a common SMI OID root that should be globally accessible.
@@ -331,8 +333,11 @@ fn resolve_trap_type_definitions(ctx: &mut ResolverContext, trap_defs: Vec<TrapT
         let enterprise = enterprise_ref.to_string();
         let def_name = def.def_name(ctx).to_string();
 
-        // Look up the enterprise OID
-        let Some(enterprise_node_id) = lookup_node_scoped(ctx, def.module_id, &enterprise) else {
+        // Look up the enterprise OID (try module scope, then global SMI roots)
+        let enterprise_node_id = lookup_node_scoped(ctx, def.module_id, &enterprise)
+            .or_else(|| lookup_smi_global_oid_root(ctx, &enterprise));
+
+        let Some(enterprise_node_id) = enterprise_node_id else {
             // Enterprise reference not found
             ctx.record_unresolved_oid(def.module_id, &def_name, &enterprise, span);
             continue;

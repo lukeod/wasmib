@@ -500,6 +500,15 @@ fn create_oid_definitions() -> Vec<Definition> {
             "zeroDotZero",
             vec![OidComponent::Number(0), OidComponent::Number(0)],
         ),
+        // snmp OBJECT IDENTIFIER ::= { mib-2 11 }
+        // Technically from RFC1213-MIB/SNMPv2-MIB, but commonly used without import
+        make_oid_value(
+            "snmp",
+            vec![
+                OidComponent::Name(Symbol::from_name("mib-2")),
+                OidComponent::Number(11),
+            ],
+        ),
     ]
 }
 
