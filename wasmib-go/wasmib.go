@@ -157,6 +157,18 @@ func LoadDirWithOptions(ctx context.Context, dir string, opts LoadDirOptions) (*
 //
 //	model, err := wasmib.LoadFS(ctx, mibsFS, "mibs")
 func LoadFS(ctx context.Context, fsys fs.FS, root string) (*Model, error) {
+	return LoadFSWithOptions(ctx, fsys, root, LoadFSOptions{})
+}
+
+// LoadFSOptions configures LoadFSWithOptions behavior.
+type LoadFSOptions struct {
+	// OnError is called for each file that fails to read or parse.
+	// If nil, errors are silently ignored (file might not be a MIB).
+	OnError func(path string, err error)
+}
+
+// LoadFSWithOptions parses MIB files from an fs.FS with custom options.
+func LoadFSWithOptions(ctx context.Context, fsys fs.FS, root string, opts LoadFSOptions) (*Model, error) {
 	compiler, err := NewCompiler(ctx)
 	if err != nil {
 		return nil, err
@@ -164,17 +176,31 @@ func LoadFS(ctx context.Context, fsys fs.FS, root string) (*Model, error) {
 	defer func() { _ = compiler.Close() }()
 
 	err = fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			if opts.OnError != nil {
+				opts.OnError(path, err)
+			}
+			return nil
+		}
+
+		if d.IsDir() {
 			return nil
 		}
 
 		source, err := fs.ReadFile(fsys, path)
 		if err != nil {
-			return nil // Ignore read errors
+			if opts.OnError != nil {
+				opts.OnError(path, err)
+			}
+			return nil
 		}
 
-		// Ignore parse errors (file might not be a MIB)
-		_ = compiler.LoadModule(source)
+		if err := compiler.LoadModule(source); err != nil {
+			if opts.OnError != nil {
+				opts.OnError(path, err)
+			}
+			// Don't fail on parse errors - file might not be a MIB
+		}
 		return nil
 	})
 	if err != nil {

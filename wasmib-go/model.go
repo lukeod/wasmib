@@ -572,6 +572,10 @@ func parseOIDString(oid string) ([]uint32, error) {
 		if i == len(oid) || oid[i] == '.' {
 			if i > start {
 				segment := oid[start:i]
+				// Reject leading zeros (e.g., "01", "007") - MIB convention
+				if len(segment) > 1 && segment[0] == '0' {
+					return nil, fmt.Errorf("invalid OID component %q: leading zeros not allowed", segment)
+				}
 				n, err := strconv.ParseUint(segment, 10, 32)
 				if err != nil {
 					return nil, fmt.Errorf("invalid OID component %q: %w", segment, err)

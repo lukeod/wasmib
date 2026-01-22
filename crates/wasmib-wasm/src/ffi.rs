@@ -86,8 +86,12 @@ impl WasmState {
         self.last_error = None;
     }
 
+    /// Set the last error message.
+    ///
+    /// Messages longer than `u32::MAX` bytes are silently truncated. This can
+    /// only occur on 64-bit systems; WASM is 32-bit and cannot have strings
+    /// exceeding `u32::MAX`.
     fn set_error(&mut self, msg: &str) {
-        // Truncate message if it exceeds u32::MAX (only possible on 64-bit, not WASM)
         let len = u32::try_from(msg.len()).unwrap_or(u32::MAX);
         let msg_bytes = &msg.as_bytes()[..len as usize];
         self.last_error = Some(length_prefix_bytes(msg_bytes, len));

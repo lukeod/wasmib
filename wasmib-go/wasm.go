@@ -119,9 +119,12 @@ func (c *Compiler) Close() error {
 //
 // The source should be the raw bytes of a MIB file. Call this for each
 // MIB file, then call Resolve() to build the model.
+//
+// Returns an error if the source is empty (which may indicate a file read
+// problem on the caller's side).
 func (c *Compiler) LoadModule(source []byte) error {
 	if len(source) == 0 {
-		return nil // Empty source is a no-op
+		return fmt.Errorf("empty source")
 	}
 
 	// Allocate memory in WASM
