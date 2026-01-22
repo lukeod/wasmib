@@ -381,13 +381,20 @@ use wasmib_core::resolver::Resolver;
 /// Test that the resolver can process a single module with only built-in dependencies.
 #[test]
 fn test_resolver_snmpv2_mib() {
-    let source = include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB");
-    let parser = Parser::new(source);
-    let ast_module = parser.parse_module();
-    let hir_module = module::lower_module(ast_module);
+    let files = [
+        include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/RFC1213-MIB").as_slice(),
+        include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/SNMPv2-MIB").as_slice(),
+    ];
+
+    let mut hir_modules = Vec::new();
+    for source in &files {
+        let parser = Parser::new(source);
+        let ast_module = parser.parse_module();
+        hir_modules.push(module::lower_module(ast_module));
+    }
 
     let resolver = Resolver::new();
-    let result = resolver.resolve(vec![hir_module]);
+    let result = resolver.resolve(hir_modules);
 
     println!("SNMPv2-MIB resolved:");
     println!("  Modules: {}", result.model.module_count());
@@ -402,7 +409,7 @@ fn test_resolver_snmpv2_mib() {
         println!("  Diag: {}", diag.message);
     }
 
-    // Should have registered the module (8 base modules + 1 user module)
+    // Should have registered the modules (7 base modules + 2 user modules)
     assert_eq!(result.model.module_count(), 9);
     assert!(result.model.get_module_by_name("SNMPv2-MIB").is_some());
 
@@ -429,6 +436,10 @@ fn test_resolver_snmpv2_mib() {
 fn test_resolver_tier1_builtin_only() {
     // Load all tier1 files
     let files = [
+        (
+            "RFC1213-MIB",
+            include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/RFC1213-MIB").as_slice(),
+        ),
         (
             "IANAifType-MIB",
             include_bytes!("../../../.local/mibs_mini/tier1_builtin_only/IANAifType-MIB")
@@ -490,7 +501,7 @@ fn test_resolver_tier1_builtin_only() {
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
-    // Should have all 3 user modules + 8 base modules
+    // Should have all 4 user modules + 7 base modules
     assert_eq!(result.model.module_count(), 11);
 
     // Should have many nodes
@@ -514,6 +525,10 @@ fn test_resolver_tier1_builtin_only() {
 #[test]
 fn test_resolver_tier2_basic_deps() {
     let files = [
+        (
+            "RFC1213-MIB",
+            include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/RFC1213-MIB").as_slice(),
+        ),
         (
             "IANAifType-MIB",
             include_bytes!("../../../.local/mibs_mini/tier2_basic_deps/IANAifType-MIB").as_slice(),
@@ -567,7 +582,7 @@ fn test_resolver_tier2_basic_deps() {
         println!("  Unresolved import: {from}::{sym}");
     }
 
-    // Should have all 4 user modules + 8 base modules
+    // Should have all 5 user modules + 7 base modules
     assert_eq!(result.model.module_count(), 12);
 
     // Should have many nodes including IF-MIB content
@@ -589,6 +604,10 @@ fn test_resolver_tier2_basic_deps() {
 #[test]
 fn test_resolver_tier3_complex() {
     let files = [
+        (
+            "RFC1213-MIB",
+            include_bytes!("../../../.local/mibs_mini/tier3_complex/RFC1213-MIB").as_slice(),
+        ),
         (
             "IANAifType-MIB",
             include_bytes!("../../../.local/mibs_mini/tier3_complex/IANAifType-MIB").as_slice(),
@@ -654,7 +673,7 @@ fn test_resolver_tier3_complex() {
         println!("  Unresolved OID: {def} -> {comp}");
     }
 
-    // Should have all 7 user modules + 8 base modules
+    // Should have all 8 user modules + 7 base modules
     assert_eq!(result.model.module_count(), 15);
 
     // Should have many nodes

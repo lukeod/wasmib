@@ -37,7 +37,7 @@ use super::syntax::{
 };
 use super::types::{SmiLanguage, Status, Symbol};
 
-/// SMI base modules.
+/// SMI base modules (types and MACROs, not regular MIBs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BaseModule {
     /// SNMPv2-SMI (RFC 2578) - `SMIv2` base types, OIDs, MACROs.
@@ -54,8 +54,6 @@ pub enum BaseModule {
     Rfc1212,
     /// RFC-1215 - `SMIv1` TRAP-TYPE MACRO.
     Rfc1215,
-    /// RFC1213-MIB - Legacy module (mib-2, `DisplayString`).
-    Rfc1213Mib,
 }
 
 impl BaseModule {
@@ -70,7 +68,6 @@ impl BaseModule {
             Self::Rfc1065Smi => "RFC1065-SMI",
             Self::Rfc1212 => "RFC-1212",
             Self::Rfc1215 => "RFC-1215",
-            Self::Rfc1213Mib => "RFC1213-MIB",
         }
     }
 
@@ -100,7 +97,6 @@ impl BaseModule {
             "RFC1065-SMI" => Some(Self::Rfc1065Smi),
             "RFC-1212" => Some(Self::Rfc1212),
             "RFC-1215" => Some(Self::Rfc1215),
-            "RFC1213-MIB" => Some(Self::Rfc1213Mib),
             _ => None,
         }
     }
@@ -115,7 +111,6 @@ impl BaseModule {
             Self::Rfc1065Smi,
             Self::Rfc1212,
             Self::Rfc1215,
-            Self::Rfc1213Mib,
         ]
         .into_iter()
     }
@@ -130,7 +125,7 @@ pub fn is_base_module(name: &str) -> bool {
 /// Create synthetic modules for all base modules.
 ///
 /// Returns modules in order: SNMPv2-SMI, SNMPv2-TC, SNMPv2-CONF,
-/// RFC1155-SMI, RFC1065-SMI, RFC1213-MIB, RFC-1212, RFC-1215.
+/// RFC1155-SMI, RFC1065-SMI, RFC-1212, RFC-1215.
 /// These should be prepended to the user module list before resolution.
 #[must_use]
 pub fn create_base_modules() -> Vec<Module> {
@@ -140,7 +135,6 @@ pub fn create_base_modules() -> Vec<Module> {
         create_snmpv2_conf(),
         create_rfc1155_smi(),
         create_rfc1065_smi(),
-        create_rfc1213_mib(),
         create_rfc1212(),
         create_rfc1215(),
     ]
@@ -225,75 +219,6 @@ fn create_rfc1065_smi() -> Module {
     // Same content as RFC1155-SMI
     module.definitions.extend(create_smiv1_type_definitions());
     module.definitions.extend(create_smiv1_oid_definitions());
-
-    module
-}
-
-/// Create the synthetic RFC1213-MIB module.
-///
-/// Legacy module containing:
-/// - Types: `DisplayString`
-/// - OIDs: mib-2
-fn create_rfc1213_mib() -> Module {
-    let mut module = Module::new(Symbol::from_name("RFC1213-MIB"), Span::SYNTHETIC);
-    module.language = SmiLanguage::Smiv1;
-
-    // Add DisplayString type definition
-    module.definitions.push(make_tc(
-        "DisplayString",
-        Some("255a"),
-        constrained_octet_range(0, 255),
-    ));
-
-    // Add mib-2 OID definition
-    module.definitions.push(make_oid_value(
-        "mib-2",
-        vec![
-            OidComponent::Name(Symbol::from_name("mgmt")),
-            OidComponent::Number(1),
-        ],
-    ));
-
-    // Add mgmt for the mib-2 reference to work
-    module.definitions.push(make_oid_value(
-        "mgmt",
-        vec![
-            OidComponent::Name(Symbol::from_name("internet")),
-            OidComponent::Number(2),
-        ],
-    ));
-
-    // Add internet for the mgmt reference to work
-    module.definitions.push(make_oid_value(
-        "internet",
-        vec![
-            OidComponent::Name(Symbol::from_name("dod")),
-            OidComponent::Number(1),
-        ],
-    ));
-
-    // Add dod for the internet reference to work
-    module.definitions.push(make_oid_value(
-        "dod",
-        vec![
-            OidComponent::Name(Symbol::from_name("org")),
-            OidComponent::Number(6),
-        ],
-    ));
-
-    // Add org for the dod reference to work
-    module.definitions.push(make_oid_value(
-        "org",
-        vec![
-            OidComponent::Name(Symbol::from_name("iso")),
-            OidComponent::Number(3),
-        ],
-    ));
-
-    // Add iso as root
-    module
-        .definitions
-        .push(make_oid_value("iso", vec![OidComponent::Number(1)]));
 
     module
 }
@@ -865,7 +790,7 @@ mod tests {
 
     #[test]
     fn test_base_module_count() {
-        assert_eq!(BaseModule::all().count(), 8);
+        assert_eq!(BaseModule::all().count(), 7);
     }
 
     #[test]
@@ -888,15 +813,14 @@ mod tests {
     #[test]
     fn test_create_base_modules() {
         let modules = create_base_modules();
-        assert_eq!(modules.len(), 8);
+        assert_eq!(modules.len(), 7);
         assert_eq!(modules[0].name.name, "SNMPv2-SMI");
         assert_eq!(modules[1].name.name, "SNMPv2-TC");
         assert_eq!(modules[2].name.name, "SNMPv2-CONF");
         assert_eq!(modules[3].name.name, "RFC1155-SMI");
         assert_eq!(modules[4].name.name, "RFC1065-SMI");
-        assert_eq!(modules[5].name.name, "RFC1213-MIB");
-        assert_eq!(modules[6].name.name, "RFC-1212");
-        assert_eq!(modules[7].name.name, "RFC-1215");
+        assert_eq!(modules[5].name.name, "RFC-1212");
+        assert_eq!(modules[6].name.name, "RFC-1215");
     }
 
     #[test]
@@ -1003,19 +927,6 @@ mod tests {
         assert!(def_names.contains(&"enterprises"));
     }
 
-    #[test]
-    fn test_rfc1213_mib_has_content() {
-        let module = create_rfc1213_mib();
-
-        let def_names: Vec<_> = module
-            .definitions
-            .iter()
-            .filter_map(|d| d.name().map(|n| n.name.as_str()))
-            .collect();
-
-        assert!(def_names.contains(&"DisplayString"));
-        assert!(def_names.contains(&"mib-2"));
-    }
 
     #[test]
     fn test_empty_modules() {

@@ -82,8 +82,8 @@ mod tests {
 
         register_modules(&mut ctx);
 
-        // 8 base modules + 1 user module
-        assert_eq!(ctx.model.module_count(), 9);
+        // 7 base modules + 1 user module
+        assert_eq!(ctx.model.module_count(), 8);
         // Check modules are registered by looking them up via the model
         assert!(ctx.model.get_module_by_name("TEST-MIB").is_some());
         assert!(ctx.model.get_module_by_name("SNMPv2-SMI").is_some());

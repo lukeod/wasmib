@@ -388,8 +388,8 @@ mod tests {
         let resolver = Resolver::new();
         let result = resolver.resolve(vec![]);
 
-        // 8 base modules are always included
-        assert_eq!(result.model.module_count(), 8);
+        // 7 base modules are always included
+        assert_eq!(result.model.module_count(), 7);
     }
 
     #[test]
@@ -411,8 +411,8 @@ mod tests {
         let resolver = Resolver::new();
         let result = resolver.resolve(modules);
 
-        // 8 base modules + 1 user module
-        assert_eq!(result.model.module_count(), 9);
+        // 7 base modules + 1 user module
+        assert_eq!(result.model.module_count(), 8);
         assert!(result.model.get_module_by_name("TEST-MIB").is_some());
 
         // Check the object was resolved
