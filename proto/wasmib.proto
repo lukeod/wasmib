@@ -46,6 +46,13 @@ message SerializedModel {
   uint32 unresolved_oids = 13;
   uint32 unresolved_indexes = 14;
   uint32 unresolved_notification_objects = 15;
+
+  // Detailed unresolved references (for debugging).
+  repeated UnresolvedImport unresolved_import_details = 16;
+  repeated UnresolvedType unresolved_type_details = 17;
+  repeated UnresolvedOid unresolved_oid_details = 18;
+  repeated UnresolvedIndex unresolved_index_details = 19;
+  repeated UnresolvedNotificationObject unresolved_notif_details = 20;
 }
 
 // String offset pair (start, end) into strings_data.
@@ -253,4 +260,56 @@ message SerializedNotification {
   uint32 reference = 6;
   // Objects included in the notification (Vec<NodeId>).
   repeated uint32 objects = 7;
+}
+
+// Unresolved import reference.
+message UnresolvedImport {
+  // Module requesting the import (ModuleId).
+  uint32 importing_module = 1;
+  // Module being imported from (StrId - may not exist).
+  uint32 from_module = 2;
+  // Symbol being imported (StrId).
+  uint32 symbol = 3;
+  // Reason: 0=ModuleNotFound, 1=SymbolNotExported.
+  uint32 reason = 4;
+}
+
+// Unresolved type reference.
+message UnresolvedType {
+  // Module containing the reference (ModuleId).
+  uint32 module = 1;
+  // Definition referencing the type (StrId).
+  uint32 referrer = 2;
+  // Type being referenced (StrId).
+  uint32 referenced = 3;
+}
+
+// Unresolved OID component.
+message UnresolvedOid {
+  // Module containing the definition (ModuleId).
+  uint32 module = 1;
+  // Definition with the OID (StrId).
+  uint32 definition = 2;
+  // Unresolved component name (StrId).
+  uint32 component = 3;
+}
+
+// Unresolved index object.
+message UnresolvedIndex {
+  // Module containing the row (ModuleId).
+  uint32 module = 1;
+  // Row definition name (StrId).
+  uint32 row = 2;
+  // Unresolved index object name (StrId).
+  uint32 index_object = 3;
+}
+
+// Unresolved notification object.
+message UnresolvedNotificationObject {
+  // Module containing the notification (ModuleId).
+  uint32 module = 1;
+  // Notification definition name (StrId).
+  uint32 notification = 2;
+  // Unresolved object name (StrId).
+  uint32 object = 3;
 }

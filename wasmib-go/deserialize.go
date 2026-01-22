@@ -41,6 +41,13 @@ func Deserialize(data []byte) (*Model, error) {
 	objects := convertObjects(msg.Objects)
 	notifications := convertNotifications(msg.Notifications)
 
+	// Convert unresolved details
+	unresolvedImportDetails := convertUnresolvedImports(msg.UnresolvedImportDetails)
+	unresolvedTypeDetails := convertUnresolvedTypes(msg.UnresolvedTypeDetails)
+	unresolvedOidDetails := convertUnresolvedOids(msg.UnresolvedOidDetails)
+	unresolvedIndexDetails := convertUnresolvedIndexes(msg.UnresolvedIndexDetails)
+	unresolvedNotifDetails := convertUnresolvedNotifs(msg.UnresolvedNotifDetails)
+
 	m := &Model{
 		version:                       msg.Version,
 		strings:                       strings,
@@ -55,6 +62,11 @@ func Deserialize(data []byte) (*Model, error) {
 		unresolvedOids:                msg.UnresolvedOids,
 		unresolvedIndexes:             msg.UnresolvedIndexes,
 		unresolvedNotificationObjects: msg.UnresolvedNotificationObjects,
+		unresolvedImportDetails:       unresolvedImportDetails,
+		unresolvedTypeDetails:         unresolvedTypeDetails,
+		unresolvedOidDetails:          unresolvedOidDetails,
+		unresolvedIndexDetails:        unresolvedIndexDetails,
+		unresolvedNotifDetails:        unresolvedNotifDetails,
 	}
 
 	m.buildIndices()
@@ -277,4 +289,65 @@ func convertNotifications(pbNotifs []*proto.SerializedNotification) []Notificati
 		}
 	}
 	return notifications
+}
+
+func convertUnresolvedImports(pbImports []*proto.UnresolvedImport) []UnresolvedImport {
+	imports := make([]UnresolvedImport, len(pbImports))
+	for i, pb := range pbImports {
+		imports[i] = UnresolvedImport{
+			ImportingModule: pb.ImportingModule,
+			FromModule:      pb.FromModule,
+			Symbol:          pb.Symbol,
+			Reason:          UnresolvedImportReason(pb.Reason),
+		}
+	}
+	return imports
+}
+
+func convertUnresolvedTypes(pbTypes []*proto.UnresolvedType) []UnresolvedType {
+	types := make([]UnresolvedType, len(pbTypes))
+	for i, pb := range pbTypes {
+		types[i] = UnresolvedType{
+			Module:     pb.Module,
+			Referrer:   pb.Referrer,
+			Referenced: pb.Referenced,
+		}
+	}
+	return types
+}
+
+func convertUnresolvedOids(pbOids []*proto.UnresolvedOid) []UnresolvedOid {
+	oids := make([]UnresolvedOid, len(pbOids))
+	for i, pb := range pbOids {
+		oids[i] = UnresolvedOid{
+			Module:     pb.Module,
+			Definition: pb.Definition,
+			Component:  pb.Component,
+		}
+	}
+	return oids
+}
+
+func convertUnresolvedIndexes(pbIndexes []*proto.UnresolvedIndex) []UnresolvedIndex {
+	indexes := make([]UnresolvedIndex, len(pbIndexes))
+	for i, pb := range pbIndexes {
+		indexes[i] = UnresolvedIndex{
+			Module:      pb.Module,
+			Row:         pb.Row,
+			IndexObject: pb.IndexObject,
+		}
+	}
+	return indexes
+}
+
+func convertUnresolvedNotifs(pbNotifs []*proto.UnresolvedNotificationObject) []UnresolvedNotificationObject {
+	notifs := make([]UnresolvedNotificationObject, len(pbNotifs))
+	for i, pb := range pbNotifs {
+		notifs[i] = UnresolvedNotificationObject{
+			Module:       pb.Module,
+			Notification: pb.Notification,
+			Object:       pb.Object,
+		}
+	}
+	return notifs
 }

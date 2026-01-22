@@ -19,7 +19,11 @@ use wasmib_core::model::{
     Access, BaseType, BitDefinitions, DefVal, EnumValues, IndexItem, IndexSpec, Model, ModelParts,
     ModuleId, NodeDefinition, NodeId, NodeKind, NotificationId, ObjectId, OidNode, RangeBound,
     ResolvedModule, ResolvedNotification, ResolvedObject, ResolvedType, Revision, SizeConstraint,
-    Status, StrId, StringInterner, TypeId, UnresolvedReferences, ValueConstraint,
+    Status, StrId, StringInterner, TypeId, UnresolvedImport as CoreUnresolvedImport,
+    UnresolvedImportReason, UnresolvedIndex as CoreUnresolvedIndex,
+    UnresolvedNotificationObject as CoreUnresolvedNotificationObject,
+    UnresolvedOid as CoreUnresolvedOid, UnresolvedReferences, UnresolvedType as CoreUnresolvedType,
+    ValueConstraint,
 };
 
 // Include generated protobuf types (with warnings suppressed for generated code)
@@ -91,8 +95,35 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
     // 7. Get roots
     let roots: Vec<_> = model.root_ids().iter().map(|id| id.to_raw()).collect();
 
-    // 8. Get unresolved counts
+    // 8. Get unresolved references with details
     let unresolved = model.unresolved();
+
+    // Serialize unresolved details
+    let unresolved_import_details: Vec<_> = unresolved
+        .imports
+        .iter()
+        .map(serialize_unresolved_import)
+        .collect();
+    let unresolved_type_details: Vec<_> = unresolved
+        .types
+        .iter()
+        .map(serialize_unresolved_type)
+        .collect();
+    let unresolved_oid_details: Vec<_> = unresolved
+        .oids
+        .iter()
+        .map(serialize_unresolved_oid)
+        .collect();
+    let unresolved_index_details: Vec<_> = unresolved
+        .indexes
+        .iter()
+        .map(serialize_unresolved_index)
+        .collect();
+    let unresolved_notif_details: Vec<_> = unresolved
+        .notification_objects
+        .iter()
+        .map(serialize_unresolved_notif)
+        .collect();
 
     // Use struct literal for repeated fields, then set scalar fields
     SerializedModel {
@@ -111,6 +142,11 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         r#unresolved_oids: unresolved.oids.len() as u32,
         r#unresolved_indexes: unresolved.indexes.len() as u32,
         r#unresolved_notification_objects: unresolved.notification_objects.len() as u32,
+        unresolved_import_details,
+        unresolved_type_details,
+        unresolved_oid_details,
+        unresolved_index_details,
+        unresolved_notif_details,
     }
 }
 
@@ -790,6 +826,50 @@ fn serialize_notification(notif: &ResolvedNotification) -> SerializedNotificatio
             .map_or(0, wasmib_core::model::StrId::to_raw),
         r#reference: notif.reference.map_or(0, wasmib_core::model::StrId::to_raw),
         r#objects: notif.objects.iter().map(|id| id.to_raw()).collect(),
+    }
+}
+
+fn serialize_unresolved_import(imp: &CoreUnresolvedImport) -> UnresolvedImport {
+    UnresolvedImport {
+        r#importing_module: imp.importing_module.to_raw(),
+        r#from_module: imp.from_module.to_raw(),
+        r#symbol: imp.symbol.to_raw(),
+        r#reason: match imp.reason {
+            UnresolvedImportReason::ModuleNotFound => 0,
+            UnresolvedImportReason::SymbolNotExported => 1,
+        },
+    }
+}
+
+fn serialize_unresolved_type(typ: &CoreUnresolvedType) -> UnresolvedType {
+    UnresolvedType {
+        r#module: typ.module.to_raw(),
+        r#referrer: typ.referrer.to_raw(),
+        r#referenced: typ.referenced.to_raw(),
+    }
+}
+
+fn serialize_unresolved_oid(oid: &CoreUnresolvedOid) -> UnresolvedOid {
+    UnresolvedOid {
+        r#module: oid.module.to_raw(),
+        r#definition: oid.definition.to_raw(),
+        r#component: oid.component.to_raw(),
+    }
+}
+
+fn serialize_unresolved_index(idx: &CoreUnresolvedIndex) -> UnresolvedIndex {
+    UnresolvedIndex {
+        r#module: idx.module.to_raw(),
+        r#row: idx.row.to_raw(),
+        r#index_object: idx.index_object.to_raw(),
+    }
+}
+
+fn serialize_unresolved_notif(notif: &CoreUnresolvedNotificationObject) -> UnresolvedNotificationObject {
+    UnresolvedNotificationObject {
+        r#module: notif.module.to_raw(),
+        r#notification: notif.notification.to_raw(),
+        r#object: notif.object.to_raw(),
     }
 }
 

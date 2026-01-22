@@ -33,6 +33,13 @@ type Model struct {
 	unresolvedIndexes             uint32
 	unresolvedNotificationObjects uint32
 
+	// Unresolved reference details (for debugging)
+	unresolvedImportDetails []UnresolvedImport
+	unresolvedTypeDetails   []UnresolvedType
+	unresolvedOidDetails    []UnresolvedOid
+	unresolvedIndexDetails  []UnresolvedIndex
+	unresolvedNotifDetails  []UnresolvedNotificationObject
+
 	// Lookup indices (built on deserialize)
 	oidIndex    map[string]uint32   // "1.3.6.1.2.1.1.1" -> NodeId
 	nameIndex   map[string][]uint32 // "sysDescr" -> []NodeId
@@ -156,6 +163,52 @@ type Notification struct {
 	Description uint32   // StrId, 0 = none
 	Reference   uint32   // StrId, 0 = none
 	Objects     []uint32 // []NodeId - OBJECTS clause
+}
+
+// UnresolvedImport represents an import that could not be resolved.
+type UnresolvedImport struct {
+	ImportingModule uint32                 // ModuleId of the importing module
+	FromModule      uint32                 // StrId of the module being imported from
+	Symbol          uint32                 // StrId of the symbol being imported
+	Reason          UnresolvedImportReason // Why it could not be resolved
+}
+
+// UnresolvedImportReason describes why an import could not be resolved.
+type UnresolvedImportReason uint32
+
+const (
+	// ReasonModuleNotFound means no module with the given name was found.
+	ReasonModuleNotFound UnresolvedImportReason = 0
+	// ReasonSymbolNotExported means the module exists but doesn't export the symbol.
+	ReasonSymbolNotExported UnresolvedImportReason = 1
+)
+
+// UnresolvedType represents a type reference that could not be resolved.
+type UnresolvedType struct {
+	Module     uint32 // ModuleId containing the reference
+	Referrer   uint32 // StrId of the definition referencing the type
+	Referenced uint32 // StrId of the type being referenced
+}
+
+// UnresolvedOid represents an OID component that could not be resolved.
+type UnresolvedOid struct {
+	Module     uint32 // ModuleId containing the definition
+	Definition uint32 // StrId of the definition with the OID
+	Component  uint32 // StrId of the unresolved component name
+}
+
+// UnresolvedIndex represents an index object that could not be resolved.
+type UnresolvedIndex struct {
+	Module      uint32 // ModuleId containing the row
+	Row         uint32 // StrId of the row definition
+	IndexObject uint32 // StrId of the unresolved index object name
+}
+
+// UnresolvedNotificationObject represents a notification object that could not be resolved.
+type UnresolvedNotificationObject struct {
+	Module       uint32 // ModuleId containing the notification
+	Notification uint32 // StrId of the notification definition
+	Object       uint32 // StrId of the unresolved object name
 }
 
 // === Query Methods ===
@@ -596,6 +649,31 @@ func (m *Model) IsComplete() bool {
 func (m *Model) UnresolvedCounts() (imports, types, oids, indexes, notifObjects uint32) {
 	return m.unresolvedImports, m.unresolvedTypes, m.unresolvedOids,
 		m.unresolvedIndexes, m.unresolvedNotificationObjects
+}
+
+// UnresolvedImports returns details of all unresolved imports.
+func (m *Model) UnresolvedImports() []UnresolvedImport {
+	return m.unresolvedImportDetails
+}
+
+// UnresolvedTypes returns details of all unresolved type references.
+func (m *Model) UnresolvedTypes() []UnresolvedType {
+	return m.unresolvedTypeDetails
+}
+
+// UnresolvedOids returns details of all unresolved OID components.
+func (m *Model) UnresolvedOids() []UnresolvedOid {
+	return m.unresolvedOidDetails
+}
+
+// UnresolvedIndexes returns details of all unresolved index objects.
+func (m *Model) UnresolvedIndexes() []UnresolvedIndex {
+	return m.unresolvedIndexDetails
+}
+
+// UnresolvedNotificationObjects returns details of all unresolved notification objects.
+func (m *Model) UnresolvedNotificationObjects() []UnresolvedNotificationObject {
+	return m.unresolvedNotifDetails
 }
 
 // Version returns the schema version of the serialized model.

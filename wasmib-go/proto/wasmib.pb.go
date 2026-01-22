@@ -54,8 +54,14 @@ type SerializedModel struct {
 	UnresolvedOids                uint32 `protobuf:"varint,13,opt,name=unresolved_oids,json=unresolvedOids,proto3" json:"unresolved_oids,omitempty"`
 	UnresolvedIndexes             uint32 `protobuf:"varint,14,opt,name=unresolved_indexes,json=unresolvedIndexes,proto3" json:"unresolved_indexes,omitempty"`
 	UnresolvedNotificationObjects uint32 `protobuf:"varint,15,opt,name=unresolved_notification_objects,json=unresolvedNotificationObjects,proto3" json:"unresolved_notification_objects,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// Detailed unresolved references (for debugging).
+	UnresolvedImportDetails []*UnresolvedImport             `protobuf:"bytes,16,rep,name=unresolved_import_details,json=unresolvedImportDetails,proto3" json:"unresolved_import_details,omitempty"`
+	UnresolvedTypeDetails   []*UnresolvedType               `protobuf:"bytes,17,rep,name=unresolved_type_details,json=unresolvedTypeDetails,proto3" json:"unresolved_type_details,omitempty"`
+	UnresolvedOidDetails    []*UnresolvedOid                `protobuf:"bytes,18,rep,name=unresolved_oid_details,json=unresolvedOidDetails,proto3" json:"unresolved_oid_details,omitempty"`
+	UnresolvedIndexDetails  []*UnresolvedIndex              `protobuf:"bytes,19,rep,name=unresolved_index_details,json=unresolvedIndexDetails,proto3" json:"unresolved_index_details,omitempty"`
+	UnresolvedNotifDetails  []*UnresolvedNotificationObject `protobuf:"bytes,20,rep,name=unresolved_notif_details,json=unresolvedNotifDetails,proto3" json:"unresolved_notif_details,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *SerializedModel) Reset() {
@@ -191,6 +197,41 @@ func (x *SerializedModel) GetUnresolvedNotificationObjects() uint32 {
 		return x.UnresolvedNotificationObjects
 	}
 	return 0
+}
+
+func (x *SerializedModel) GetUnresolvedImportDetails() []*UnresolvedImport {
+	if x != nil {
+		return x.UnresolvedImportDetails
+	}
+	return nil
+}
+
+func (x *SerializedModel) GetUnresolvedTypeDetails() []*UnresolvedType {
+	if x != nil {
+		return x.UnresolvedTypeDetails
+	}
+	return nil
+}
+
+func (x *SerializedModel) GetUnresolvedOidDetails() []*UnresolvedOid {
+	if x != nil {
+		return x.UnresolvedOidDetails
+	}
+	return nil
+}
+
+func (x *SerializedModel) GetUnresolvedIndexDetails() []*UnresolvedIndex {
+	if x != nil {
+		return x.UnresolvedIndexDetails
+	}
+	return nil
+}
+
+func (x *SerializedModel) GetUnresolvedNotifDetails() []*UnresolvedNotificationObject {
+	if x != nil {
+		return x.UnresolvedNotifDetails
+	}
+	return nil
 }
 
 // String offset pair (start, end) into strings_data.
@@ -1479,11 +1520,340 @@ func (x *SerializedNotification) GetObjects() []uint32 {
 	return nil
 }
 
+// Unresolved import reference.
+type UnresolvedImport struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Module requesting the import (ModuleId).
+	ImportingModule uint32 `protobuf:"varint,1,opt,name=importing_module,json=importingModule,proto3" json:"importing_module,omitempty"`
+	// Module being imported from (StrId - may not exist).
+	FromModule uint32 `protobuf:"varint,2,opt,name=from_module,json=fromModule,proto3" json:"from_module,omitempty"`
+	// Symbol being imported (StrId).
+	Symbol uint32 `protobuf:"varint,3,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// Reason: 0=ModuleNotFound, 1=SymbolNotExported.
+	Reason        uint32 `protobuf:"varint,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedImport) Reset() {
+	*x = UnresolvedImport{}
+	mi := &file_proto_wasmib_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedImport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedImport) ProtoMessage() {}
+
+func (x *UnresolvedImport) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedImport.ProtoReflect.Descriptor instead.
+func (*UnresolvedImport) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *UnresolvedImport) GetImportingModule() uint32 {
+	if x != nil {
+		return x.ImportingModule
+	}
+	return 0
+}
+
+func (x *UnresolvedImport) GetFromModule() uint32 {
+	if x != nil {
+		return x.FromModule
+	}
+	return 0
+}
+
+func (x *UnresolvedImport) GetSymbol() uint32 {
+	if x != nil {
+		return x.Symbol
+	}
+	return 0
+}
+
+func (x *UnresolvedImport) GetReason() uint32 {
+	if x != nil {
+		return x.Reason
+	}
+	return 0
+}
+
+// Unresolved type reference.
+type UnresolvedType struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Module containing the reference (ModuleId).
+	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
+	// Definition referencing the type (StrId).
+	Referrer uint32 `protobuf:"varint,2,opt,name=referrer,proto3" json:"referrer,omitempty"`
+	// Type being referenced (StrId).
+	Referenced    uint32 `protobuf:"varint,3,opt,name=referenced,proto3" json:"referenced,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedType) Reset() {
+	*x = UnresolvedType{}
+	mi := &file_proto_wasmib_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedType) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedType) ProtoMessage() {}
+
+func (x *UnresolvedType) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedType.ProtoReflect.Descriptor instead.
+func (*UnresolvedType) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *UnresolvedType) GetModule() uint32 {
+	if x != nil {
+		return x.Module
+	}
+	return 0
+}
+
+func (x *UnresolvedType) GetReferrer() uint32 {
+	if x != nil {
+		return x.Referrer
+	}
+	return 0
+}
+
+func (x *UnresolvedType) GetReferenced() uint32 {
+	if x != nil {
+		return x.Referenced
+	}
+	return 0
+}
+
+// Unresolved OID component.
+type UnresolvedOid struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Module containing the definition (ModuleId).
+	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
+	// Definition with the OID (StrId).
+	Definition uint32 `protobuf:"varint,2,opt,name=definition,proto3" json:"definition,omitempty"`
+	// Unresolved component name (StrId).
+	Component     uint32 `protobuf:"varint,3,opt,name=component,proto3" json:"component,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedOid) Reset() {
+	*x = UnresolvedOid{}
+	mi := &file_proto_wasmib_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedOid) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedOid) ProtoMessage() {}
+
+func (x *UnresolvedOid) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedOid.ProtoReflect.Descriptor instead.
+func (*UnresolvedOid) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *UnresolvedOid) GetModule() uint32 {
+	if x != nil {
+		return x.Module
+	}
+	return 0
+}
+
+func (x *UnresolvedOid) GetDefinition() uint32 {
+	if x != nil {
+		return x.Definition
+	}
+	return 0
+}
+
+func (x *UnresolvedOid) GetComponent() uint32 {
+	if x != nil {
+		return x.Component
+	}
+	return 0
+}
+
+// Unresolved index object.
+type UnresolvedIndex struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Module containing the row (ModuleId).
+	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
+	// Row definition name (StrId).
+	Row uint32 `protobuf:"varint,2,opt,name=row,proto3" json:"row,omitempty"`
+	// Unresolved index object name (StrId).
+	IndexObject   uint32 `protobuf:"varint,3,opt,name=index_object,json=indexObject,proto3" json:"index_object,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedIndex) Reset() {
+	*x = UnresolvedIndex{}
+	mi := &file_proto_wasmib_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedIndex) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedIndex) ProtoMessage() {}
+
+func (x *UnresolvedIndex) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedIndex.ProtoReflect.Descriptor instead.
+func (*UnresolvedIndex) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *UnresolvedIndex) GetModule() uint32 {
+	if x != nil {
+		return x.Module
+	}
+	return 0
+}
+
+func (x *UnresolvedIndex) GetRow() uint32 {
+	if x != nil {
+		return x.Row
+	}
+	return 0
+}
+
+func (x *UnresolvedIndex) GetIndexObject() uint32 {
+	if x != nil {
+		return x.IndexObject
+	}
+	return 0
+}
+
+// Unresolved notification object.
+type UnresolvedNotificationObject struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Module containing the notification (ModuleId).
+	Module uint32 `protobuf:"varint,1,opt,name=module,proto3" json:"module,omitempty"`
+	// Notification definition name (StrId).
+	Notification uint32 `protobuf:"varint,2,opt,name=notification,proto3" json:"notification,omitempty"`
+	// Unresolved object name (StrId).
+	Object        uint32 `protobuf:"varint,3,opt,name=object,proto3" json:"object,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnresolvedNotificationObject) Reset() {
+	*x = UnresolvedNotificationObject{}
+	mi := &file_proto_wasmib_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnresolvedNotificationObject) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnresolvedNotificationObject) ProtoMessage() {}
+
+func (x *UnresolvedNotificationObject) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_wasmib_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnresolvedNotificationObject.ProtoReflect.Descriptor instead.
+func (*UnresolvedNotificationObject) Descriptor() ([]byte, []int) {
+	return file_proto_wasmib_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *UnresolvedNotificationObject) GetModule() uint32 {
+	if x != nil {
+		return x.Module
+	}
+	return 0
+}
+
+func (x *UnresolvedNotificationObject) GetNotification() uint32 {
+	if x != nil {
+		return x.Notification
+	}
+	return 0
+}
+
+func (x *UnresolvedNotificationObject) GetObject() uint32 {
+	if x != nil {
+		return x.Object
+	}
+	return 0
+}
+
 var File_proto_wasmib_proto protoreflect.FileDescriptor
 
 const file_proto_wasmib_proto_rawDesc = "" +
 	"\n" +
-	"\x12proto/wasmib.proto\x12\x06wasmib\"\xc9\x05\n" +
+	"\x12proto/wasmib.proto\x12\x06wasmib\"\xef\b\n" +
 	"\x0fSerializedModel\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12 \n" +
 	"\vfingerprint\x18\x02 \x01(\fR\vfingerprint\x12!\n" +
@@ -1500,7 +1870,12 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x10unresolved_types\x18\f \x01(\rR\x0funresolvedTypes\x12'\n" +
 	"\x0funresolved_oids\x18\r \x01(\rR\x0eunresolvedOids\x12-\n" +
 	"\x12unresolved_indexes\x18\x0e \x01(\rR\x11unresolvedIndexes\x12F\n" +
-	"\x1funresolved_notification_objects\x18\x0f \x01(\rR\x1dunresolvedNotificationObjects\"6\n" +
+	"\x1funresolved_notification_objects\x18\x0f \x01(\rR\x1dunresolvedNotificationObjects\x12T\n" +
+	"\x19unresolved_import_details\x18\x10 \x03(\v2\x18.wasmib.UnresolvedImportR\x17unresolvedImportDetails\x12N\n" +
+	"\x17unresolved_type_details\x18\x11 \x03(\v2\x16.wasmib.UnresolvedTypeR\x15unresolvedTypeDetails\x12K\n" +
+	"\x16unresolved_oid_details\x18\x12 \x03(\v2\x15.wasmib.UnresolvedOidR\x14unresolvedOidDetails\x12Q\n" +
+	"\x18unresolved_index_details\x18\x13 \x03(\v2\x17.wasmib.UnresolvedIndexR\x16unresolvedIndexDetails\x12^\n" +
+	"\x18unresolved_notif_details\x18\x14 \x03(\v2$.wasmib.UnresolvedNotificationObjectR\x16unresolvedNotifDetails\"6\n" +
 	"\fStringOffset\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\rR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\rR\x03end\"\xec\x01\n" +
@@ -1609,7 +1984,33 @@ const file_proto_wasmib_proto_rawDesc = "" +
 	"\x06status\x18\x04 \x01(\rR\x06status\x12 \n" +
 	"\vdescription\x18\x05 \x01(\rR\vdescription\x12\x1c\n" +
 	"\treference\x18\x06 \x01(\rR\treference\x12\x18\n" +
-	"\aobjects\x18\a \x03(\rR\aobjectsB*Z(github.com/lukeod/wasmib/wasmib-go/protob\x06proto3"
+	"\aobjects\x18\a \x03(\rR\aobjects\"\x8e\x01\n" +
+	"\x10UnresolvedImport\x12)\n" +
+	"\x10importing_module\x18\x01 \x01(\rR\x0fimportingModule\x12\x1f\n" +
+	"\vfrom_module\x18\x02 \x01(\rR\n" +
+	"fromModule\x12\x16\n" +
+	"\x06symbol\x18\x03 \x01(\rR\x06symbol\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\rR\x06reason\"d\n" +
+	"\x0eUnresolvedType\x12\x16\n" +
+	"\x06module\x18\x01 \x01(\rR\x06module\x12\x1a\n" +
+	"\breferrer\x18\x02 \x01(\rR\breferrer\x12\x1e\n" +
+	"\n" +
+	"referenced\x18\x03 \x01(\rR\n" +
+	"referenced\"e\n" +
+	"\rUnresolvedOid\x12\x16\n" +
+	"\x06module\x18\x01 \x01(\rR\x06module\x12\x1e\n" +
+	"\n" +
+	"definition\x18\x02 \x01(\rR\n" +
+	"definition\x12\x1c\n" +
+	"\tcomponent\x18\x03 \x01(\rR\tcomponent\"^\n" +
+	"\x0fUnresolvedIndex\x12\x16\n" +
+	"\x06module\x18\x01 \x01(\rR\x06module\x12\x10\n" +
+	"\x03row\x18\x02 \x01(\rR\x03row\x12!\n" +
+	"\findex_object\x18\x03 \x01(\rR\vindexObject\"r\n" +
+	"\x1cUnresolvedNotificationObject\x12\x16\n" +
+	"\x06module\x18\x01 \x01(\rR\x06module\x12\"\n" +
+	"\fnotification\x18\x02 \x01(\rR\fnotification\x12\x16\n" +
+	"\x06object\x18\x03 \x01(\rR\x06objectB*Z(github.com/lukeod/wasmib/wasmib-go/protob\x06proto3"
 
 var (
 	file_proto_wasmib_proto_rawDescOnce sync.Once
@@ -1623,26 +2024,31 @@ func file_proto_wasmib_proto_rawDescGZIP() []byte {
 	return file_proto_wasmib_proto_rawDescData
 }
 
-var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_proto_wasmib_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_proto_wasmib_proto_goTypes = []any{
-	(*SerializedModel)(nil),        // 0: wasmib.SerializedModel
-	(*StringOffset)(nil),           // 1: wasmib.StringOffset
-	(*SerializedModule)(nil),       // 2: wasmib.SerializedModule
-	(*SerializedRevision)(nil),     // 3: wasmib.SerializedRevision
-	(*SerializedNode)(nil),         // 4: wasmib.SerializedNode
-	(*SerializedNodeDef)(nil),      // 5: wasmib.SerializedNodeDef
-	(*SerializedObject)(nil),       // 6: wasmib.SerializedObject
-	(*SerializedIndex)(nil),        // 7: wasmib.SerializedIndex
-	(*SerializedIndexItem)(nil),    // 8: wasmib.SerializedIndexItem
-	(*SerializedDefVal)(nil),       // 9: wasmib.SerializedDefVal
-	(*SerializedType)(nil),         // 10: wasmib.SerializedType
-	(*EnumValue)(nil),              // 11: wasmib.EnumValue
-	(*BitDef)(nil),                 // 12: wasmib.BitDef
-	(*SerializedConstraint)(nil),   // 13: wasmib.SerializedConstraint
-	(*Range)(nil),                  // 14: wasmib.Range
-	(*Diagnostic)(nil),             // 15: wasmib.Diagnostic
-	(*Diagnostics)(nil),            // 16: wasmib.Diagnostics
-	(*SerializedNotification)(nil), // 17: wasmib.SerializedNotification
+	(*SerializedModel)(nil),              // 0: wasmib.SerializedModel
+	(*StringOffset)(nil),                 // 1: wasmib.StringOffset
+	(*SerializedModule)(nil),             // 2: wasmib.SerializedModule
+	(*SerializedRevision)(nil),           // 3: wasmib.SerializedRevision
+	(*SerializedNode)(nil),               // 4: wasmib.SerializedNode
+	(*SerializedNodeDef)(nil),            // 5: wasmib.SerializedNodeDef
+	(*SerializedObject)(nil),             // 6: wasmib.SerializedObject
+	(*SerializedIndex)(nil),              // 7: wasmib.SerializedIndex
+	(*SerializedIndexItem)(nil),          // 8: wasmib.SerializedIndexItem
+	(*SerializedDefVal)(nil),             // 9: wasmib.SerializedDefVal
+	(*SerializedType)(nil),               // 10: wasmib.SerializedType
+	(*EnumValue)(nil),                    // 11: wasmib.EnumValue
+	(*BitDef)(nil),                       // 12: wasmib.BitDef
+	(*SerializedConstraint)(nil),         // 13: wasmib.SerializedConstraint
+	(*Range)(nil),                        // 14: wasmib.Range
+	(*Diagnostic)(nil),                   // 15: wasmib.Diagnostic
+	(*Diagnostics)(nil),                  // 16: wasmib.Diagnostics
+	(*SerializedNotification)(nil),       // 17: wasmib.SerializedNotification
+	(*UnresolvedImport)(nil),             // 18: wasmib.UnresolvedImport
+	(*UnresolvedType)(nil),               // 19: wasmib.UnresolvedType
+	(*UnresolvedOid)(nil),                // 20: wasmib.UnresolvedOid
+	(*UnresolvedIndex)(nil),              // 21: wasmib.UnresolvedIndex
+	(*UnresolvedNotificationObject)(nil), // 22: wasmib.UnresolvedNotificationObject
 }
 var file_proto_wasmib_proto_depIdxs = []int32{
 	1,  // 0: wasmib.SerializedModel.strings_offsets:type_name -> wasmib.StringOffset
@@ -1651,24 +2057,29 @@ var file_proto_wasmib_proto_depIdxs = []int32{
 	10, // 3: wasmib.SerializedModel.types:type_name -> wasmib.SerializedType
 	6,  // 4: wasmib.SerializedModel.objects:type_name -> wasmib.SerializedObject
 	17, // 5: wasmib.SerializedModel.notifications:type_name -> wasmib.SerializedNotification
-	3,  // 6: wasmib.SerializedModule.revisions:type_name -> wasmib.SerializedRevision
-	5,  // 7: wasmib.SerializedNode.definitions:type_name -> wasmib.SerializedNodeDef
-	7,  // 8: wasmib.SerializedObject.index:type_name -> wasmib.SerializedIndex
-	9,  // 9: wasmib.SerializedObject.defval:type_name -> wasmib.SerializedDefVal
-	11, // 10: wasmib.SerializedObject.inline_enum:type_name -> wasmib.EnumValue
-	12, // 11: wasmib.SerializedObject.inline_bits:type_name -> wasmib.BitDef
-	8,  // 12: wasmib.SerializedIndex.items:type_name -> wasmib.SerializedIndexItem
-	13, // 13: wasmib.SerializedType.size:type_name -> wasmib.SerializedConstraint
-	13, // 14: wasmib.SerializedType.range:type_name -> wasmib.SerializedConstraint
-	11, // 15: wasmib.SerializedType.enum_values:type_name -> wasmib.EnumValue
-	12, // 16: wasmib.SerializedType.bit_defs:type_name -> wasmib.BitDef
-	14, // 17: wasmib.SerializedConstraint.ranges:type_name -> wasmib.Range
-	15, // 18: wasmib.Diagnostics.items:type_name -> wasmib.Diagnostic
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	18, // 6: wasmib.SerializedModel.unresolved_import_details:type_name -> wasmib.UnresolvedImport
+	19, // 7: wasmib.SerializedModel.unresolved_type_details:type_name -> wasmib.UnresolvedType
+	20, // 8: wasmib.SerializedModel.unresolved_oid_details:type_name -> wasmib.UnresolvedOid
+	21, // 9: wasmib.SerializedModel.unresolved_index_details:type_name -> wasmib.UnresolvedIndex
+	22, // 10: wasmib.SerializedModel.unresolved_notif_details:type_name -> wasmib.UnresolvedNotificationObject
+	3,  // 11: wasmib.SerializedModule.revisions:type_name -> wasmib.SerializedRevision
+	5,  // 12: wasmib.SerializedNode.definitions:type_name -> wasmib.SerializedNodeDef
+	7,  // 13: wasmib.SerializedObject.index:type_name -> wasmib.SerializedIndex
+	9,  // 14: wasmib.SerializedObject.defval:type_name -> wasmib.SerializedDefVal
+	11, // 15: wasmib.SerializedObject.inline_enum:type_name -> wasmib.EnumValue
+	12, // 16: wasmib.SerializedObject.inline_bits:type_name -> wasmib.BitDef
+	8,  // 17: wasmib.SerializedIndex.items:type_name -> wasmib.SerializedIndexItem
+	13, // 18: wasmib.SerializedType.size:type_name -> wasmib.SerializedConstraint
+	13, // 19: wasmib.SerializedType.range:type_name -> wasmib.SerializedConstraint
+	11, // 20: wasmib.SerializedType.enum_values:type_name -> wasmib.EnumValue
+	12, // 21: wasmib.SerializedType.bit_defs:type_name -> wasmib.BitDef
+	14, // 22: wasmib.SerializedConstraint.ranges:type_name -> wasmib.Range
+	15, // 23: wasmib.Diagnostics.items:type_name -> wasmib.Diagnostic
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_proto_wasmib_proto_init() }
@@ -1685,7 +2096,7 @@ func file_proto_wasmib_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_wasmib_proto_rawDesc), len(file_proto_wasmib_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
