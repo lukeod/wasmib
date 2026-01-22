@@ -7,7 +7,7 @@
 //! All symbols from "FOO-MIB" must come from the same candidate file, never mixed.
 
 use crate::lexer::Span;
-use crate::model::{ModuleId, UnresolvedImportReason};
+use crate::model::{ModuleId, StrId, UnresolvedImportReason};
 use crate::module::Definition;
 use crate::resolver::context::ResolverContext;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -247,6 +247,21 @@ fn resolve_imports_from_module_inner<TR: ImportTracer>(
         }
     }
 
+    // Last resort: try import forwarding.
+    // This handles cases where a module imports a symbol but doesn't re-export it
+    // (a vendor bug, but common with CISCO-TC and Unsigned32).
+    if !candidates.is_empty() {
+        if let Some(forwarded_symbols) =
+            try_import_forwarding(ctx, &candidates, &user_symbols, from_module_name, tracer)
+        {
+            // Register each forwarded symbol pointing to its actual source module
+            for (sym_id, source_module_id) in forwarded_symbols {
+                ctx.register_import(importing_module, sym_id, source_module_id);
+            }
+            return;
+        }
+    }
+
     // No candidate (original or alias) has all symbols - mark as unresolved
     let reason = if candidates.is_empty() {
         UnresolvedImportReason::ModuleNotFound
@@ -336,6 +351,67 @@ fn is_macro_symbol(name: &str) -> bool {
             | "AGENT-CAPABILITIES"
             | "TRAP-TYPE"
     )
+}
+
+/// Try to resolve a symbol via import forwarding.
+///
+/// Import forwarding handles cases where a module imports a symbol but doesn't
+/// re-export it (which is technically a vendor bug). For example, CISCO-TC
+/// imports Unsigned32 from SNMPv2-SMI but doesn't re-export it. When a MIB
+/// tries to import Unsigned32 FROM CISCO-TC, we can forward to SNMPv2-SMI.
+///
+/// Returns Some((forwarded_module_id, all_symbols_forwarded)) if forwarding succeeds.
+fn try_import_forwarding<TR: ImportTracer>(
+    ctx: &ResolverContext,
+    candidates: &[ModuleId],
+    user_symbols: &[&ImportSymbol],
+    _from_module_name: &str,
+    _tracer: &mut TR,
+) -> Option<Vec<(StrId, ModuleId)>> {
+    // For each candidate, check if it imports all the required symbols
+    for &candidate_id in candidates {
+        if let Some(hir_module) = ctx.get_hir_module(candidate_id) {
+            // Build a map of symbol name -> source module name from this module's imports
+            let mut import_map: BTreeMap<&str, &str> = BTreeMap::new();
+            for imp in &hir_module.imports {
+                import_map.insert(&imp.symbol.name, &imp.module.name);
+            }
+
+            // Check if all required symbols are imported by this candidate
+            let mut forwarded_symbols: Vec<(StrId, ModuleId)> = Vec::new();
+            let mut all_found = true;
+
+            for sym in user_symbols {
+                if let Some(&source_module_name) = import_map.get(sym.name.as_str()) {
+                    // This symbol is imported by the candidate - find the source module
+                    let source_module_name_id = ctx.model.strings().find(source_module_name);
+                    if let Some(source_name_id) = source_module_name_id {
+                        if let Some(source_candidates) = ctx.module_index.get(&source_name_id) {
+                            // Take the first candidate for simplicity
+                            // (In practice, base modules like SNMPv2-SMI have only one instance)
+                            if let Some(&source_module_id) = source_candidates.first() {
+                                let sym_id = ctx.model.strings().find(&sym.name).unwrap_or_else(|| {
+                                    // This shouldn't happen as symbols should be interned
+                                    panic!("Symbol {} not interned", sym.name)
+                                });
+                                forwarded_symbols.push((sym_id, source_module_id));
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // Symbol not found in imports or source module not found
+                all_found = false;
+                break;
+            }
+
+            if all_found && !forwarded_symbols.is_empty() {
+                return Some(forwarded_symbols);
+            }
+        }
+    }
+
+    None
 }
 
 /// Returns an alias for a module name, used as a **fallback** during import resolution.
@@ -636,6 +712,161 @@ mod tests {
         assert!(
             ctx.model.unresolved().imports.is_empty(),
             "user-provided RFC1315-MIB should take precedence over alias, got {} unresolved",
+            ctx.model.unresolved().imports.len()
+        );
+    }
+
+    #[test]
+    fn test_import_forwarding() {
+        // Test import forwarding: when a module imports but doesn't re-export a symbol,
+        // we should forward the import to the original source.
+        //
+        // This mimics the CISCO-TC/Unsigned32 scenario:
+        // - CISCO-TC imports Unsigned32 FROM SNMPv2-SMI (but doesn't define it)
+        // - USER-MIB imports Unsigned32 FROM CISCO-TC
+        // - Import forwarding should resolve this by forwarding to SNMPv2-SMI
+
+        // Create CISCO-TC which imports Unsigned32 from SNMPv2-SMI but doesn't define it
+        let mut cisco_tc = Module::new(Symbol::from_name("CISCO-TC"), Span::new(0, 0));
+        cisco_tc.imports.push(Import::new(
+            Symbol::from_name("SNMPv2-SMI"),
+            Symbol::from_name("Unsigned32"),
+            Span::new(0, 0),
+        ));
+        // Add a local definition so CISCO-TC is a valid module
+        cisco_tc
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("ciscoTcObjects"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Create USER-MIB which imports Unsigned32 from CISCO-TC
+        let user_mib = make_test_module_with_imports("USER-MIB", vec![("CISCO-TC", "Unsigned32")]);
+
+        let modules = vec![cisco_tc, user_mib];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Import should resolve via forwarding (CISCO-TC -> SNMPv2-SMI)
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected Unsigned32 import to resolve via forwarding, got {} unresolved: {:?}",
+            ctx.model.unresolved().imports.len(),
+            ctx.model
+                .unresolved()
+                .imports
+                .iter()
+                .map(|u| ctx.model.strings().get(u.symbol))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_import_forwarding_multiple_symbols() {
+        // Test that import forwarding works when multiple symbols need to be forwarded
+        // to possibly different source modules.
+
+        // Create VENDOR-TC which imports Unsigned32 from SNMPv2-SMI and DisplayString from SNMPv2-TC
+        let mut vendor_tc = Module::new(Symbol::from_name("VENDOR-TC"), Span::new(0, 0));
+        vendor_tc.imports.push(Import::new(
+            Symbol::from_name("SNMPv2-SMI"),
+            Symbol::from_name("Unsigned32"),
+            Span::new(0, 0),
+        ));
+        vendor_tc.imports.push(Import::new(
+            Symbol::from_name("SNMPv2-TC"),
+            Symbol::from_name("DisplayString"),
+            Span::new(0, 0),
+        ));
+        // Add a local definition
+        vendor_tc
+            .definitions
+            .push(crate::module::Definition::ValueAssignment(
+                crate::module::ValueAssignment {
+                    name: Symbol::from_name("vendorTcObjects"),
+                    oid: crate::module::OidAssignment::new(
+                        vec![crate::module::OidComponent::Name(Symbol::from_name(
+                            "enterprises",
+                        ))],
+                        Span::new(0, 0),
+                    ),
+                    span: Span::new(0, 0),
+                },
+            ));
+
+        // Create USER-MIB which imports both from VENDOR-TC
+        let user_mib = make_test_module_with_imports(
+            "USER-MIB",
+            vec![
+                ("VENDOR-TC", "Unsigned32"),
+                ("VENDOR-TC", "DisplayString"),
+            ],
+        );
+
+        let modules = vec![vendor_tc, user_mib];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Both imports should resolve via forwarding
+        assert!(
+            ctx.model.unresolved().imports.is_empty(),
+            "expected imports to resolve via forwarding, got {} unresolved: {:?}",
+            ctx.model.unresolved().imports.len(),
+            ctx.model
+                .unresolved()
+                .imports
+                .iter()
+                .map(|u| ctx.model.strings().get(u.symbol))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_import_forwarding_partial_failure() {
+        // Test that if only some symbols can be forwarded, the others are marked unresolved
+
+        // Create VENDOR-TC which imports Unsigned32 but not SomethingElse
+        let mut vendor_tc = Module::new(Symbol::from_name("VENDOR-TC"), Span::new(0, 0));
+        vendor_tc.imports.push(Import::new(
+            Symbol::from_name("SNMPv2-SMI"),
+            Symbol::from_name("Unsigned32"),
+            Span::new(0, 0),
+        ));
+
+        // Create USER-MIB which tries to import both
+        let user_mib = make_test_module_with_imports(
+            "USER-MIB",
+            vec![
+                ("VENDOR-TC", "Unsigned32"),
+                ("VENDOR-TC", "NonExistentSymbol"),
+            ],
+        );
+
+        let modules = vec![vendor_tc, user_mib];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+
+        // Both should be unresolved because atomic resolution requires all symbols
+        // (import forwarding only succeeds if ALL symbols can be forwarded)
+        assert_eq!(
+            ctx.model.unresolved().imports.len(),
+            2,
+            "expected 2 unresolved imports (atomic resolution), got {}",
             ctx.model.unresolved().imports.len()
         );
     }
