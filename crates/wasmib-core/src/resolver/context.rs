@@ -17,6 +17,24 @@ fn is_asn1_primitive(name: &str) -> bool {
         "INTEGER" | "OCTET STRING" | "OBJECT IDENTIFIER" | "BITS"
     )
 }
+
+/// Check if a type name is a common SMI base type that should be globally accessible.
+///
+/// Many MIBs use these types without explicitly importing them from SNMPv2-SMI.
+/// For leniency, we allow these to be resolved globally.
+fn is_smi_global_type(name: &str) -> bool {
+    matches!(
+        name,
+        "Integer32"
+            | "Counter32"
+            | "Counter64"
+            | "Gauge32"
+            | "Unsigned32"
+            | "TimeTicks"
+            | "IpAddress"
+            | "Opaque"
+    )
+}
 use crate::lexer::Span;
 use crate::model::{
     Model, ModuleId, NodeId, StrId, TypeId, UnresolvedImport, UnresolvedImportReason,
@@ -251,6 +269,16 @@ impl ResolverContext {
         if let Some(snmpv2_smi_id) = self.snmpv2_smi_module_id {
             let name_str = self.model.strings().get(name);
             if is_asn1_primitive(name_str) {
+                return self
+                    .module_symbol_to_type
+                    .get(&(snmpv2_smi_id, name))
+                    .copied();
+            }
+
+            // SMI global types: implicit access for common base types
+            // Many MIBs use Integer32, Counter32, etc. without explicit import.
+            // For leniency, we fall back to SNMPv2-SMI for these types.
+            if is_smi_global_type(name_str) {
                 return self
                     .module_symbol_to_type
                     .get(&(snmpv2_smi_id, name))

@@ -152,6 +152,52 @@ fn lookup_or_create_well_known_root(ctx: &mut ResolverContext, name: &str) -> Op
     Some(new_id)
 }
 
+// ============================================================================
+// Global SMI OID root fallback
+// ============================================================================
+
+/// Common SMI OID roots that should be accessible globally without explicit import.
+/// These are defined in SNMPv2-SMI and RFC1155-SMI base modules.
+const SMI_GLOBAL_OID_ROOTS: &[&str] = &[
+    // From both SNMPv2-SMI and RFC1155-SMI
+    "internet",
+    "directory",
+    "mgmt",
+    "mib-2",
+    "transmission",
+    "experimental",
+    "private",
+    "enterprises",
+    // SNMPv2-SMI only
+    "security",
+    "snmpV2",
+    "snmpDomains",
+    "snmpProxys",
+    "snmpModules",
+    "zeroDotZero",
+];
+
+/// Check if a symbol name is a common SMI OID root that should be globally accessible.
+fn is_smi_global_oid_root(name: &str) -> bool {
+    SMI_GLOBAL_OID_ROOTS.contains(&name)
+}
+
+/// Look up a common SMI OID root globally (in SNMPv2-SMI or RFC1155-SMI).
+/// This provides leniency for MIBs that use roots like `enterprises` without importing them.
+fn lookup_smi_global_oid_root(ctx: &ResolverContext, name: &str) -> Option<NodeId> {
+    if !is_smi_global_oid_root(name) {
+        return None;
+    }
+
+    // Try SNMPv2-SMI first (preferred for SMIv2 modules)
+    if let Some(node_id) = ctx.lookup_node_in_module("SNMPv2-SMI", name) {
+        return Some(node_id);
+    }
+
+    // Fall back to RFC1155-SMI (for SMIv1 modules)
+    ctx.lookup_node_in_module("RFC1155-SMI", name)
+}
+
 /// Check if the first component of an OID definition is resolvable.
 fn is_first_component_resolvable<TR: OidTracer>(
     ctx: &ResolverContext,
@@ -164,7 +210,9 @@ fn is_first_component_resolvable<TR: OidTracer>(
             // First check module-scoped lookup
             let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some()
                 // Fall back to well-known ASN.1 roots (iso, ccitt, joint-iso-ccitt)
-                || well_known_root_arc(&sym.name).is_some();
+                || well_known_root_arc(&sym.name).is_some()
+                // Fall back to global SMI OID roots (enterprises, mib-2, etc.)
+                || lookup_smi_global_oid_root(ctx, &sym.name).is_some();
             tracer.trace_lookup(def.module_id, def.def_name(ctx), &sym.name, found);
             found
         }
@@ -522,6 +570,13 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                     }
                 } else if let Some(node_id) = lookup_or_create_well_known_root(ctx, &sym.name) {
                     // Fall back to well-known ASN.1 roots (iso, ccitt, joint-iso-ccitt)
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else if let Some(node_id) = lookup_smi_global_oid_root(ctx, &sym.name) {
+                    // Fall back to global SMI OID roots (enterprises, mib-2, etc.)
+                    // This provides leniency for MIBs that use these roots without importing them
                     current_node = Some(node_id);
                     if let Some(node) = ctx.model.get_node(node_id) {
                         current_oid = ctx.model.get_oid(node);
