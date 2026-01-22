@@ -117,6 +117,41 @@ fn lookup_node_scoped(ctx: &ResolverContext, module_id: ModuleId, symbol: &str) 
     ctx.lookup_node_for_module(module_id, symbol)
 }
 
+// ============================================================================
+// Well-known ASN.1 root OIDs
+// ============================================================================
+
+/// Check if a symbol name is a well-known ASN.1 root.
+/// Returns the OID arc value if it is (ccitt=0, iso=1, joint-iso-ccitt=2).
+fn well_known_root_arc(name: &str) -> Option<u32> {
+    match name {
+        "ccitt" => Some(0),
+        "iso" => Some(1),
+        "joint-iso-ccitt" => Some(2),
+        _ => None,
+    }
+}
+
+/// Look up a well-known root in the model, or create it if it doesn't exist.
+/// Returns the `NodeId` for the root node.
+fn lookup_or_create_well_known_root(ctx: &mut ResolverContext, name: &str) -> Option<NodeId> {
+    let arc = well_known_root_arc(name)?;
+    let oid = Oid::new(alloc::vec![arc]);
+
+    // Check if node already exists
+    if let Some(node_id) = ctx.model.get_node_id_by_oid(&oid) {
+        return Some(node_id);
+    }
+
+    // Create the root node
+    let new_node = OidNode::new(arc, None);
+    let new_id = ctx.model.add_node(new_node).ok()?;
+    ctx.model.add_root(new_id);
+    ctx.model.register_oid(oid, new_id);
+
+    Some(new_id)
+}
+
 /// Check if the first component of an OID definition is resolvable.
 fn is_first_component_resolvable<TR: OidTracer>(
     ctx: &ResolverContext,
@@ -126,7 +161,10 @@ fn is_first_component_resolvable<TR: OidTracer>(
     let oid = def.oid(ctx);
     match oid.components.first() {
         Some(OidComponent::Name(sym)) => {
-            let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some();
+            // First check module-scoped lookup
+            let found = lookup_node_scoped(ctx, def.module_id, &sym.name).is_some()
+                // Fall back to well-known ASN.1 roots (iso, ccitt, joint-iso-ccitt)
+                || well_known_root_arc(&sym.name).is_some();
             tracer.trace_lookup(def.module_id, def.def_name(ctx), &sym.name, found);
             found
         }
@@ -478,6 +516,12 @@ fn resolve_oid_definition_inner<TR: OidTracer>(
                 tracer.trace_lookup(module_id, &def_name, &sym.name, found.is_some());
 
                 if let Some(node_id) = found {
+                    current_node = Some(node_id);
+                    if let Some(node) = ctx.model.get_node(node_id) {
+                        current_oid = ctx.model.get_oid(node);
+                    }
+                } else if let Some(node_id) = lookup_or_create_well_known_root(ctx, &sym.name) {
+                    // Fall back to well-known ASN.1 roots (iso, ccitt, joint-iso-ccitt)
                     current_node = Some(node_id);
                     if let Some(node) = ctx.model.get_node(node_id) {
                         current_oid = ctx.model.get_oid(node);
@@ -1010,5 +1054,123 @@ mod tests {
         assert!(final_node.has_definition());
         let final_oid = ctx.model.get_oid(final_node);
         assert_eq!(final_oid.arcs(), &[99, 1]);
+    }
+
+    #[test]
+    fn test_well_known_root_iso_without_import() {
+        // Test that `iso` resolves globally without import.
+        // This is needed for corpus MIBs like SNMPv2-SMI-v1 that use:
+        //   org OBJECT IDENTIFIER ::= { iso 3 }
+        // without importing iso.
+        let obj = make_object_type(
+            "org",
+            vec![
+                OidComponent::Name(Symbol::from_name("iso")),
+                OidComponent::Number(3),
+            ],
+        );
+
+        // Module does NOT import iso - should still resolve via well-known roots
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // No unresolved OIDs
+        assert_eq!(
+            ctx.model.unresolved().oids.len(),
+            0,
+            "iso should resolve as well-known root"
+        );
+
+        // Check node exists
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
+        assert!(ctx.lookup_node_for_module(module_id, "org").is_some());
+
+        // Check OID is correct (1.3 = iso.3)
+        if let Some(node_id) = ctx.lookup_node_for_module(module_id, "org")
+            && let Some(node) = ctx.model.get_node(node_id)
+        {
+            let oid = ctx.model.get_oid(node);
+            assert_eq!(oid.arcs(), &[1, 3]);
+        }
+    }
+
+    #[test]
+    fn test_well_known_root_ccitt_without_import() {
+        // Test that `ccitt` resolves globally without import (OID 0).
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                OidComponent::Name(Symbol::from_name("ccitt")),
+                OidComponent::Number(5),
+            ],
+        );
+
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // No unresolved OIDs
+        assert_eq!(
+            ctx.model.unresolved().oids.len(),
+            0,
+            "ccitt should resolve as well-known root"
+        );
+
+        // Check OID is correct (0.5 = ccitt.5)
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
+        if let Some(node_id) = ctx.lookup_node_for_module(module_id, "testObject")
+            && let Some(node) = ctx.model.get_node(node_id)
+        {
+            let oid = ctx.model.get_oid(node);
+            assert_eq!(oid.arcs(), &[0, 5]);
+        }
+    }
+
+    #[test]
+    fn test_well_known_root_joint_iso_ccitt_without_import() {
+        // Test that `joint-iso-ccitt` resolves globally without import (OID 2).
+        let obj = make_object_type(
+            "testObject",
+            vec![
+                OidComponent::Name(Symbol::from_name("joint-iso-ccitt")),
+                OidComponent::Number(1),
+            ],
+        );
+
+        let mut module = Module::new(Symbol::from_name("TEST-MIB"), Span::new(0, 0));
+        module.definitions = vec![obj];
+        let modules = vec![module];
+        let mut ctx = ResolverContext::new(modules);
+
+        register_modules(&mut ctx);
+        resolve_imports(&mut ctx);
+        resolve_oids(&mut ctx);
+
+        // No unresolved OIDs
+        assert_eq!(
+            ctx.model.unresolved().oids.len(),
+            0,
+            "joint-iso-ccitt should resolve as well-known root"
+        );
+
+        // Check OID is correct (2.1 = joint-iso-ccitt.1)
+        let module_id = ctx.get_module_id_by_name("TEST-MIB").unwrap();
+        if let Some(node_id) = ctx.lookup_node_for_module(module_id, "testObject")
+            && let Some(node) = ctx.model.get_node(node_id)
+        {
+            let oid = ctx.model.get_oid(node);
+            assert_eq!(oid.arcs(), &[2, 1]);
+        }
     }
 }
