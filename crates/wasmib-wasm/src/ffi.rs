@@ -90,10 +90,7 @@ impl WasmState {
         // Truncate message if it exceeds u32::MAX (only possible on 64-bit, not WASM)
         let len = u32::try_from(msg.len()).unwrap_or(u32::MAX);
         let msg_bytes = &msg.as_bytes()[..len as usize];
-        let mut buf = Vec::with_capacity(4 + msg_bytes.len());
-        buf.extend_from_slice(&len.to_le_bytes());
-        buf.extend_from_slice(msg_bytes);
-        self.last_error = Some(buf);
+        self.last_error = Some(length_prefix_bytes(msg_bytes, len));
     }
 }
 
@@ -133,6 +130,16 @@ impl GlobalState {
 
 // SAFETY: WASM is single-threaded
 unsafe impl Sync for GlobalState {}
+
+/// Create a length-prefixed buffer from bytes.
+///
+/// Format: `[len: u32 LE][data: u8; len]`
+fn length_prefix_bytes(data: &[u8], len: u32) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(4 + data.len());
+    buf.extend_from_slice(&len.to_le_bytes());
+    buf.extend_from_slice(data);
+    buf
+}
 
 // === Memory Management ===
 
@@ -273,10 +280,7 @@ pub extern "C" fn wasmib_resolve() -> u32 {
     };
 
     // Store with length prefix
-    let mut output = Vec::with_capacity(4 + bytes.len());
-    output.extend_from_slice(&len.to_le_bytes());
-    output.extend_from_slice(&bytes);
-    state.serialized_model = Some(output);
+    state.serialized_model = Some(length_prefix_bytes(&bytes, len));
 
     error::SUCCESS
 }
@@ -369,13 +373,11 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
         return EMPTY_MSG.as_ptr();
     };
 
-    // Store with length prefix
-    let mut output = Vec::with_capacity(4 + proto_bytes.len());
-    output.extend_from_slice(&len.to_le_bytes());
-    output.extend_from_slice(&proto_bytes);
-
-    // Store and return pointer - insert() returns a reference, avoiding unwrap
-    state.serialized_diagnostics.insert(output).as_ptr()
+    // Store with length prefix and return pointer
+    state
+        .serialized_diagnostics
+        .insert(length_prefix_bytes(&proto_bytes, len))
+        .as_ptr()
 }
 
 /// Static panic error message with computed length prefix.

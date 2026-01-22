@@ -428,8 +428,14 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let foo_id = ctx.intern("foo");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
+        let module_a = ctx
+            .model
+            .add_module(ResolvedModule::new(name_a))
+            .expect("add_module should succeed");
+        let module_b = ctx
+            .model
+            .add_module(ResolvedModule::new(name_b))
+            .expect("add_module should succeed");
 
         // Set up cyclic imports: A imports "foo" from B, B imports "foo" from A
         ctx.register_import(module_a, foo_id, module_b);
@@ -453,12 +459,18 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let foo_id = ctx.intern("foo");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
+        let module_a = ctx
+            .model
+            .add_module(ResolvedModule::new(name_a))
+            .expect("add_module should succeed");
+        let module_b = ctx
+            .model
+            .add_module(ResolvedModule::new(name_b))
+            .expect("add_module should succeed");
 
         // Create a node in module B - OidNode::new takes (subid, parent)
         let node = OidNode::new(1, None);
-        let node_id = ctx.model.add_node(node).unwrap();
+        let node_id = ctx.model.add_node(node).expect("add_node should succeed");
         ctx.register_module_node_symbol(module_b, foo_id, node_id);
 
         // A imports "foo" from B
@@ -481,16 +493,22 @@ mod tests {
         let name_a = ctx.intern("ModuleA");
         let name_b = ctx.intern("ModuleB");
         let foo_id = ctx.intern("foo");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
+        let module_a = ctx
+            .model
+            .add_module(ResolvedModule::new(name_a))
+            .expect("add_module should succeed");
+        let module_b = ctx
+            .model
+            .add_module(ResolvedModule::new(name_b))
+            .expect("add_module should succeed");
 
         // Create nodes in both modules
         let node_a = OidNode::new(1, None);
-        let node_a_id = ctx.model.add_node(node_a).unwrap();
+        let node_a_id = ctx.model.add_node(node_a).expect("add_node should succeed");
         ctx.register_module_node_symbol(module_a, foo_id, node_a_id);
 
         let node_b = OidNode::new(2, None);
-        let node_b_id = ctx.model.add_node(node_b).unwrap();
+        let node_b_id = ctx.model.add_node(node_b).expect("add_node should succeed");
         ctx.register_module_node_symbol(module_b, foo_id, node_b_id);
 
         // A also imports "foo" from B (should be ignored since local exists)
@@ -515,13 +533,22 @@ mod tests {
         let name_b = ctx.intern("ModuleB");
         let name_c = ctx.intern("ModuleC");
         let foo_id = ctx.intern("foo");
-        let module_a = ctx.model.add_module(ResolvedModule::new(name_a)).unwrap();
-        let module_b = ctx.model.add_module(ResolvedModule::new(name_b)).unwrap();
-        let module_c = ctx.model.add_module(ResolvedModule::new(name_c)).unwrap();
+        let module_a = ctx
+            .model
+            .add_module(ResolvedModule::new(name_a))
+            .expect("add_module should succeed");
+        let module_b = ctx
+            .model
+            .add_module(ResolvedModule::new(name_b))
+            .expect("add_module should succeed");
+        let module_c = ctx
+            .model
+            .add_module(ResolvedModule::new(name_c))
+            .expect("add_module should succeed");
 
         // Create node in C
         let node = OidNode::new(1, None);
-        let node_id = ctx.model.add_node(node).unwrap();
+        let node_id = ctx.model.add_node(node).expect("add_node should succeed");
         ctx.register_module_node_symbol(module_c, foo_id, node_id);
 
         // A -> B -> C import chain

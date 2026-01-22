@@ -83,6 +83,15 @@ pub enum TraceEvent<'a> {
         /// The symbol that couldn't be resolved.
         symbol: &'a str,
     },
+    /// An import was resolved via forwarding through an intermediate module.
+    ImportForwarded {
+        /// The module name being imported from (the intermediate module).
+        from_module: &'a str,
+        /// The symbol being forwarded.
+        symbol: &'a str,
+        /// The actual source module that provides the symbol.
+        source_module_id: ModuleId,
+    },
 
     // === OID events ===
     /// An OID resolution pass is starting.

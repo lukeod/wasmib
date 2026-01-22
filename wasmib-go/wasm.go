@@ -77,11 +77,34 @@ func NewCompiler(ctx context.Context) (*Compiler, error) {
 	}
 
 	// Validate all exports exist
-	if c.fnAlloc == nil || c.fnDealloc == nil || c.fnLoadModule == nil ||
-		c.fnResolve == nil || c.fnGetModel == nil || c.fnGetDiagnostics == nil ||
-		c.fnGetError == nil || c.fnReset == nil {
+	var missing []string
+	if c.fnAlloc == nil {
+		missing = append(missing, "wasmib_alloc")
+	}
+	if c.fnDealloc == nil {
+		missing = append(missing, "wasmib_dealloc")
+	}
+	if c.fnLoadModule == nil {
+		missing = append(missing, "wasmib_load_module")
+	}
+	if c.fnResolve == nil {
+		missing = append(missing, "wasmib_resolve")
+	}
+	if c.fnGetModel == nil {
+		missing = append(missing, "wasmib_get_model")
+	}
+	if c.fnGetDiagnostics == nil {
+		missing = append(missing, "wasmib_get_diagnostics")
+	}
+	if c.fnGetError == nil {
+		missing = append(missing, "wasmib_get_error")
+	}
+	if c.fnReset == nil {
+		missing = append(missing, "wasmib_reset")
+	}
+	if len(missing) > 0 {
 		_ = runtime.Close(ctx)
-		return nil, fmt.Errorf("missing required WASM exports")
+		return nil, fmt.Errorf("missing required WASM exports: %v", missing)
 	}
 
 	return c, nil

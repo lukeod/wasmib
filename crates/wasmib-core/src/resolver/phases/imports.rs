@@ -44,6 +44,15 @@ trait ImportTracer {
     /// Called when an import cannot be resolved.
     fn trace_unresolved(&mut self, _importing_module: ModuleId, _from_module: &str, _symbol: &str) {
     }
+
+    /// Called when an import is resolved via forwarding through an intermediate module.
+    fn trace_import_forwarded(
+        &mut self,
+        _from_module: &str,
+        _symbol: &str,
+        _source_module_id: ModuleId,
+    ) {
+    }
 }
 
 /// No-op tracer for non-traced resolution.
@@ -95,6 +104,23 @@ impl<T: Tracer> ImportTracer for TracingWrapper<'_, T> {
                 importing_module,
                 from_module,
                 symbol,
+            }
+        );
+    }
+
+    fn trace_import_forwarded(
+        &mut self,
+        from_module: &str,
+        symbol: &str,
+        source_module_id: ModuleId,
+    ) {
+        crate::trace_event!(
+            self.0,
+            TraceLevel::Debug,
+            TraceEvent::ImportForwarded {
+                from_module,
+                symbol,
+                source_module_id,
             }
         );
     }
@@ -370,8 +396,8 @@ fn try_import_forwarding<TR: ImportTracer>(
     ctx: &ResolverContext,
     candidates: &[ModuleId],
     user_symbols: &[&ImportSymbol],
-    _from_module_name: &str,
-    _tracer: &mut TR,
+    from_module_name: &str,
+    tracer: &mut TR,
 ) -> Option<Vec<(StrId, ModuleId)>> {
     // For each candidate, check if it imports all the required symbols
     for &candidate_id in candidates {
@@ -402,6 +428,11 @@ fn try_import_forwarding<TR: ImportTracer>(
                                 all_found = false;
                                 break;
                             };
+                            tracer.trace_import_forwarded(
+                                from_module_name,
+                                &sym.name,
+                                source_module_id,
+                            );
                             forwarded_symbols.push((sym_id, source_module_id));
                             continue;
                         }

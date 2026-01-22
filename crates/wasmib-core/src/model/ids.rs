@@ -50,6 +50,8 @@ macro_rules! define_id {
             /// ID fields before the actual ID is assigned by the model.
             #[must_use]
             pub const fn placeholder() -> Self {
+                // Safety: from_raw(1) always succeeds since NonZeroU32::new(1) is Some.
+                // We use match instead of unwrap() because Option::unwrap is not const.
                 match Self::from_raw(1) {
                     Some(id) => id,
                     None => unreachable!(),
