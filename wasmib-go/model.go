@@ -224,6 +224,9 @@ func (m *Model) GetStr(id uint32) string {
 
 // GetNodeByOID looks up a node by dotted OID string (e.g., "1.3.6.1.2.1.1.1").
 // Returns nil if not found.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNodeByOID(oid string) *Node {
 	if id, ok := m.oidIndex[oid]; ok {
 		return &m.nodes[id-1]
@@ -233,6 +236,9 @@ func (m *Model) GetNodeByOID(oid string) *Node {
 
 // GetNodesByName returns all nodes with the given name.
 // Multiple nodes may share the same name (defined in different modules).
+//
+// The returned pointers refer to internal Model data and should be treated as
+// read-only. They remain valid for the lifetime of the Model.
 func (m *Model) GetNodesByName(name string) []*Node {
 	ids, ok := m.nameIndex[name]
 	if !ok {
@@ -246,6 +252,9 @@ func (m *Model) GetNodesByName(name string) []*Node {
 }
 
 // GetNodeByQualifiedName looks up "MODULE::name" (e.g., "SNMPv2-MIB::sysDescr").
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNodeByQualifiedName(module, name string) *Node {
 	key := module + "::" + name
 	if id, ok := m.qualIndex[key]; ok {
@@ -255,6 +264,9 @@ func (m *Model) GetNodeByQualifiedName(module, name string) *Node {
 }
 
 // GetModuleByName returns a module by name.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetModuleByName(name string) *Module {
 	if id, ok := m.moduleIndex[name]; ok {
 		return &m.modules[id-1]
@@ -263,6 +275,9 @@ func (m *Model) GetModuleByName(name string) *Module {
 }
 
 // GetNode returns a node by ID.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNode(id uint32) *Node {
 	if id == 0 || int(id) > len(m.nodes) {
 		return nil
@@ -271,6 +286,9 @@ func (m *Model) GetNode(id uint32) *Node {
 }
 
 // GetModule returns a module by ID.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetModule(id uint32) *Module {
 	if id == 0 || int(id) > len(m.modules) {
 		return nil
@@ -280,6 +298,9 @@ func (m *Model) GetModule(id uint32) *Module {
 
 // GetObject returns the object definition for a node.
 // Returns nil if the node has no object definition.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetObject(n *Node) *Object {
 	if n == nil || len(n.Definitions) == 0 {
 		return nil
@@ -292,6 +313,9 @@ func (m *Model) GetObject(n *Node) *Object {
 }
 
 // GetObjectByID returns an object by ID.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetObjectByID(id uint32) *Object {
 	if id == 0 || int(id) > len(m.objects) {
 		return nil
@@ -300,6 +324,9 @@ func (m *Model) GetObjectByID(id uint32) *Object {
 }
 
 // GetType returns a type definition.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetType(id uint32) *Type {
 	if id == 0 || int(id) > len(m.types) {
 		return nil
@@ -308,6 +335,9 @@ func (m *Model) GetType(id uint32) *Type {
 }
 
 // GetNotification returns a notification definition for a node.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNotification(n *Node) *Notification {
 	if n == nil || len(n.Definitions) == 0 {
 		return nil
@@ -320,6 +350,9 @@ func (m *Model) GetNotification(n *Node) *Notification {
 }
 
 // GetNotificationByID returns a notification by ID.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNotificationByID(id uint32) *Notification {
 	if id == 0 || int(id) > len(m.notifications) {
 		return nil
@@ -331,6 +364,9 @@ func (m *Model) GetNotificationByID(id uint32) *Notification {
 // These are the objects from the OBJECTS clause in NOTIFICATION-TYPE or
 // VARIABLES clause in TRAP-TYPE definitions.
 // Returns nil if the notification is nil or has no objects.
+//
+// The returned pointers refer to internal Model data and should be treated as
+// read-only. They remain valid for the lifetime of the Model.
 func (m *Model) GetNotificationObjects(notif *Notification) []*Node {
 	if notif == nil || len(notif.Objects) == 0 {
 		return nil
@@ -348,6 +384,9 @@ func (m *Model) GetNotificationObjects(notif *Notification) []*Node {
 // GetIndexObjects returns the index column nodes for a row object.
 // These are the objects from the INDEX clause that define the row's key.
 // Returns nil if the object is nil or has no INDEX clause.
+//
+// The returned pointers refer to internal Model data and should be treated as
+// read-only. They remain valid for the lifetime of the Model.
 func (m *Model) GetIndexObjects(obj *Object) []*Node {
 	if obj == nil || obj.Index == nil || len(obj.Index.Items) == 0 {
 		return nil
@@ -364,6 +403,9 @@ func (m *Model) GetIndexObjects(obj *Object) []*Node {
 
 // GetAugmentsTarget returns the row node that this object augments.
 // Returns nil if the object is nil or doesn't use AUGMENTS.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetAugmentsTarget(obj *Object) *Node {
 	if obj == nil || obj.Augments == 0 {
 		return nil
@@ -373,6 +415,9 @@ func (m *Model) GetAugmentsTarget(obj *Object) *Node {
 
 // GetParent returns the parent node in the OID tree.
 // Returns nil if the node is nil or is a root node.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetParent(n *Node) *Node {
 	if n == nil || n.Parent == 0 {
 		return nil
@@ -382,6 +427,9 @@ func (m *Model) GetParent(n *Node) *Node {
 
 // GetChildren returns the child nodes in the OID tree.
 // Returns nil if the node is nil or has no children.
+//
+// The returned pointers refer to internal Model data and should be treated as
+// read-only. They remain valid for the lifetime of the Model.
 func (m *Model) GetChildren(n *Node) []*Node {
 	if n == nil || len(n.Children) == 0 {
 		return nil
@@ -455,6 +503,9 @@ func (m *Model) GetOIDSlice(n *Node) []uint32 {
 
 // GetNodeByOIDSlice looks up a node by OID arc values.
 // Returns nil if not found.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNodeByOIDSlice(oid []uint32) *Node {
 	if len(oid) == 0 {
 		return nil
@@ -497,6 +548,9 @@ func (m *Model) GetNodeByOIDSlice(oid []uint32) *Node {
 //
 // This is useful for mapping SNMP response OIDs back to MIB definitions,
 // since response OIDs include instance suffixes (e.g., sysName.0 or ifDescr.1).
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNodeByOIDPrefix(oid []uint32) (node *Node, suffix []uint32) {
 	if len(oid) == 0 {
 		return nil, nil
@@ -543,6 +597,9 @@ func (m *Model) GetNodeByOIDPrefix(oid []uint32) (node *Node, suffix []uint32) {
 // GetNodeByOIDPrefixStr is like GetNodeByOIDPrefix but takes a dotted OID string.
 // Returns the matching node and the unmatched suffix as a slice.
 // Returns (nil, nil) if the OID string is empty or invalid.
+//
+// The returned pointer refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) GetNodeByOIDPrefixStr(oid string) (node *Node, suffix []uint32) {
 	arcs, err := parseOIDString(oid)
 	if err != nil || arcs == nil {
@@ -659,26 +716,41 @@ func (m *Model) UnresolvedCounts() (imports, types, oids, indexes, notifObjects 
 }
 
 // UnresolvedImports returns details of all unresolved imports.
+//
+// The returned slice refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) UnresolvedImports() []UnresolvedImport {
 	return m.unresolvedImportDetails
 }
 
 // UnresolvedTypes returns details of all unresolved type references.
+//
+// The returned slice refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) UnresolvedTypes() []UnresolvedType {
 	return m.unresolvedTypeDetails
 }
 
 // UnresolvedOids returns details of all unresolved OID components.
+//
+// The returned slice refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) UnresolvedOids() []UnresolvedOid {
 	return m.unresolvedOidDetails
 }
 
 // UnresolvedIndexes returns details of all unresolved index objects.
+//
+// The returned slice refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) UnresolvedIndexes() []UnresolvedIndex {
 	return m.unresolvedIndexDetails
 }
 
 // UnresolvedNotificationObjects returns details of all unresolved notification objects.
+//
+// The returned slice refers to internal Model data and should be treated as
+// read-only. It remains valid for the lifetime of the Model.
 func (m *Model) UnresolvedNotificationObjects() []UnresolvedNotificationObject {
 	return m.unresolvedNotifDetails
 }
