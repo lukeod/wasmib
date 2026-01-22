@@ -45,6 +45,16 @@ pub mod error {
     pub const NO_MODEL: u32 = 4;
     /// Internal error.
     pub const INTERNAL_ERROR: u32 = 5;
+    /// Panic occurred (state may be corrupted).
+    pub const PANIC: u32 = 6;
+}
+
+/// Check if a panic has occurred.
+///
+/// Returns true if the WASM module has panicked, indicating corrupted state.
+#[inline]
+fn has_panicked() -> bool {
+    crate::PANICKED.load(Ordering::SeqCst)
 }
 
 /// Global state for the WASM module.
@@ -177,6 +187,11 @@ pub extern "C" fn wasmib_dealloc(ptr: *mut u8, size: u32) {
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // FFI: caller responsible for valid pointer
 pub extern "C" fn wasmib_load_module(ptr: *const u8, len: u32) -> u32 {
+    // Check for prior panic - state may be corrupted
+    if has_panicked() {
+        return error::PANIC;
+    }
+
     if ptr.is_null() {
         STATE.get().set_error("null pointer");
         return error::INVALID_POINTER;
@@ -193,10 +208,10 @@ pub extern "C" fn wasmib_load_module(ptr: *const u8, len: u32) -> u32 {
 
     // Parse
     let parser = Parser::new(source);
-    let ast = parser.parse_module();
+    let mut ast = parser.parse_module();
 
-    // Collect parse diagnostics
-    state.parse_diagnostics.extend(ast.diagnostics.clone());
+    // Collect parse diagnostics (move instead of clone)
+    state.parse_diagnostics.append(&mut ast.diagnostics);
 
     // Check for fatal errors (module name is "UNKNOWN" on failure)
     if ast.name.name == "UNKNOWN" {
@@ -222,6 +237,11 @@ pub extern "C" fn wasmib_load_module(ptr: *const u8, len: u32) -> u32 {
 /// Returns: 0 = success, non-zero = error code.
 #[unsafe(no_mangle)]
 pub extern "C" fn wasmib_resolve() -> u32 {
+    // Check for prior panic - state may be corrupted
+    if has_panicked() {
+        return error::PANIC;
+    }
+
     let state = STATE.get();
 
     if state.staged_modules.is_empty() {
@@ -266,11 +286,16 @@ pub extern "C" fn wasmib_resolve() -> u32 {
 /// Get serialized Model bytes.
 ///
 /// Returns pointer to length-prefixed data: `[len: u32 LE][data: u8; len]`
-/// Returns null if no model available (call `wasmib_resolve` first).
+/// Returns null if no model available (call `wasmib_resolve` first), or if a panic occurred.
 ///
 /// The returned pointer is valid until the next `wasmib_reset()` or `wasmib_resolve()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn wasmib_get_model() -> *const u8 {
+    // Check for prior panic - state may be corrupted
+    if has_panicked() {
+        return core::ptr::null();
+    }
+
     let state = STATE.get();
 
     if let Some(bytes) = &state.serialized_model {
@@ -287,6 +312,7 @@ pub extern "C" fn wasmib_get_model() -> *const u8 {
 ///
 /// Returns pointer to length-prefixed protobuf bytes: `[len: u32 LE][data: u8; len]`
 /// The protobuf is a `Diagnostics` message containing a repeated `Diagnostic`.
+/// Returns null if a panic occurred.
 ///
 /// The returned pointer is valid until the next `wasmib_reset()` or `wasmib_resolve()`.
 #[unsafe(no_mangle)]
@@ -294,6 +320,11 @@ pub extern "C" fn wasmib_get_model() -> *const u8 {
 pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     use crate::serialize::{Diagnostic as ProtoDiagnostic, Diagnostics as ProtoDiagnostics};
     use micropb::MessageEncode;
+
+    // Check for prior panic - state may be corrupted
+    if has_panicked() {
+        return core::ptr::null();
+    }
 
     let state = STATE.get();
 
@@ -347,6 +378,26 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
     state.serialized_diagnostics.insert(output).as_ptr()
 }
 
+/// Static panic error message with computed length prefix.
+///
+/// Format: `[len: u32 LE][msg: u8; len]`
+/// The length is computed at compile time to avoid manual calculation errors.
+const PANIC_MSG: &[u8] = b"panic occurred";
+const PANIC_ERROR: &[u8] = &{
+    let len_bytes = (PANIC_MSG.len() as u32).to_le_bytes();
+    let mut buf = [0u8; 4 + PANIC_MSG.len()];
+    buf[0] = len_bytes[0];
+    buf[1] = len_bytes[1];
+    buf[2] = len_bytes[2];
+    buf[3] = len_bytes[3];
+    let mut i = 0;
+    while i < PANIC_MSG.len() {
+        buf[4 + i] = PANIC_MSG[i];
+        i += 1;
+    }
+    buf
+};
+
 /// Get last error message.
 ///
 /// Returns pointer to length-prefixed string: `[len: u32 LE][msg: u8; len]`
@@ -357,10 +408,7 @@ pub extern "C" fn wasmib_get_diagnostics() -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn wasmib_get_error() -> *const u8 {
     // Check for panic first - panic handler sets this flag
-    if crate::PANICKED.load(Ordering::SeqCst) {
-        // Return a static error message for panics
-        // Format: [len: u32 LE][msg: u8; len]
-        static PANIC_ERROR: &[u8] = b"\x0e\x00\x00\x00panic occurred";
+    if has_panicked() {
         return PANIC_ERROR.as_ptr();
     }
 

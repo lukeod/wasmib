@@ -80,7 +80,7 @@ pub fn from_model(model: &Model, fingerprint: Option<[u8; 32]>) -> SerializedMod
         .filter_map(|i| {
             wasmib_core::model::ObjectId::from_index(i)
                 .and_then(|id| model.get_object(id))
-                .map(|obj| serialize_object(obj, model))
+                .map(serialize_object)
         })
         .collect();
 
@@ -639,7 +639,7 @@ fn serialize_node_def(def: &wasmib_core::model::NodeDefinition) -> SerializedNod
     }
 }
 
-fn serialize_object(obj: &ResolvedObject, model: &Model) -> SerializedObject {
+fn serialize_object(obj: &ResolvedObject) -> SerializedObject {
     let mut result = SerializedObject {
         r#node: obj.node.to_raw(),
         r#module: obj.module.to_raw(),
@@ -677,7 +677,7 @@ fn serialize_object(obj: &ResolvedObject, model: &Model) -> SerializedObject {
         result.set_index(serialize_index(index));
     }
     if let Some(defval) = &obj.defval {
-        result.set_defval(serialize_defval(defval, model));
+        result.set_defval(serialize_defval(defval));
     }
 
     result
@@ -696,7 +696,7 @@ fn serialize_index_item(item: &IndexItem) -> SerializedIndexItem {
     }
 }
 
-fn serialize_defval(defval: &DefVal, _model: &Model) -> SerializedDefVal {
+fn serialize_defval(defval: &DefVal) -> SerializedDefVal {
     let mut result = SerializedDefVal::default();
 
     match defval {
