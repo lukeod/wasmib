@@ -15,17 +15,13 @@ const (
 	HexUpper HexCase = true
 )
 
-// DefaultHexCase is the package-level default for hex formatting.
-// Set before use to change the default behavior.
-var DefaultHexCase HexCase = HexLower
-
 const (
 	hexLower = "0123456789abcdef"
 	hexUpper = "0123456789ABCDEF"
 )
 
-func hexTable() string {
-	if DefaultHexCase == HexUpper {
+func hexTable(hexCase HexCase) string {
+	if hexCase == HexUpper {
 		return hexUpper
 	}
 	return hexLower
@@ -93,12 +89,12 @@ func FormatInteger(m *Model, obj *Object, value int64) string {
 //
 // The last format specification repeats until all data is exhausted (implicit
 // repetition rule). Trailing separators are suppressed.
-func applyOctetHint(hint string, data []byte) (string, bool) {
+func applyOctetHint(hint string, data []byte, hexCase HexCase) (string, bool) {
 	if hint == "" || len(data) == 0 {
 		return "", false
 	}
 
-	hex := hexTable()
+	hex := hexTable(hexCase)
 	var result strings.Builder
 	result.Grow(len(data) * 4)
 
@@ -251,14 +247,15 @@ func isPrintableASCII(data []byte) bool {
 
 // FormatOctetString formats an OCTET STRING value using DISPLAY-HINT.
 // If hint is empty or invalid, falls back to hex for binary data or UTF-8 for printable ASCII.
-func FormatOctetString(value []byte, hint string) string {
+// The hexCase parameter controls whether hex output uses lowercase or uppercase letters.
+func FormatOctetString(value []byte, hint string, hexCase HexCase) string {
 	if len(value) == 0 {
 		return ""
 	}
 
 	// Try to apply hint if present
 	if hint != "" {
-		if result, ok := applyOctetHint(hint, value); ok {
+		if result, ok := applyOctetHint(hint, value, hexCase); ok {
 			return result
 		}
 	}
@@ -269,7 +266,7 @@ func FormatOctetString(value []byte, hint string) string {
 	}
 
 	// Hex dump with colon separators
-	hex := hexTable()
+	hex := hexTable(hexCase)
 	var b strings.Builder
 	for i, c := range value {
 		if i > 0 {
@@ -529,6 +526,6 @@ func formatBytesValue(m *Model, obj *Object, baseType BaseType, hint string, val
 		}
 		return FormatOID(m, arcs)
 	default:
-		return FormatOctetString(value, hint)
+		return FormatOctetString(value, hint, HexLower)
 	}
 }

@@ -606,9 +606,12 @@ func (m *Model) WalkAll(fn func(*Node) bool) {
 	}
 }
 
-// Roots returns the root node IDs.
+// Roots returns a copy of the root node IDs.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) Roots() []uint32 {
-	return m.roots
+	result := make([]uint32, len(m.roots))
+	copy(result, m.roots)
+	return result
 }
 
 // ModuleCount returns the number of modules.
@@ -681,29 +684,44 @@ func (m *Model) Version() uint32 {
 	return m.version
 }
 
-// AllModules returns all modules.
+// AllModules returns a copy of all modules.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) AllModules() []Module {
-	return m.modules
+	result := make([]Module, len(m.modules))
+	copy(result, m.modules)
+	return result
 }
 
-// AllNodes returns all nodes.
+// AllNodes returns a copy of all nodes.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) AllNodes() []Node {
-	return m.nodes
+	result := make([]Node, len(m.nodes))
+	copy(result, m.nodes)
+	return result
 }
 
-// AllTypes returns all types.
+// AllTypes returns a copy of all types.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) AllTypes() []Type {
-	return m.types
+	result := make([]Type, len(m.types))
+	copy(result, m.types)
+	return result
 }
 
-// AllObjects returns all objects.
+// AllObjects returns a copy of all objects.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) AllObjects() []Object {
-	return m.objects
+	result := make([]Object, len(m.objects))
+	copy(result, m.objects)
+	return result
 }
 
-// AllNotifications returns all notifications.
+// AllNotifications returns a copy of all notifications.
+// The returned slice is a copy; modifications do not affect the Model.
 func (m *Model) AllNotifications() []Notification {
-	return m.notifications
+	result := make([]Notification, len(m.notifications))
+	copy(result, m.notifications)
+	return result
 }
 
 // === Index Building ===

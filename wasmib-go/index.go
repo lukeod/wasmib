@@ -292,11 +292,13 @@ func decodeOctetString(data []uint32, implied bool, fixedSize int) (IndexValue, 
 	if len(data) < 1 {
 		return IndexValue{}, 0, ErrNotEnoughData
 	}
-	length := int(data[0])
-	if len(data) < 1+length {
+	// Validate length before conversion to int to prevent overflow on 32-bit systems
+	lengthU := data[0]
+	if lengthU > uint32(len(data)-1) {
 		return IndexValue{}, 0, fmt.Errorf("%w: length=%d but only %d bytes available",
-			ErrNotEnoughData, length, len(data)-1)
+			ErrNotEnoughData, lengthU, len(data)-1)
 	}
+	length := int(lengthU)
 	bytes := make([]byte, length)
 	for i := 0; i < length; i++ {
 		bytes[i] = byte(data[1+i])
@@ -322,11 +324,13 @@ func decodeObjectIdentifier(data []uint32, implied bool) (IndexValue, int, error
 	if len(data) < 1 {
 		return IndexValue{}, 0, ErrNotEnoughData
 	}
-	length := int(data[0])
-	if len(data) < 1+length {
+	// Validate length before conversion to int to prevent overflow on 32-bit systems
+	lengthU := data[0]
+	if lengthU > uint32(len(data)-1) {
 		return IndexValue{}, 0, fmt.Errorf("%w: length=%d but only %d components available",
-			ErrNotEnoughData, length, len(data)-1)
+			ErrNotEnoughData, lengthU, len(data)-1)
 	}
+	length := int(lengthU)
 	oid := make([]uint32, length)
 	copy(oid, data[1:1+length])
 	return IndexValue{

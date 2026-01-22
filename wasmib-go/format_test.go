@@ -45,19 +45,17 @@ func TestFormatOctetString_NoHint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := FormatOctetString(tt.value, "")
+			got := FormatOctetString(tt.value, "", HexLower)
 			if got != tt.want {
-				t.Errorf("FormatOctetString(%v, \"\") = %q, want %q", tt.value, got, tt.want)
+				t.Errorf("FormatOctetString(%v, \"\", HexLower) = %q, want %q", tt.value, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestApplyOctetHint(t *testing.T) {
-	// Save original and defer restore for hex case
-	originalCase := DefaultHexCase
-	defer func() { DefaultHexCase = originalCase }()
-	DefaultHexCase = HexUpper // Match reference implementation for these tests
+	// Use HexUpper to match reference implementation for these tests
+	hexCase := HexUpper
 
 	cases := []struct {
 		name   string
@@ -207,13 +205,13 @@ func TestApplyOctetHint(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			result, ok := applyOctetHint(c.hint, c.data)
+			result, ok := applyOctetHint(c.hint, c.data, hexCase)
 			if !ok {
-				t.Errorf("applyOctetHint(%q, %v) returned ok=false, want ok=true", c.hint, c.data)
+				t.Errorf("applyOctetHint(%q, %v, HexUpper) returned ok=false, want ok=true", c.hint, c.data)
 				return
 			}
 			if result != c.result {
-				t.Errorf("applyOctetHint(%q, %v) = %q, want %q", c.hint, c.data, result, c.result)
+				t.Errorf("applyOctetHint(%q, %v, HexUpper) = %q, want %q", c.hint, c.data, result, c.result)
 			}
 		})
 	}
@@ -264,18 +262,16 @@ func TestApplyOctetHintErrors(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, ok := applyOctetHint(c.hint, c.data)
+			_, ok := applyOctetHint(c.hint, c.data, HexLower)
 			if ok {
-				t.Errorf("applyOctetHint(%q, %v) returned ok=true, want ok=false for invalid hint", c.hint, c.data)
+				t.Errorf("applyOctetHint(%q, %v, HexLower) returned ok=true, want ok=false for invalid hint", c.hint, c.data)
 			}
 		})
 	}
 }
 
 func TestApplyOctetHintZeroWidthValid(t *testing.T) {
-	originalCase := DefaultHexCase
-	defer func() { DefaultHexCase = originalCase }()
-	DefaultHexCase = HexUpper
+	hexCase := HexUpper
 
 	cases := []struct {
 		name   string
@@ -317,13 +313,13 @@ func TestApplyOctetHintZeroWidthValid(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			result, ok := applyOctetHint(c.hint, c.data)
+			result, ok := applyOctetHint(c.hint, c.data, hexCase)
 			if !ok {
-				t.Errorf("applyOctetHint(%q, %v) returned ok=false, want ok=true", c.hint, c.data)
+				t.Errorf("applyOctetHint(%q, %v, HexUpper) returned ok=false, want ok=true", c.hint, c.data)
 				return
 			}
 			if result != c.result {
-				t.Errorf("applyOctetHint(%q, %v) = %q, want %q", c.hint, c.data, result, c.result)
+				t.Errorf("applyOctetHint(%q, %v, HexUpper) = %q, want %q", c.hint, c.data, result, c.result)
 			}
 		})
 	}
@@ -359,9 +355,9 @@ func TestApplyOctetHintZeroWidthInvalid(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, ok := applyOctetHint(c.hint, c.data)
+			_, ok := applyOctetHint(c.hint, c.data, HexLower)
 			if ok {
-				t.Errorf("applyOctetHint(%q, %v) returned ok=true, want ok=false for zero-width trailing", c.hint, c.data)
+				t.Errorf("applyOctetHint(%q, %v, HexLower) returned ok=true, want ok=false for zero-width trailing", c.hint, c.data)
 			}
 		})
 	}
@@ -370,27 +366,20 @@ func TestApplyOctetHintZeroWidthInvalid(t *testing.T) {
 func TestFormatOctetString_HexCase(t *testing.T) {
 	value := []byte{0x0a, 0x1b, 0x2c}
 
-	// Save original and defer restore
-	originalCase := DefaultHexCase
-	defer func() { DefaultHexCase = originalCase }()
-
-	// Test lowercase (default)
-	DefaultHexCase = HexLower
-	got := FormatOctetString(value, "")
+	// Test lowercase
+	got := FormatOctetString(value, "", HexLower)
 	if got != "0a:1b:2c" {
 		t.Errorf("HexLower: got %q, want \"0a:1b:2c\"", got)
 	}
 
 	// Test uppercase
-	DefaultHexCase = HexUpper
-	got = FormatOctetString(value, "")
+	got = FormatOctetString(value, "", HexUpper)
 	if got != "0A:1B:2C" {
 		t.Errorf("HexUpper: got %q, want \"0A:1B:2C\"", got)
 	}
 
 	// Test with hint
-	DefaultHexCase = HexUpper
-	got = FormatOctetString(value, "1x:")
+	got = FormatOctetString(value, "1x:", HexUpper)
 	if got != "0A:1B:2C" {
 		t.Errorf("HexUpper with hint: got %q, want \"0A:1B:2C\"", got)
 	}
@@ -692,16 +681,11 @@ func TestFormatInteger_NilObject(t *testing.T) {
 }
 
 func TestHexTable(t *testing.T) {
-	originalCase := DefaultHexCase
-	defer func() { DefaultHexCase = originalCase }()
-
-	DefaultHexCase = HexLower
-	if hexTable() != hexLower {
-		t.Error("hexTable() should return hexLower when DefaultHexCase is HexLower")
+	if hexTable(HexLower) != hexLower {
+		t.Error("hexTable(HexLower) should return hexLower")
 	}
 
-	DefaultHexCase = HexUpper
-	if hexTable() != hexUpper {
-		t.Error("hexTable() should return hexUpper when DefaultHexCase is HexUpper")
+	if hexTable(HexUpper) != hexUpper {
+		t.Error("hexTable(HexUpper) should return hexUpper")
 	}
 }
