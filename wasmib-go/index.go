@@ -217,10 +217,13 @@ func (m *Model) getFixedStringSize(t *Type) int {
 
 	// Check this type's size constraint
 	if t.Size != nil && len(t.Size.Ranges) > 0 {
-		// If all ranges have min == max and they're all the same value, it's fixed
-		first := t.Size.Ranges[0]
-		if first[0] == first[1] && len(t.Size.Ranges) == 1 {
-			return int(first[0])
+		// Fixed size requires exactly one range with min == max (e.g., SIZE (6) or SIZE (6..6))
+		// Multi-range constraints like SIZE (6|12) return 0 (variable length)
+		if len(t.Size.Ranges) == 1 {
+			r := t.Size.Ranges[0]
+			if r[0] == r[1] {
+				return int(r[0])
+			}
 		}
 	}
 
